@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Local Supabase configuration. Only .env.example is committed.
+.env
+.env.local
+.env.*.local
+
+# Generated SQL bundle for pasting into the Supabase SQL editor
+supabase/.generated
+
+# Extension signing key. The public half lives in the manifest; the private
+# half never leaves this machine.
+.keys
+
+# Demo build output
+dist-demo
