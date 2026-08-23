@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Activity } from '../../core/types'
-import { formatSince, isHere, isWatching } from '../../core/presence'
+import { effectiveStatus, formatSince, isHere, isWatching } from '../../core/presence'
 import { formatChannelName } from '../../platforms/twitch/channels'
 import type { Friend } from '../../client/types'
 import { Avatar } from './Avatar'
@@ -49,9 +49,10 @@ export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
   }
 
   const here = isHere(presence, localActivity)
-  const offline = presence.status === 'offline'
-  const channel =
-    presence.status === 'online' && isWatching(presence.activity) ? presence.activity.channel : null
+  // Offline is derived, not just stored: a row that says "online" but stopped
+  // being heartbeated describes someone who closed their laptop.
+  const offline = effectiveStatus(presence) === 'offline'
+  const channel = !offline && isWatching(presence.activity) ? presence.activity.channel : null
 
   const avatarState: AvatarState = offline ? 'offline' : here ? 'here' : 'online'
 
@@ -81,7 +82,7 @@ export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
               <span className="kb-time">{formatSince(presence.since)}</span>
             </>
           ) : (
-            <span>Online</span>
+            <span>Around</span>
           )}
         </div>
       </div>

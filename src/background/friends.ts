@@ -1,3 +1,5 @@
+import { IDLE } from '../core/types'
+import type { Presence } from '../core/types'
 import type { BackendResult } from './auth'
 import type {
   Friend,
@@ -62,6 +64,15 @@ export interface FriendsService {
   refresh(): Promise<void>
   /** Drop everything - used on sign-out and whenever auth is not healthy. */
   clear(): void
+  /**
+   * Patch one friend's presence from a realtime event. Presence is
+   * high-frequency, so this deliberately avoids the re-read that every
+   * mutation does - one person hopping channels must not cost a query per
+   * friend per hop.
+   */
+  applyPresence(presence: Presence): void
+  /** A friend's presence row vanished; show them as offline, not stale. */
+  clearPresence(userId: string): void
   search(query: string): Promise<SearchResult[]>
   sendRequest(userId: string): Promise<SendRequestOutcome>
   respond(requestId: string, accept: boolean): Promise<'accepted' | 'declined'>
@@ -160,6 +171,37 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
 
     clear() {
       setState({ ...EMPTY_FRIENDS_STATE })
+    },
+
+    applyPresence(presence: Presence): void {
+      // Bail before touching state. The map below would already leave a
+      // stranger out, but every setState broadcasts to every open Twitch tab -
+      // a late event for an ex-friend should cost nothing at all.
+      if (!state.friends.some((friend) => friend.user.id === presence.userId)) return
+
+      setState({
+        friends: state.friends.map((friend) =>
+          friend.user.id === presence.userId ? { ...friend, presence } : friend,
+        ),
+      })
+    },
+
+    clearPresence(userId: string): void {
+      setState({
+        friends: state.friends.map((friend) =>
+          friend.user.id === userId
+            ? {
+                ...friend,
+                presence: {
+                  userId,
+                  status: 'offline',
+                  activity: IDLE,
+                  since: Date.now(),
+                },
+              }
+            : friend,
+        ),
+      })
     },
 
     async search(query: string): Promise<SearchResult[]> {

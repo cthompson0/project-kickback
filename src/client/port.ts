@@ -164,5 +164,10 @@ export function createPortClient(): KickbackClient {
     refreshFriends: async () => {
       await rpc('refreshFriends')
     },
+
+    reportActivity: (channel, visible) => send({ type: 'activity', channel, visible }),
+    setPresenceVisibility: async (mode) => {
+      await rpc('setPresenceVisibility', mode)
+    },
   }
 }

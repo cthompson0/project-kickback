@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { KickbackIdentity } from '../../client/types'
+import type { KickbackIdentity, PresenceVisibility } from '../../client/types'
 import { KickbackMark } from './Icons'
 
 /**
@@ -79,14 +79,27 @@ export function GroupsComingSoon() {
 }
 
 /** Identity card behind the header avatar: who Kickback thinks you are. */
+const VISIBILITY_OPTIONS: Array<{
+  value: PresenceVisibility
+  label: string
+  hint: string
+}> = [
+  { value: 'visible', label: 'Visible', hint: 'Friends see what you are watching' },
+  { value: 'hide_activity', label: 'Hide activity', hint: 'Friends see you are around' },
+  { value: 'invisible', label: 'Invisible', hint: 'Friends see you as offline' },
+]
+
 export function AccountCard({
   identity,
   onSignOut,
+  onVisibilityChange,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
+  onVisibilityChange: (mode: PresenceVisibility) => void
 }) {
   const [copied, setCopied] = useState(false)
+  const [busy, setBusy] = useState(false)
 
   return (
     <div className="kb-account">
@@ -119,6 +132,34 @@ export function AccountCard({
           {copied ? 'Copied!' : identity.friendCode}
         </button>
       </div>
+      <div className="kb-presence-picker">
+        <div className="kb-account-label">Presence</div>
+        <div className="kb-presence-options">
+          {VISIBILITY_OPTIONS.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              className={`kb-presence-option${
+                identity.presenceVisibility === option.value ? ' kb-presence-option-active' : ''
+              }`}
+              title={option.hint}
+              disabled={busy}
+              onClick={() => {
+                if (identity.presenceVisibility === option.value) return
+                setBusy(true)
+                onVisibilityChange(option.value)
+                window.setTimeout(() => setBusy(false), 600)
+              }}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="kb-presence-hint">
+          {VISIBILITY_OPTIONS.find((option) => option.value === identity.presenceVisibility)?.hint}
+        </div>
+      </div>
+
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out
       </button>

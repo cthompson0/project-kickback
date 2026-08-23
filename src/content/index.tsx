@@ -4,6 +4,8 @@ import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { createPortClient } from '../client/port'
 import type { KickbackClient } from '../client/types'
 import { watchTopOffset } from '../platforms/twitch/anchor'
+import { watchChannel } from '../platforms/twitch/navigation'
+import { getCurrentChannel } from '../platforms/twitch/channels'
 import panelStyles from '../ui/kickback.css?inline'
 
 /**
@@ -72,9 +74,28 @@ async function mount(): Promise<void> {
     </ErrorBoundary>,
   )
 
+  reportActivity(client)
   watchTopOffset((topPx) => container.style.setProperty('--kb-top', `${topPx}px`))
   keepAttached(host)
   hideDuringFullscreen(host)
+}
+
+/**
+ * Tells the service worker what this tab is showing.
+ *
+ * Visibility matters as much as the channel: with several Twitch tabs open,
+ * the worker needs to know which one the user is actually looking at, or a
+ * background tab would decide what your friends see. The worker owns that
+ * rule - this only reports the facts.
+ */
+function reportActivity(client: KickbackClient): void {
+  const send = () => client.reportActivity(getCurrentChannel(), !document.hidden)
+
+  // On connect, on navigation, and whenever this tab is shown or hidden.
+  send()
+  watchChannel(send)
+  document.addEventListener('visibilitychange', send)
+  window.addEventListener('pageshow', send)
 }
 
 /**

@@ -1,5 +1,5 @@
 import type { Activity } from '../../core/types'
-import { isHere, isWatching } from '../../core/presence'
+import { effectiveStatus, isHere, isWatching } from '../../core/presence'
 import type { Friend } from '../../client/types'
 import { PersonRow } from './PersonRow'
 
@@ -19,7 +19,7 @@ type Bucket = 'here' | 'watching' | 'online' | 'offline' | 'unknown'
  */
 function bucketOf(friend: Friend, localActivity: Activity): Bucket {
   if (!friend.presence) return 'unknown'
-  if (friend.presence.status === 'offline') return 'offline'
+  if (effectiveStatus(friend.presence) === 'offline') return 'offline'
   if (isHere(friend.presence, localActivity)) return 'here'
   return isWatching(friend.presence.activity) ? 'watching' : 'online'
 }

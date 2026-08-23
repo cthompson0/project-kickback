@@ -1,5 +1,28 @@
 import type { Activity, Presence, User, WatchingActivity } from './types'
 
+/**
+ * How long a presence may go without a heartbeat before we stop believing it.
+ *
+ * Nothing can guarantee a goodbye message - a closed laptop sends nothing - so
+ * "offline" is inferred from silence rather than announced.
+ */
+export const PRESENCE_STALE_MS = 90_000
+
+/** True when the last heartbeat is old enough that we should not trust it. */
+export function isStale(presence: Presence, now: number = Date.now()): boolean {
+  if (presence.lastSeenAt === undefined) return false
+  return now - presence.lastSeenAt > PRESENCE_STALE_MS
+}
+
+/**
+ * What a presence actually means right now. Stored status is only half the
+ * answer: a row that says "online" but stopped being touched five minutes ago
+ * describes someone who has gone.
+ */
+export function effectiveStatus(presence: Presence, now: number = Date.now()) {
+  return presence.status === 'online' && !isStale(presence, now) ? 'online' : 'offline'
+}
+
 export function isWatching(activity: Activity): activity is WatchingActivity {
   return activity.type === 'watching'
 }
@@ -15,8 +38,11 @@ export function isSameActivity(a: Activity, b: Activity): boolean {
 }
 
 /** "Here" = this person is watching exactly what the local user is watching. */
-export function isHere(presence: Presence, localActivity: Activity): boolean {
-  return presence.status === 'online' && isSameActivity(presence.activity, localActivity)
+export function isHere(presence: Presence, localActivity: Activity, now?: number): boolean {
+  return (
+    effectiveStatus(presence, now) === 'online' &&
+    isSameActivity(presence.activity, localActivity)
+  )
 }
 
 export function countHere(presences: Presence[], localActivity: Activity): number {
@@ -39,7 +65,7 @@ export function findGatherings(presences: Presence[], excludeActivity?: Activity
   const byChannel = new Map<string, Gathering>()
 
   for (const presence of presences) {
-    if (presence.status !== 'online' || !isWatching(presence.activity)) continue
+    if (effectiveStatus(presence) !== 'online' || !isWatching(presence.activity)) continue
     if (excludeActivity && isSameActivity(presence.activity, excludeActivity)) continue
 
     const { platform, channel } = presence.activity
@@ -57,7 +83,7 @@ export function findGatherings(presences: Presence[], excludeActivity?: Activity
 
 /** Sort order: here, then watching elsewhere, then online, then offline. */
 export function presenceRank(presence: Presence, localActivity: Activity): number {
-  if (presence.status === 'offline') return 3
+  if (effectiveStatus(presence) === 'offline') return 3
   if (isHere(presence, localActivity)) return 0
   return isWatching(presence.activity) ? 1 : 2
 }

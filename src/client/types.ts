@@ -126,4 +126,13 @@ export interface KickbackClient {
   cancelFriendRequest(requestId: string): Promise<void>
   removeFriend(userId: string): Promise<void>
   refreshFriends(): Promise<void>
+
+  // --- presence ------------------------------------------------------------
+
+  /** Report what this Twitch tab is showing. Fire-and-forget. */
+  reportActivity(channel: string | null, visible: boolean): void
+  /** Change who can see what. Enforced server-side, not here. */
+  setPresenceVisibility(mode: PresenceVisibility): Promise<void>
 }
+
+export type PresenceVisibility = 'visible' | 'hide_activity' | 'invisible'

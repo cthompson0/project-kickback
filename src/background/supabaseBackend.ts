@@ -2,6 +2,9 @@ import { createClient } from '@supabase/supabase-js'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AuthBackend, BackendResult, SessionLike } from './auth'
 import type { FriendsBackend } from './friends'
+import type { PresenceBackend } from './presence'
+import { IDLE } from '../core/types'
+import type { Presence } from '../core/types'
 import type {
   Friend,
   FriendRequest,
@@ -162,6 +165,7 @@ interface FriendRow {
   platform: string | null
   channel: string | null
   last_seen_at: string | null
+  updated_at?: string | null
 }
 
 interface RequestRow {
@@ -191,6 +195,39 @@ const RELATIONSHIPS: Relationship[] = [
   'none',
 ]
 
+/**
+ * Maps a presence row into the domain model.
+ *
+ * The database has already applied the owner's privacy setting, so a hidden
+ * channel simply is not here. Nothing is re-derived client-side.
+ */
+export function toPresence(row: {
+  user_id: string
+  status: string | null
+  platform: string | null
+  channel: string | null
+  updated_at?: string | null
+  last_seen_at?: string | null
+}): Presence {
+  const online = row.status === 'online'
+  const since = row.updated_at ? Date.parse(row.updated_at) : Date.now()
+  const lastSeenAt = row.last_seen_at ? Date.parse(row.last_seen_at) : undefined
+
+  const activity: Presence['activity'] = !online
+    ? IDLE
+    : row.channel && row.platform === 'twitch'
+      ? { type: 'watching', platform: 'twitch', channel: row.channel }
+      : { type: 'browsing', platform: 'twitch' }
+
+  return {
+    userId: row.user_id,
+    status: online ? 'online' : 'offline',
+    activity,
+    since: Number.isNaN(since) ? Date.now() : since,
+    lastSeenAt: lastSeenAt !== undefined && !Number.isNaN(lastSeenAt) ? lastSeenAt : undefined,
+  }
+}
+
 function toFriend(row: FriendRow): Friend {
   return {
     user: {
@@ -199,10 +236,16 @@ function toFriend(row: FriendRow): Friend {
       displayName: row.display_name,
       avatarUrl: row.avatar_url,
     },
-    // Checkpoint 4 deliberately reports no presence at all rather than
-    // guessing "offline", which would be a claim we cannot currently make.
-    // Checkpoint 5 fills this in from the presence row.
-    presence: null,
+    // A friend who has never reported presence still has a row saying
+    // 'offline', so there is always something real to map - never a guess.
+    presence: toPresence({
+      user_id: row.user_id,
+      status: row.status,
+      platform: row.platform,
+      channel: row.channel,
+      updated_at: row.updated_at,
+      last_seen_at: row.last_seen_at,
+    }),
   }
 }
 
@@ -286,5 +329,43 @@ export function createSupabaseFriendsBackend(supabase: SupabaseClient): FriendsB
 
     removeFriend: (userId) =>
       call<boolean, boolean>('remove_friend', { p_other: userId }, (rows) => rows[0] === true),
+  }
+}
+
+// ----------------------------------------------------------------- presence
+//
+// All four are existing RPCs. As everywhere else, none of them take an actor:
+// the database uses auth.uid(), and applies the caller's privacy setting at
+// write time so a hidden channel is never stored in the first place.
+
+export function createSupabasePresenceBackend(supabase: SupabaseClient): PresenceBackend {
+  async function call(fn: string, args: Record<string, unknown> = {}) {
+    try {
+      const { error } = await supabase.rpc(fn, args)
+      if (error) return { value: null, error: describe(error) }
+      return { value: true as const }
+    } catch (error) {
+      return { value: null, error: describe(error) }
+    }
+  }
+
+  return {
+    reportPresence: (platform, channel) =>
+      call('report_presence', { p_platform: platform, p_channel: channel }),
+    heartbeat: () => call('heartbeat'),
+    reportOffline: () => call('report_offline'),
+  }
+}
+
+export async function setPresenceVisibility(
+  supabase: SupabaseClient,
+  mode: string,
+): Promise<BackendResult<string>> {
+  try {
+    const { data, error } = await supabase.rpc('set_presence_visibility', { p_mode: mode })
+    if (error) return { value: null, error: describe(error) }
+    return { value: typeof data === 'string' ? data : mode }
+  } catch (error) {
+    return { value: null, error: describe(error) }
   }
 }

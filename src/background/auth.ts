@@ -95,6 +95,12 @@ export interface AuthService {
   retry(): Promise<void>
   /** Refreshes if the token is close to expiry. Returns false if signed out. */
   ensureFreshSession(): Promise<boolean>
+  /**
+   * Re-read the Kickback profile without touching the session. Used when
+   * something the profile carries has changed server-side - the presence
+   * visibility setting, for instance.
+   */
+  reloadIdentity(): Promise<void>
 }
 
 export function createAuthService(deps: AuthDeps): AuthService {
@@ -171,6 +177,11 @@ export function createAuthService(deps: AuthDeps): AuthService {
     },
 
     ensureFreshSession,
+
+    async reloadIdentity() {
+      if (state.status !== 'signed_in') return
+      await loadIdentity()
+    },
 
     async initialize() {
       setState({ status: 'loading', error: null })

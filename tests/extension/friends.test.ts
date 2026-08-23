@@ -501,7 +501,9 @@ describe('never invents people', () => {
     }
   })
 
-  it('never attaches presence to a real friend at this checkpoint', async () => {
+  it('passes presence through untouched rather than inventing any', async () => {
+    // The service must never manufacture presence: whatever the backend
+    // supplies - including nothing at all - is what the panel sees.
     backend.friends = [friend(NINA), friend(OMAR)]
     const friends = service()
     await friends.refresh()
@@ -528,10 +530,10 @@ describe('Supabase row mapping', () => {
     return { client, calls }
   }
 
-  it('discards the presence columns list_friends returns', async () => {
-    // The RPC genuinely returns status/platform/channel. Checkpoint 4 must not
-    // surface them: presence is not wired up yet, and a stale row would show a
-    // friend as "watching" something they may have left days ago.
+  it('maps the presence columns list_friends returns', async () => {
+    // Checkpoint 4 deliberately discarded these; Checkpoint 5 is where they
+    // start meaning something.
+    const now = new Date().toISOString()
     const { client } = fakeSupabase({
       list_friends: [
         {
@@ -542,7 +544,8 @@ describe('Supabase row mapping', () => {
           status: 'online',
           platform: 'twitch',
           channel: 'lirik',
-          last_seen_at: '2026-08-23T00:00:00Z',
+          updated_at: now,
+          last_seen_at: now,
         },
       ],
     })
@@ -551,10 +554,58 @@ describe('Supabase row mapping', () => {
     const result = await backend.listFriends()
 
     expect(result.error).toBeUndefined()
-    expect(result.value).toHaveLength(1)
-    expect(result.value?.[0].user.displayName).toBe('Nina')
     expect(result.value?.[0].user.avatarUrl).toBe('https://cdn.twitch.test/nina.png')
-    expect(result.value?.[0].presence).toBeNull()
+    expect(result.value?.[0].presence).toMatchObject({
+      userId: 'u-nina',
+      status: 'online',
+      activity: { type: 'watching', platform: 'twitch', channel: 'lirik' },
+    })
+  })
+
+  it('reports a friend with no channel as browsing, not watching nothing', async () => {
+    const now = new Date().toISOString()
+    const { client } = fakeSupabase({
+      list_friends: [
+        {
+          user_id: 'u-nina',
+          display_name: 'Nina',
+          avatar_url: null,
+          twitch_login: 'ninastreams',
+          status: 'online',
+          platform: null,
+          channel: null,
+          updated_at: now,
+          last_seen_at: now,
+        },
+      ],
+    })
+
+    const result = await createSupabaseFriendsBackend(client as never).listFriends()
+    expect(result.value?.[0].presence?.activity).toEqual({ type: 'browsing', platform: 'twitch' })
+  })
+
+  it('carries no activity for an offline friend', async () => {
+    const { client } = fakeSupabase({
+      list_friends: [
+        {
+          user_id: 'u-nina',
+          display_name: 'Nina',
+          avatar_url: null,
+          twitch_login: 'ninastreams',
+          status: 'offline',
+          platform: null,
+          channel: null,
+          updated_at: null,
+          last_seen_at: null,
+        },
+      ],
+    })
+
+    const result = await createSupabaseFriendsBackend(client as never).listFriends()
+    expect(result.value?.[0].presence).toMatchObject({
+      status: 'offline',
+      activity: { type: 'idle' },
+    })
   })
 
   it('passes the query through to search_users without an actor id', async () => {

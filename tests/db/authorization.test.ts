@@ -729,3 +729,133 @@ describe('friend list projection', () => {
     expect(none).toHaveLength(0)
   })
 })
+
+// ------------------------------------------------------ presence rate guard
+
+describe('presence write rate guard', () => {
+  it('allows a realistic amount of navigating and heartbeating', async () => {
+    // A busy session: a channel change plus a heartbeat every few seconds.
+    for (let i = 0; i < 60; i++) {
+      await db.as(alice, `select public.report_presence('twitch', $1)`, [`chan${i}`])
+    }
+    const [row] = await db.as<{ channel: string }>(
+      alice,
+      'select channel from public.presence where user_id = $1',
+      [alice.id],
+    )
+    expect(row.channel).toBe('chan59')
+  })
+
+  it('refuses a client hammering report_presence', async () => {
+    let refusal = ''
+    for (let i = 0; i < 200; i++) {
+      try {
+        await db.as(alice, `select public.report_presence('twitch', 'lirik')`)
+      } catch (error) {
+        refusal = (error as Error).message
+        break
+      }
+    }
+    expect(refusal).toMatch(/rate limit/i)
+  })
+
+  it('counts heartbeats against the same budget', async () => {
+    let refusal = ''
+    for (let i = 0; i < 200; i++) {
+      try {
+        await db.as(alice, `select public.heartbeat()`)
+      } catch (error) {
+        refusal = (error as Error).message
+        break
+      }
+    }
+    expect(refusal).toMatch(/rate limit/i)
+  })
+
+  it('lets a different user through while one is throttled', async () => {
+    for (let i = 0; i < 200; i++) {
+      try {
+        await db.as(alice, `select public.report_presence('twitch', 'lirik')`)
+      } catch {
+        break
+      }
+    }
+    // Bob is unaffected: the budget is per user.
+    await db.as(bob, `select public.report_presence('twitch', 'shroud')`)
+    const [row] = await db.as<{ channel: string }>(
+      bob,
+      'select channel from public.presence where user_id = $1',
+      [bob.id],
+    )
+    expect(row.channel).toBe('shroud')
+  })
+
+  it('recovers once the window rolls over', async () => {
+    for (let i = 0; i < 200; i++) {
+      try {
+        await db.as(alice, `select public.report_presence('twitch', 'lirik')`)
+      } catch {
+        break
+      }
+    }
+    // Pretend a minute passed rather than waiting for one.
+    await db.root(
+      `update public.presence_rate set window_started_at = now() - interval '2 minutes'
+       where user_id = $1`,
+      [alice.id],
+    )
+
+    await db.as(alice, `select public.report_presence('twitch', 'shroud')`)
+    const [row] = await db.as<{ channel: string }>(
+      alice,
+      'select channel from public.presence where user_id = $1',
+      [alice.id],
+    )
+    expect(row.channel).toBe('shroud')
+  })
+
+  it('keeps the counter table unreadable, so it cannot leak activity', async () => {
+    // If a friend could read this, an invisible user's counter ticking upward
+    // would tell them the user is active - the exact side channel the
+    // invisible mode exists to prevent.
+    await befriend(alice, bob)
+    await db.as(alice, `select public.report_presence('twitch', 'lirik')`)
+
+    expect(await refusal(() => db.as(bob, 'select * from public.presence_rate'))).toMatch(
+      /permission denied/i,
+    )
+    // Not even the owner can read their own counter.
+    expect(await refusal(() => db.as(alice, 'select * from public.presence_rate'))).toMatch(
+      /permission denied/i,
+    )
+  })
+
+  it('does not let a client call the budget function directly', async () => {
+    expect(await refusal(() => db.as(alice, 'select public.consume_presence_budget()'))).toMatch(
+      /permission denied/i,
+    )
+  })
+
+  it('still hides an invisible user despite the counter advancing', async () => {
+    await befriend(alice, bob)
+    await db.as(bob, `select public.set_presence_visibility('invisible')`)
+    await db.as(bob, `select public.report_presence('twitch', 'lirik')`)
+
+    const [first] = await db.as<{ last_seen_at: string }>(
+      alice,
+      'select last_seen_at from public.presence where user_id = $1',
+      [bob.id],
+    )
+    for (let i = 0; i < 5; i++) {
+      await db.as(bob, `select public.report_presence('twitch', 'shroud')`)
+    }
+    const [second] = await db.as<{ last_seen_at: string; status: string }>(
+      alice,
+      'select last_seen_at, status from public.presence where user_id = $1',
+      [bob.id],
+    )
+
+    expect(second.status).toBe('offline')
+    expect(second.last_seen_at).toEqual(first.last_seen_at)
+  })
+})

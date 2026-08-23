@@ -1,5 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SocialChannel, SocialChannelHandlers } from './socialSync'
+import type { PresenceChannel, PresenceChannelHandlers } from './presenceSync'
+import { toPresence } from './supabaseBackend'
 
 /**
  * Supabase Realtime, used narrowly for social-graph invalidation.
@@ -18,6 +20,7 @@ import type { SocialChannel, SocialChannelHandlers } from './socialSync'
  */
 
 const CHANNEL_PREFIX = 'kickback-social'
+const PRESENCE_PREFIX = 'kickback-presence'
 
 export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialChannel {
   return {
@@ -68,6 +71,62 @@ export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialCha
               break
           }
         })
+
+      return () => {
+        void supabase.removeChannel(channel)
+      }
+    },
+  }
+}
+
+/**
+ * Friends' presence.
+ *
+ * One binding per friend, each pinned with `user_id=eq.<friend>`. That is what
+ * makes it safe to use the payloads directly instead of re-reading: the server
+ * only sends rows this user is entitled to, including for deletes, which
+ * Supabase does not run RLS against.
+ */
+export function createSupabasePresenceChannel(supabase: SupabaseClient): PresenceChannel {
+  return {
+    async open(friendIds: string[], handlers: PresenceChannelHandlers): Promise<() => void> {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (accessToken) {
+        await supabase.realtime.setAuth(accessToken)
+      }
+
+      const channel = supabase.channel(`${PRESENCE_PREFIX}:${friendIds.length}:${friendIds[0]}`)
+
+      for (const friendId of friendIds) {
+        channel.on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'presence', filter: `user_id=eq.${friendId}` },
+          (payload: { eventType?: string; new?: unknown; old?: unknown }) => {
+            if (payload.eventType === 'DELETE') {
+              handlers.onPresenceGone(friendId)
+              return
+            }
+            const row = payload.new as Parameters<typeof toPresence>[0] | undefined
+            if (!row || typeof row.user_id !== 'string') return
+            handlers.onPresence(toPresence(row))
+          },
+        )
+      }
+
+      channel.subscribe((status) => {
+        switch (status) {
+          case 'SUBSCRIBED':
+            handlers.onStatus('connected')
+            break
+          case 'CHANNEL_ERROR':
+          case 'TIMED_OUT':
+            handlers.onStatus('error')
+            break
+          default:
+            break
+        }
+      })
 
       return () => {
         void supabase.removeChannel(channel)

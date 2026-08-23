@@ -23,6 +23,7 @@ export type RpcMethod =
   | 'cancelFriendRequest'
   | 'removeFriend'
   | 'refreshFriends'
+  | 'setPresenceVisibility'
 
 /** Tab -> worker. */
 export type ClientMessage =
@@ -30,6 +31,8 @@ export type ClientMessage =
   | { type: 'signIn' }
   | { type: 'signOut' }
   | { type: 'retry' }
+  /** What this tab is looking at. Sent on connect and on every change. */
+  | { type: 'activity'; channel: string | null; visible: boolean }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 
 /** Worker -> tab. */

@@ -52,8 +52,10 @@ const MUTATIONS = [
     expect: "refuses to let a third party accept someone else's request",
   },
   {
+    // 0006 redefines report_presence, so this must target the live definition -
+    // mutating the superseded copy in 0003 proves nothing.
     name: 'privacy: let timestamps move while invisible',
-    file: '0003_rpcs.sql',
+    file: '0006_presence_rate_limit.sql',
     from: `    update public.presence
        set status = 'offline', platform = null, channel = null,
            updated_at = now(), last_seen_at = now()
@@ -73,6 +75,23 @@ const MUTATIONS = [
     from: `       or (ca.platform_login is not null and ca.platform_login like v_prefix)`,
     to: `       or (ca.platform_login is not null and ca.platform_login like v_login || '%')`,
     expect: 'does not treat an underscore in the query as a wildcard',
+  },
+  {
+    name: 'presence: remove the write rate guard',
+    file: '0006_presence_rate_limit.sql',
+    from: `  if not public.consume_presence_budget() then
+    raise exception 'kickback: presence rate limit exceeded' using errcode = '53400';
+  end if;
+
+  select up.presence_visibility into v_mode`,
+    to: `  select up.presence_visibility into v_mode`,
+    expect: 'refuses a client hammering report_presence',
+  },
+  {
+    name: 'presence: expose the rate counter to clients',
+    file: '0006_presence_rate_limit.sql',
+    append: 'grant select on public.presence_rate to authenticated;',
+    expect: 'keeps the counter table unreadable',
   },
   {
     name: 'requests: drop the self-friending guard',

@@ -6,6 +6,7 @@ import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
 import { FindFriends } from './components/FindFriends'
 import { IncomingRequests } from './components/IncomingRequests'
+import { JoinButton } from './components/JoinButton'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
 import {
   AccountCard,
@@ -141,6 +142,14 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
             setAccountOpen(false)
             client.signOut()
           }}
+          onVisibilityChange={(mode) => {
+            setActionError(null)
+            client.setPresenceVisibility(mode).catch((cause: unknown) => {
+              setActionError(
+                cause instanceof Error ? cause.message : 'Could not change your presence setting.',
+              )
+            })
+          }}
         />
       )}
 
@@ -173,6 +182,18 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
               </span>
             </div>
           )}
+
+          {/* Friends clustered somewhere else - the "everyone is over there"
+              signal from Phase 0, now backed by real presence. */}
+          {view.gatherings.slice(0, 1).map((gathering) => (
+            <div className="kb-gathering kb-gathering-banner" key={gathering.channel}>
+              <span className="kb-gathering-text">
+                🔥 {gathering.userIds.length} friends watching{' '}
+                {formatChannelName(gathering.channel)}
+              </span>
+              <JoinButton channel={gathering.channel} />
+            </div>
+          ))}
 
           <div className="kb-tabs">
             <button

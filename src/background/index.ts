@@ -1,11 +1,16 @@
 import { createAuthService } from './auth'
 import { createFriendsService } from './friends'
 import { createSocialSync } from './socialSync'
-import { createSupabaseSocialChannel } from './supabaseRealtime'
+import { createPresenceSync } from './presenceSync'
+import { createPresenceReporter } from './presence'
+import { createActivityRegistry } from './activity'
+import { createSupabasePresenceChannel, createSupabaseSocialChannel } from './supabaseRealtime'
 import {
   createSupabaseBackend,
   createSupabaseClient,
   createSupabaseFriendsBackend,
+  createSupabasePresenceBackend,
+  setPresenceVisibility,
 } from './supabaseBackend'
 import { createExtensionStorage } from './storage'
 import { PORT_NAME } from '../client/messages'
@@ -90,6 +95,34 @@ const socialSync = createSocialSync({
   onError: logError,
 })
 
+/**
+ * Friends' presence. Payloads are applied straight to state - see
+ * presenceSync.ts for why that is safe here but not for the social graph.
+ */
+const presenceSync = createPresenceSync({
+  channel: createSupabasePresenceChannel(supabase),
+  onPresence: (presence) => friends.applyPresence(presence),
+  onPresenceGone: (userId) => friends.clearPresence(userId),
+  // A reconnect may have missed changes; re-read once rather than assume.
+  onResync: () => void friends.refresh(),
+  onStatusChange: (status) => console.info('[Kickback] presence sync', status),
+  onError: logError,
+})
+
+/** Our own presence: what this browser is watching, and that it still is. */
+const presenceReporter = createPresenceReporter({
+  backend: createSupabasePresenceBackend(supabase),
+  onError: logError,
+})
+
+/** Which Twitch tab counts as "what the user is doing". See activity.ts. */
+const tabActivity = createActivityRegistry()
+
+function pushActivity(): void {
+  if (authState.status !== 'signed_in') return
+  presenceReporter.setActivity(tabActivity.effective())
+}
+
 // ------------------------------------------------------------------- state
 
 let authState = auth.getState()
@@ -124,11 +157,18 @@ auth.subscribe((next) => {
 
   if (next.status === 'signed_in' && next.identity) {
     // Only load on the transition, not on every unrelated auth update.
-    if (lastStatus !== 'signed_in') void friends.refresh()
+    if (lastStatus !== 'signed_in') {
+      void friends.refresh()
+      // Whatever tabs are already open should start counting immediately -
+      // this is what makes a worker restart recover without a page reload.
+      pushActivity()
+    }
     // start() is idempotent for the same user and swaps cleanly for a new one.
     socialSync.start(next.identity.userId)
   } else {
     socialSync.stop()
+    presenceSync.stop()
+    presenceReporter.stop()
     friends.clear()
   }
 
@@ -138,6 +178,11 @@ auth.subscribe((next) => {
 
 friends.subscribe((next) => {
   friendsState = next
+  // Subscribe to exactly the current friends: a removed friend stops being
+  // watched, and a new one starts. Idempotent when the set is unchanged.
+  if (authState.status === 'signed_in') {
+    presenceSync.setFriends(next.friends.map((friend) => friend.user.id))
+  }
   broadcast()
 })
 
@@ -152,6 +197,16 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
   removeFriend: ([userId]) => friends.remove(String(userId)),
   refreshFriends: () => friends.refresh(),
+  setPresenceVisibility: async ([mode]) => {
+    const result = await setPresenceVisibility(supabase, String(mode))
+    if (result.error) throw new Error('Could not change your presence setting.')
+    // The stored setting changed, so re-report under the new rule and re-read
+    // identity, which carries the setting the panel displays.
+    presenceReporter.stop()
+    pushActivity()
+    await auth.reloadIdentity()
+    return result.value
+  },
 }
 
 async function handleRpc(port: chrome.runtime.Port, message: ClientMessage): Promise<void> {
@@ -219,6 +274,14 @@ chrome.runtime.onConnect.addListener((port) => {
       case 'retry':
         void auth.retry()
         break
+      case 'activity':
+        tabActivity.update(port, {
+          channel: typeof raw.channel === 'string' ? raw.channel : null,
+          visible: raw.visible === true,
+          updatedAt: Date.now(),
+        })
+        pushActivity()
+        break
       case 'rpc':
         void handleRpc(port, raw)
         break
@@ -227,6 +290,10 @@ chrome.runtime.onConnect.addListener((port) => {
 
   port.onDisconnect.addListener(() => {
     ports.delete(port)
+    // A closed tab stops contributing. If it was the last one, the reporter's
+    // grace period decides whether this was a navigation or a real departure.
+    tabActivity.remove(port)
+    pushActivity()
   })
 })
 

@@ -29,12 +29,21 @@ export interface WatchingActivity {
   channel: string
 }
 
-/** Around, but not doing anything Kickback knows about. */
+/** On the platform, but not on a channel - the Twitch home page, directory... */
+export interface BrowsingActivity {
+  type: 'browsing'
+  platform: Platform
+}
+
+/**
+ * No activity at all. Distinct from browsing: idle means Kickback has nothing
+ * to report, which is what "offline" is built from.
+ */
 export interface IdleActivity {
   type: 'idle'
 }
 
-export type Activity = WatchingActivity | IdleActivity
+export type Activity = WatchingActivity | BrowsingActivity | IdleActivity
 
 export const IDLE: IdleActivity = { type: 'idle' }
 
@@ -47,6 +56,12 @@ export interface Presence {
   activity: Activity
   /** When this presence last changed, epoch ms. Used for "watching for 12m". */
   since: number
+  /**
+   * Last heartbeat, epoch ms. A client that crashes or loses its network stops
+   * updating this, which is how someone stops appearing online without ever
+   * having said goodbye. Undefined means "freshness does not apply here".
+   */
+  lastSeenAt?: number
 }
 
 export interface Group {
