@@ -25,8 +25,9 @@ dist-ssr
 
 # Local Supabase configuration. Only .env.example is committed.
 .env
-.env.local
+.env.local*
 .env.*.local
+*.pem
 
 # Generated SQL bundle for pasting into the Supabase SQL editor
 supabase/.generated

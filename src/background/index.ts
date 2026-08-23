@@ -27,6 +27,24 @@ const storage = createExtensionStorage({
   remove: (keys) => chrome.storage.local.remove(keys),
 })
 
+// Startup diagnostic. Logs which project the worker is pointed at and how long
+// the key is - never the key itself. A truncated key is otherwise invisible:
+// it fails much later, as "Invalid API key" from the code exchange.
+console.info(
+  '[Kickback] worker starting',
+  JSON.stringify({
+    supabaseUrl: SUPABASE_URL,
+    publishableKeyLength: SUPABASE_PUBLISHABLE_KEY?.length ?? 0,
+    mode: import.meta.env.VITE_KICKBACK_MODE ?? 'production',
+  }),
+)
+
+if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
+  console.error(
+    '[Kickback] missing Supabase configuration - copy .env.example to .env.local and rebuild',
+  )
+}
+
 const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, storage)
 
 const auth = createAuthService({

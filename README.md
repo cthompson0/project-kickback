@@ -111,9 +111,10 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 114 tests: authorization + auth state machine + bundle
+npm test            # 116 tests: authorization + auth state machine + bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run db:bundle   # one pasteable .sql for the Supabase SQL editor
+npm run verify:config # asks Supabase whether your .env.local key actually works
 npm run build:demo  # mock-data build into dist-demo/ (never load this as your real extension)
 ```
 

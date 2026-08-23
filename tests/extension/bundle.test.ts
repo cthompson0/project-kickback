@@ -80,6 +80,19 @@ describe('production bundle contains no secrets', () => {
   })
 })
 
+/** Reads a key out of .env.local without pulling in a dotenv dependency. */
+function readEnvLocal(name: string): string | null {
+  const envPath = join(process.cwd(), '.env.local')
+  if (!existsSync(envPath)) return null
+  for (const line of readFileSync(envPath, 'utf8').split(/\r?\n/)) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith('#') || !trimmed.includes('=')) continue
+    const separator = trimmed.indexOf('=')
+    if (trimmed.slice(0, separator).trim() === name) return trimmed.slice(separator + 1).trim()
+  }
+  return null
+}
+
 describe('public configuration is where it should be', () => {
   it('keeps the publishable key out of the content script', () => {
     // The Twitch tab never talks to Supabase, so it needs no credentials.
@@ -89,6 +102,39 @@ describe('public configuration is where it should be', () => {
   it('ships the publishable key in the service worker, by design', () => {
     expect(background).toContain('sb_publishable_')
     expect(background).toContain('.supabase.co')
+  })
+
+  /**
+   * Detects a stale dist/ - a bundle built before the last edit to .env.local.
+   *
+   * It deliberately does NOT claim to detect a *wrong* key: if .env.local and
+   * the bundle agree on a bad value, they still agree. Only Supabase can say
+   * whether a key is real, which is what `npm run verify:config` is for.
+   *
+   * The comparison is on the whole literal rather than a substring, because a
+   * key that is one character short still contains every prefix of itself.
+   */
+  it('bundles exactly the key currently configured in .env.local', () => {
+    const configured = readEnvLocal('VITE_SUPABASE_PUBLISHABLE_KEY')
+    if (!configured) {
+      throw new Error('.env.local is missing - copy .env.example and fill it in before testing')
+    }
+
+    const bundled = background.match(/sb_publishable_[A-Za-z0-9_-]+/g) ?? []
+    expect(bundled.length).toBeGreaterThan(0)
+
+    for (const literal of new Set(bundled)) {
+      expect(literal).toBe(configured)
+      expect(literal.length).toBe(configured.length)
+    }
+  })
+
+  it('points at the Supabase project configured in .env.local', () => {
+    const configuredUrl = readEnvLocal('VITE_SUPABASE_URL')
+    if (!configuredUrl) {
+      throw new Error('.env.local is missing VITE_SUPABASE_URL')
+    }
+    expect(background).toContain(configuredUrl)
   })
 })
 
