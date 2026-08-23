@@ -93,6 +93,17 @@ export interface KickbackState {
   /** Of those, the ones not yet seen. Drives the collapsed launcher badge. */
   unread: AttentionItem[]
   preferences: KickbackPreferences
+
+  // --- groups --------------------------------------------------------------
+
+  groups: GroupSummary[]
+  groupInvites: GroupInvite[]
+  groupMembers: Record<string, GroupMember[]>
+  groupMessages: Record<string, ChatMessage[]>
+  groupUnread: Record<string, number>
+  mutedGroupIds: string[]
+  groupsLoading: boolean
+  groupsError: string | null
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -109,6 +120,14 @@ export const INITIAL_STATE: KickbackState = {
   attention: [],
   unread: [],
   preferences: { gatheringNotifications: true },
+  groups: [],
+  groupInvites: [],
+  groupMembers: {},
+  groupMessages: {},
+  groupUnread: {},
+  mutedGroupIds: [],
+  groupsLoading: false,
+  groupsError: null,
 }
 
 export interface KickbackClient {
@@ -152,11 +171,62 @@ export interface KickbackClient {
   /** Mark everything of a kind seen - "the user looked at the requests". */
   markKindSeen(kind: AttentionKind): void
   setPreferences(patch: Partial<KickbackPreferences>): Promise<void>
+
+  // --- groups --------------------------------------------------------------
+
+  createGroup(name: string): Promise<string>
+  renameGroup(groupId: string, name: string): Promise<void>
+  deleteGroup(groupId: string): Promise<void>
+  inviteToGroup(groupId: string, userId: string): Promise<string>
+  respondToGroupInvite(inviteId: string, accept: boolean): Promise<string>
+  leaveGroup(groupId: string): Promise<void>
+  removeGroupMember(groupId: string, userId: string): Promise<void>
+  sendGroupMessage(groupId: string, body: string): Promise<void>
+  /** The user is looking at this group; clear its unread. */
+  markGroupRead(groupId: string): void
+  setGroupMuted(groupId: string, muted: boolean): Promise<void>
 }
 
 export type PresenceVisibility = 'visible' | 'hide_activity' | 'invisible'
 
-export type AttentionKind = 'friend_request' | 'gathering'
+export type AttentionKind = 'friend_request' | 'gathering' | 'group_invite' | 'group_unread'
+
+// --- groups ----------------------------------------------------------------
+
+export interface GroupSummary {
+  groupId: string
+  name: string
+  ownerId: string
+  isOwner: boolean
+  memberCount: number
+}
+
+export interface GroupMember {
+  user: User
+  role: 'owner' | 'member'
+  /** null when Kickback has no presence for them. */
+  presence: Presence | null
+}
+
+export interface GroupInvite {
+  inviteId: string
+  groupId: string
+  groupName: string
+  fromUserId: string
+  fromName: string
+  createdAt: string
+}
+
+export interface ChatMessage {
+  id: string
+  groupId: string
+  userId: string
+  displayName: string
+  avatarUrl: string | null
+  body: string
+  /** ISO timestamp; ordering key alongside id. */
+  createdAt: string
+}
 
 export interface AttentionItem {
   key: string

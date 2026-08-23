@@ -2,6 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SocialChannel, SocialChannelHandlers } from './socialSync'
 import type { PresenceChannel, PresenceChannelHandlers } from './presenceSync'
 import { toPresence } from './supabaseBackend'
+import type { MessageRow } from './supabaseBackend'
+import type { GroupChannel, GroupChannelHandlers } from './groupSync'
 
 /**
  * Supabase Realtime, used narrowly for social-graph invalidation.
@@ -21,6 +23,7 @@ import { toPresence } from './supabaseBackend'
 
 const CHANNEL_PREFIX = 'kickback-social'
 const PRESENCE_PREFIX = 'kickback-presence'
+const GROUP_PREFIX = 'kickback-groups'
 
 export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialChannel {
   return {
@@ -113,6 +116,99 @@ export function createSupabasePresenceChannel(supabase: SupabaseClient): Presenc
           },
         )
       }
+
+      channel.subscribe((status) => {
+        switch (status) {
+          case 'SUBSCRIBED':
+            handlers.onStatus('connected')
+            break
+          case 'CHANNEL_ERROR':
+          case 'TIMED_OUT':
+            handlers.onStatus('error')
+            break
+          default:
+            break
+        }
+      })
+
+      return () => {
+        void supabase.removeChannel(channel)
+      }
+    },
+  }
+}
+
+/**
+ * Group chat and membership.
+ *
+ * One binding per group, filtered `group_id=eq.<id>`. RLS still decides
+ * delivery, which is what makes removal take effect on an already-open
+ * subscription: the moment membership ends, the server stops sending. The
+ * filter is belt and braces on top of that, and closes the DELETE gap.
+ *
+ * Membership and invite changes are invalidation only - they carry no payload
+ * we act on, they just mean "re-read the group list".
+ */
+export function createSupabaseGroupChannel(supabase: SupabaseClient): GroupChannel {
+  return {
+    async open(groupIds: string[], userId: string, handlers: GroupChannelHandlers) {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (accessToken) {
+        await supabase.realtime.setAuth(accessToken)
+      }
+
+      const channel = supabase.channel(`${GROUP_PREFIX}:${userId}:${groupIds.length}`)
+
+      for (const groupId of groupIds) {
+        channel.on(
+          'postgres_changes',
+          {
+            event: 'INSERT',
+            schema: 'public',
+            table: 'group_messages',
+            filter: `group_id=eq.${groupId}`,
+          },
+          (payload: { new?: unknown }) => {
+            const row = payload.new as MessageRow | undefined
+            if (!row || typeof row.message_id !== 'string') {
+              // The realtime row is the raw table shape, not the RPC shape:
+              // it has `id`, and no display name. Re-read handles the rest.
+              const raw = payload.new as
+                | { id?: string; group_id?: string; user_id?: string; body?: string; created_at?: string }
+                | undefined
+              if (!raw?.id || !raw.group_id) return
+              handlers.onRawMessage({
+                id: raw.id,
+                groupId: raw.group_id,
+                userId: raw.user_id ?? '',
+                body: raw.body ?? '',
+                createdAt: raw.created_at ?? new Date().toISOString(),
+              })
+              return
+            }
+            handlers.onRawMessage({
+              id: row.message_id,
+              groupId: row.group_id,
+              userId: row.user_id,
+              body: row.body,
+              createdAt: row.created_at,
+            })
+          },
+        )
+      }
+
+      // Membership and invitations: re-read rather than interpret.
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'group_members', filter: `user_id=eq.${userId}` },
+        () => handlers.onMembershipChanged(),
+      )
+      channel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'group_invites', filter: `to_user=eq.${userId}` },
+        () => handlers.onMembershipChanged(),
+      )
 
       channel.subscribe((status) => {
         switch (status) {

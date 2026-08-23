@@ -171,6 +171,30 @@ export function createPortClient(): KickbackClient {
     setPreferences: async (patch) => {
       await rpc('setPreferences', patch)
     },
+
+    createGroup: (name) => rpc<string>('createGroup', name),
+    renameGroup: async (groupId, name) => {
+      await rpc('renameGroup', groupId, name)
+    },
+    deleteGroup: async (groupId) => {
+      await rpc('deleteGroup', groupId)
+    },
+    inviteToGroup: (groupId, userId) => rpc<string>('inviteToGroup', groupId, userId),
+    respondToGroupInvite: (inviteId, accept) =>
+      rpc<string>('respondToGroupInvite', inviteId, accept),
+    leaveGroup: async (groupId) => {
+      await rpc('leaveGroup', groupId)
+    },
+    removeGroupMember: async (groupId, userId) => {
+      await rpc('removeGroupMember', groupId, userId)
+    },
+    sendGroupMessage: async (groupId, body) => {
+      await rpc('sendGroupMessage', groupId, body)
+    },
+    markGroupRead: (groupId) => send({ type: 'groupRead', groupId }),
+    setGroupMuted: async (groupId, muted) => {
+      await rpc('setGroupMuted', groupId, muted)
+    },
     setPresenceVisibility: async (mode) => {
       await rpc('setPresenceVisibility', mode)
     },

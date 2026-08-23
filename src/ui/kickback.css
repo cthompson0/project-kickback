@@ -1044,3 +1044,230 @@
 .kb-toggle-on .kb-toggle-knob {
   transform: translateX(13px);
 }
+
+/* ---------- groups, chat, emotes, combos (Phase 2B) ---------- */
+
+.kb-group-meta-line {
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--kb-faint);
+}
+
+.kb-role {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--kb-accent);
+  letter-spacing: 0.04em;
+}
+
+.kb-badge-muted {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--kb-dim);
+}
+
+.kb-create-group {
+  padding: 4px 0 8px;
+}
+
+.kb-create-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 4px;
+}
+
+.kb-create-btn {
+  display: block;
+  width: calc(100% - 8px);
+  margin: 6px 4px 2px;
+}
+
+.kb-confirm-block {
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+
+/* ---------- chat ---------- */
+
+.kb-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.kb-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 210px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 4px 2px 8px;
+}
+
+.kb-chat-log::-webkit-scrollbar {
+  width: 8px;
+}
+
+.kb-chat-log::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.kb-chat-empty {
+  padding: 18px 8px;
+  text-align: center;
+}
+
+.kb-msg-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 5px;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.kb-msg-who {
+  font-weight: 800;
+  color: var(--kb-accent);
+  flex: none;
+}
+
+.kb-msg-who-self {
+  color: var(--kb-here);
+}
+
+.kb-msg-body {
+  min-width: 0;
+  word-break: break-word;
+  color: var(--kb-text);
+}
+
+/* An all-emote message gets room to breathe, which makes chants readable. */
+.kb-msg-body-big {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 0;
+}
+
+.kb-emote {
+  vertical-align: -3px;
+  flex: none;
+}
+
+/* ---------- combos ---------- */
+
+.kb-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  color: #1a0d06;
+  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  flex: none;
+}
+
+.kb-combo-broken {
+  margin: 3px 0 1px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  color: #ff8a95;
+  animation: kb-break 0.35s ease-out;
+}
+
+@keyframes kb-break {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---------- composer ---------- */
+
+.kb-composer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 2px 2px;
+  border-top: 1px solid var(--kb-line);
+}
+
+.kb-composer-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 9px;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--kb-text);
+  background: var(--kb-bg-raised);
+  border: 1px solid var(--kb-line);
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.kb-composer-input:focus {
+  border-color: rgba(255, 132, 82, 0.55);
+}
+
+.kb-composer-input::placeholder {
+  color: var(--kb-faint);
+}
+
+.kb-send {
+  flex: none;
+}
+
+.kb-emote-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  flex: none;
+  transition: background 0.12s ease;
+}
+
+.kb-emote-toggle:hover,
+.kb-emote-toggle-open {
+  background: var(--kb-bg-hover);
+}
+
+.kb-emote-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 6px;
+  margin: 0 2px;
+  border-radius: 9px;
+  background: var(--kb-bg-raised);
+  border: 1px solid var(--kb-line);
+}
+
+.kb-emote-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  transition: background 0.12s ease;
+}
+
+.kb-emote-btn:hover {
+  background: var(--kb-bg-hover);
+}

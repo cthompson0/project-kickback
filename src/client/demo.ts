@@ -99,6 +99,16 @@ export function createDemoClient(): KickbackClient {
     markSeen: () => {},
     markKindSeen: () => {},
     setPreferences: () => Promise.resolve(),
+    createGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    renameGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    deleteGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    inviteToGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    respondToGroupInvite: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    leaveGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    removeGroupMember: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    sendGroupMessage: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    markGroupRead: () => {},
+    setGroupMuted: () => Promise.resolve(),
     setPresenceVisibility: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
   }
 }

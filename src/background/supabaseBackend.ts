@@ -3,11 +3,16 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AuthBackend, BackendResult, SessionLike } from './auth'
 import type { FriendsBackend } from './friends'
 import type { PresenceBackend } from './presence'
+import type { GroupsBackend } from './groups'
 import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
 import type {
+  ChatMessage,
   Friend,
   FriendRequest,
+  GroupInvite,
+  GroupMember,
+  GroupSummary,
   KickbackIdentity,
   Relationship,
   SearchResult,
@@ -367,5 +372,165 @@ export async function setPresenceVisibility(
     return { value: typeof data === 'string' ? data : mode }
   } catch (error) {
     return { value: null, error: describe(error) }
+  }
+}
+
+// ------------------------------------------------------------------- groups
+
+interface GroupRow {
+  group_id: string
+  name: string
+  owner_id: string
+  is_owner: boolean
+  member_count: number
+}
+
+interface MemberRow {
+  user_id: string
+  display_name: string
+  avatar_url: string | null
+  twitch_login: string | null
+  role: string
+  status: string | null
+  platform: string | null
+  channel: string | null
+  last_seen_at: string | null
+  updated_at: string | null
+}
+
+interface InviteRow {
+  invite_id: string
+  group_id: string
+  group_name: string
+  from_user: string
+  from_name: string
+  created_at: string
+}
+
+export interface MessageRow {
+  message_id: string
+  group_id: string
+  user_id: string
+  display_name: string
+  avatar_url: string | null
+  body: string
+  created_at: string
+}
+
+export function toChatMessage(row: MessageRow): ChatMessage {
+  return {
+    id: row.message_id,
+    groupId: row.group_id,
+    userId: row.user_id,
+    displayName: row.display_name,
+    avatarUrl: row.avatar_url,
+    body: row.body,
+    createdAt: row.created_at,
+  }
+}
+
+export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBackend {
+  async function call<Row, Value>(
+    fn: string,
+    args: Record<string, unknown>,
+    map: (rows: Row[]) => Value,
+  ): Promise<BackendResult<Value>> {
+    try {
+      const { data, error } = await supabase.rpc(fn, args)
+      if (error) return { value: null, error: describe(error) }
+      const rows = (Array.isArray(data) ? data : data == null ? [] : [data]) as Row[]
+      return { value: map(rows) }
+    } catch (error) {
+      return { value: null, error: describe(error) }
+    }
+  }
+
+  return {
+    listGroups: () =>
+      call<GroupRow, GroupSummary[]>('list_groups', {}, (rows) =>
+        rows.map((row) => ({
+          groupId: row.group_id,
+          name: row.name,
+          ownerId: row.owner_id,
+          isOwner: row.is_owner,
+          memberCount: row.member_count,
+        })),
+      ),
+
+    listInvites: () =>
+      call<InviteRow, GroupInvite[]>('list_group_invites', {}, (rows) =>
+        rows.map((row) => ({
+          inviteId: row.invite_id,
+          groupId: row.group_id,
+          groupName: row.group_name,
+          fromUserId: row.from_user,
+          fromName: row.from_name,
+          createdAt: row.created_at,
+        })),
+      ),
+
+    listMembers: (groupId) =>
+      call<MemberRow, GroupMember[]>(
+        'list_group_members',
+        { p_group: groupId },
+        (rows) =>
+          rows.map((row) => ({
+            user: {
+              id: row.user_id,
+              username: row.twitch_login ?? row.display_name,
+              displayName: row.display_name,
+              avatarUrl: row.avatar_url,
+            },
+            role: row.role === 'owner' ? ('owner' as const) : ('member' as const),
+            presence: toPresence({
+              user_id: row.user_id,
+              status: row.status,
+              platform: row.platform,
+              channel: row.channel,
+              updated_at: row.updated_at,
+              last_seen_at: row.last_seen_at,
+            }),
+          })),
+      ),
+
+    listMessages: (groupId, limit) =>
+      call<MessageRow, ChatMessage[]>(
+        'list_group_messages',
+        { p_group: groupId, p_limit: limit },
+        (rows) => rows.map(toChatMessage),
+      ),
+
+    createGroup: (name) =>
+      call<string, string>('create_group', { p_name: name }, (rows) => rows[0]),
+    renameGroup: (groupId, name) =>
+      call<string, string>('rename_group', { p_group: groupId, p_name: name }, (rows) => rows[0]),
+    deleteGroup: (groupId) =>
+      call<boolean, boolean>('delete_group', { p_group: groupId }, () => true),
+    inviteToGroup: (groupId, userId) =>
+      call<string, string>(
+        'invite_to_group',
+        { p_group: groupId, p_target: userId },
+        (rows) => rows[0] ?? 'invited',
+      ),
+    respondToInvite: (inviteId, accept) =>
+      call<string, string>(
+        'respond_to_group_invite',
+        { p_invite: inviteId, p_accept: accept },
+        (rows) => rows[0] ?? 'accepted',
+      ),
+    leaveGroup: (groupId) =>
+      call<boolean, boolean>('leave_group', { p_group: groupId }, () => true),
+    removeMember: (groupId, userId) =>
+      call<boolean, boolean>(
+        'remove_group_member',
+        { p_group: groupId, p_user: userId },
+        () => true,
+      ),
+    sendMessage: (groupId, body) =>
+      call<string, string>(
+        'send_group_message',
+        { p_group: groupId, p_body: body },
+        (rows) => rows[0] ?? '',
+      ),
   }
 }

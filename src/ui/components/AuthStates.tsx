@@ -71,17 +71,6 @@ export function EmptyFriends({
   )
 }
 
-export function GroupsComingSoon() {
-  return (
-    <div className="kb-quiet">
-      <div className="kb-quiet-title">Groups are coming.</div>
-      <div className="kb-quiet-sub">
-        Somewhere for your people to gather. Not built yet.
-      </div>
-    </div>
-  )
-}
-
 /** Identity card behind the header avatar: who Kickback thinks you are. */
 const VISIBILITY_OPTIONS: Array<{
   value: PresenceVisibility

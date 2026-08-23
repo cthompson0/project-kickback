@@ -6,13 +6,13 @@ import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
 import { FindFriends } from './components/FindFriends'
 import { IncomingRequests } from './components/IncomingRequests'
+import { GroupsTab } from './components/GroupsTab'
 import { JoinButton } from './components/JoinButton'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
 import {
   AccountCard,
   EmptyFriends,
   ErrorState,
-  GroupsComingSoon,
   LoadingState,
   SignInCard,
 } from './components/AuthStates'
@@ -48,6 +48,7 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
   const [tab, setTab] = useState<Tab>('friends')
   const [accountOpen, setAccountOpen] = useState(false)
   const [finding, setFinding] = useState(false)
+  const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   useEffect(() => writeCollapsed(collapsed), [collapsed])
@@ -63,6 +64,19 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
     if (collapsed || finding || tab !== 'friends' || view.status !== 'signed_in') return
     client.markKindSeen('friend_request')
   }, [collapsed, finding, tab, view.status, view.attention, client])
+
+  useEffect(() => {
+    if (collapsed || finding || tab !== 'groups' || view.status !== 'signed_in') return
+    client.markKindSeen('group_invite')
+  }, [collapsed, finding, tab, view.status, view.attention, client])
+
+  // Invitations plus conversations with something new in them.
+  const groupAttentionCount =
+    view.groupInvites.length +
+    view.groups.filter(
+      (group) =>
+        (view.groupUnread[group.groupId] ?? 0) > 0 && !view.mutedGroupIds.includes(group.groupId),
+    ).length
 
   const { status, identity, friends, friendsHere, onlineCount, channel, incomingRequests } = view
   const signedIn = status === 'signed_in'
@@ -248,6 +262,10 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
               }}
             >
               Groups
+              {view.groups.length > 0 && <span className="kb-tab-count">{view.groups.length}</span>}
+              {groupAttentionCount > 0 && (
+                <span className="kb-tab-badge">{groupAttentionCount}</span>
+              )}
             </button>
             <span className="kb-header-spacer" />
             <button
@@ -268,7 +286,13 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
                 onBack={() => setFinding(false)}
               />
             ) : tab === 'groups' ? (
-              <GroupsComingSoon />
+              <GroupsTab
+                view={view}
+                client={client}
+                friends={friends}
+                openGroupId={openGroupId}
+                onOpenGroup={setOpenGroupId}
+              />
             ) : (
               <>
                 {actionError && <div className="kb-inline-note">{actionError}</div>}

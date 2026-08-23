@@ -102,6 +102,46 @@ const MUTATIONS = [
     to: '',
     expect: 'refuses self-friending',
   },
+  {
+    name: 'groups: open chat to non-members',
+    file: '0007_groups.sql',
+    from: `create policy group_messages_select on public.group_messages
+  for select to authenticated
+  using (public.is_group_member(group_id));`,
+    to: `create policy group_messages_select on public.group_messages
+  for select to authenticated
+  using (true);`,
+    expect: 'shows a non-member nothing at all',
+  },
+  {
+    name: 'groups: let anyone send to any group',
+    file: '0008_group_rpcs.sql',
+    from: `  if not public.is_group_member(p_group) then
+    raise exception 'kickback: you are not in this group' using errcode = '42501';
+  end if;`,
+    to: '',
+    expect: 'refuses to let a non-member send',
+  },
+  {
+    name: 'groups: drop group-scoped presence',
+    file: '0007_groups.sql',
+    from: `    or public.is_friend(user_id)
+    or public.shares_group_with(user_id)
+  );`,
+    to: `    or public.is_friend(user_id)
+  );`,
+    expect: 'lets group members see each other despite not being friends',
+  },
+  {
+    name: 'groups: let members remove each other',
+    file: '0008_group_rpcs.sql',
+    from: `  if not public.is_group_owner(p_group) then
+    raise exception 'kickback: only the group owner can do that' using errcode = '42501';
+  end if;
+  if p_user = v_actor then`,
+    to: `  if p_user = v_actor then`,
+    expect: 'refuses a delete or removal by a member',
+  },
 ]
 
 function runSuite(migrationsDir) {

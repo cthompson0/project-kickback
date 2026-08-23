@@ -18,7 +18,7 @@ import type { AsyncStorageArea } from './storage'
  *     again rather than permanently dismissed.
  */
 
-export type AttentionKind = 'friend_request' | 'gathering'
+export type AttentionKind = 'friend_request' | 'gathering' | 'group_invite' | 'group_unread'
 
 export interface AttentionItem {
   /** Stable while the thing exists; reused only for the same thing. */
@@ -64,6 +64,18 @@ export function gatheringKey(channel: string): string {
 
 export function friendRequestKey(requestId: string): string {
   return `friend_request:${requestId}`
+}
+
+export function groupInviteKey(inviteId: string): string {
+  return `group_invite:${inviteId}`
+}
+
+/**
+ * Keyed by group and by the newest message seen in it, so the key changes
+ * exactly when there is something new - and reverts to "seen" once read.
+ */
+export function groupUnreadKey(groupId: string): string {
+  return `group_unread:${groupId}`
 }
 
 export function createAttentionService(deps: AttentionServiceDeps = {}): AttentionService {

@@ -25,6 +25,15 @@ export type RpcMethod =
   | 'refreshFriends'
   | 'setPresenceVisibility'
   | 'setPreferences'
+  | 'createGroup'
+  | 'renameGroup'
+  | 'deleteGroup'
+  | 'inviteToGroup'
+  | 'respondToGroupInvite'
+  | 'leaveGroup'
+  | 'removeGroupMember'
+  | 'sendGroupMessage'
+  | 'setGroupMuted'
 
 /** Tab -> worker. */
 export type ClientMessage =
@@ -35,7 +44,13 @@ export type ClientMessage =
   /** What this tab is looking at. Sent on connect and on every change. */
   | { type: 'activity'; channel: string | null; visible: boolean }
   /** The user has looked at these things; clear their unread state. */
-  | { type: 'seen'; keys?: string[]; kind?: 'friend_request' | 'gathering' }
+  | {
+      type: 'seen'
+      keys?: string[]
+      kind?: 'friend_request' | 'gathering' | 'group_invite' | 'group_unread'
+    }
+  /** The user is reading this group; clear its unread. */
+  | { type: 'groupRead'; groupId: string }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 
 /** Worker -> tab. */

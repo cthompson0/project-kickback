@@ -5,16 +5,29 @@ import { createPresenceSync } from './presenceSync'
 import { createPresenceReporter } from './presence'
 import { createActivityRegistry } from './activity'
 import { createGatheringWatcher } from './gatherings'
-import { createAttentionService, friendRequestKey, gatheringKey } from './attention'
+import {
+  createAttentionService,
+  friendRequestKey,
+  gatheringKey,
+  groupInviteKey,
+  groupUnreadKey,
+} from './attention'
+import { createGroupsService } from './groups'
+import { createGroupSync } from './groupSync'
 import { createPreferences } from './preferences'
 import { createNotifier } from './notifier'
 import { findGatherings } from '../core/presence'
 import type { Activity } from '../core/types'
-import { createSupabasePresenceChannel, createSupabaseSocialChannel } from './supabaseRealtime'
+import {
+  createSupabaseGroupChannel,
+  createSupabasePresenceChannel,
+  createSupabaseSocialChannel,
+} from './supabaseRealtime'
 import {
   createSupabaseBackend,
   createSupabaseClient,
   createSupabaseFriendsBackend,
+  createSupabaseGroupsBackend,
   createSupabasePresenceBackend,
   setPresenceVisibility,
 } from './supabaseBackend'
@@ -131,6 +144,45 @@ const storageArea = {
 }
 
 const preferences = createPreferences(storageArea, logError)
+
+const groups = createGroupsService({
+  backend: createSupabaseGroupsBackend(supabase),
+  storage: storageArea,
+  selfId: () => authState.identity?.userId ?? null,
+  onError: logError,
+})
+
+/**
+ * Live chat and membership. Messages are applied directly; membership changes
+ * only invalidate, because they are rare and the group list is cheap.
+ */
+const groupSync = createGroupSync({
+  channel: createSupabaseGroupChannel(supabase),
+  onRawMessage: (raw) => {
+    // The realtime row has no display name. Resolve it from the members we
+    // already hold rather than inventing one; an unknown sender means our
+    // member list is stale, so re-read instead of guessing.
+    const members = groups.getState().members[raw.groupId] ?? []
+    const sender = members.find((member) => member.user.id === raw.userId)
+    if (!sender) {
+      void groups.refresh()
+      return
+    }
+    groups.applyMessage({
+      id: raw.id,
+      groupId: raw.groupId,
+      userId: raw.userId,
+      displayName: sender.user.displayName,
+      avatarUrl: sender.user.avatarUrl ?? null,
+      body: raw.body,
+      createdAt: raw.createdAt,
+    })
+  },
+  onMembershipChanged: () => void groups.refresh(),
+  onResync: () => void groups.refresh(),
+  onStatusChange: (status) => console.info('[Kickback] group sync', status),
+  onError: logError,
+})
 const attention = createAttentionService({ storage: storageArea, onError: logError })
 
 const notifier = createNotifier({
@@ -179,6 +231,20 @@ function refreshAttention(): void {
       kind: 'friend_request' as const,
       count: 1,
     })),
+    ...groupsState.invites.map((invite) => ({
+      key: groupInviteKey(invite.inviteId),
+      kind: 'group_invite' as const,
+      count: 1,
+    })),
+    // Muted groups still show a count in their own row; they just do not
+    // contribute to the launcher badge.
+    ...Object.entries(groupsState.groupUnread)
+      .filter(([groupId, count]) => count > 0 && !groupsState.mutedGroupIds.includes(groupId))
+      .map(([groupId, count]) => ({
+        key: groupUnreadKey(groupId),
+        kind: 'group_unread' as const,
+        count,
+      })),
     ...gatherings.map((gathering) => ({
       key: gatheringKey(gathering.channel),
       kind: 'gathering' as const,
@@ -206,6 +272,7 @@ function pushActivity(): void {
 
 let authState = auth.getState()
 let friendsState = friends.getState()
+let groupsState = groups.getState()
 
 const ports = new Set<chrome.runtime.Port>()
 
@@ -223,6 +290,14 @@ function currentState(): KickbackState {
     attention: attentionState.items,
     unread: attentionState.unread,
     preferences: preferences.get(),
+    groups: groupsState.groups,
+    groupInvites: groupsState.invites,
+    groupMembers: groupsState.members,
+    groupMessages: groupsState.messages,
+    groupUnread: groupsState.groupUnread,
+    mutedGroupIds: groupsState.mutedGroupIds,
+    groupsLoading: groupsState.groupsLoading,
+    groupsError: groupsState.groupsError,
   }
 }
 
@@ -246,6 +321,7 @@ auth.subscribe((next) => {
     // Only load on the transition, not on every unrelated auth update.
     if (lastStatus !== 'signed_in') {
       void friends.refresh()
+      void groups.refresh()
       // Whatever tabs are already open should start counting immediately -
       // this is what makes a worker restart recover without a page reload.
       pushActivity()
@@ -257,11 +333,25 @@ auth.subscribe((next) => {
     presenceSync.stop()
     presenceReporter.stop()
     friends.clear()
+    groups.clear()
+    groupSync.stop()
     attention.clear()
     gatheringWatcher.reset()
   }
 
   lastStatus = next.status
+  broadcast()
+})
+
+groups.subscribe((next) => {
+  groupsState = next
+  if (authState.status === 'signed_in' && authState.identity) {
+    groupSync.setGroups(
+      authState.identity.userId,
+      next.groups.map((group) => group.groupId),
+    )
+    refreshAttention()
+  }
   broadcast()
 })
 
@@ -290,6 +380,17 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
   removeFriend: ([userId]) => friends.remove(String(userId)),
   refreshFriends: () => friends.refresh(),
+  createGroup: ([name]) => groups.createGroup(String(name)),
+  renameGroup: ([groupId, name]) => groups.renameGroup(String(groupId), String(name)),
+  deleteGroup: ([groupId]) => groups.deleteGroup(String(groupId)),
+  inviteToGroup: ([groupId, userId]) => groups.invite(String(groupId), String(userId)),
+  respondToGroupInvite: ([inviteId, accept]) =>
+    groups.respondToInvite(String(inviteId), accept === true),
+  leaveGroup: ([groupId]) => groups.leaveGroup(String(groupId)),
+  removeGroupMember: ([groupId, userId]) =>
+    groups.removeMember(String(groupId), String(userId)),
+  sendGroupMessage: ([groupId, body]) => groups.sendMessage(String(groupId), String(body)),
+  setGroupMuted: ([groupId, muted]) => groups.setMuted(String(groupId), muted === true),
   setPreferences: async ([patch]) =>
     preferences.set((patch ?? {}) as Parameters<typeof preferences.set>[0]),
   setPresenceVisibility: async ([mode]) => {
@@ -381,6 +482,12 @@ chrome.runtime.onConnect.addListener((port) => {
         if (Array.isArray(raw.keys)) attention.markSeen(raw.keys)
         else if (raw.kind) attention.markKindSeen(raw.kind)
         break
+      case 'groupRead':
+        if (typeof raw.groupId === 'string') {
+          groups.markGroupRead(raw.groupId)
+          attention.markSeen([groupUnreadKey(raw.groupId)])
+        }
+        break
       case 'rpc':
         void handleRpc(port, raw)
         break
@@ -411,6 +518,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onStartup.addListener(() => {
   void preferences.hydrate()
 void attention.hydrate()
+void groups.hydrate()
 void auth.initialize()
 })
 
