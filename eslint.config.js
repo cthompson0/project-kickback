@@ -18,6 +18,11 @@ export default defineConfig([
     languageOptions: {
       globals: globals.browser,
     },
+    rules: {
+      // A leading underscore marks a parameter kept for its signature rather
+      // than its value - JoinSource is carried for future analytics.
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+    },
   },
   {
     // Test suite, build config and tooling all run in Node.

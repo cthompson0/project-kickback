@@ -166,6 +166,11 @@ export function createPortClient(): KickbackClient {
     },
 
     reportActivity: (channel, visible) => send({ type: 'activity', channel, visible }),
+    markSeen: (keys) => send({ type: 'seen', keys }),
+    markKindSeen: (kind) => send({ type: 'seen', kind }),
+    setPreferences: async (patch) => {
+      await rpc('setPreferences', patch)
+    },
     setPresenceVisibility: async (mode) => {
       await rpc('setPresenceVisibility', mode)
     },

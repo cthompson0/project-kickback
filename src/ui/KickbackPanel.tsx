@@ -52,6 +52,18 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
 
   useEffect(() => writeCollapsed(collapsed), [collapsed])
 
+  // Seen semantics: expanding the panel shows any gathering, and the Friends
+  // tab shows incoming requests. Looking at a thing is what clears it.
+  useEffect(() => {
+    if (collapsed || view.status !== 'signed_in') return
+    client.markKindSeen('gathering')
+  }, [collapsed, view.status, view.attention, client])
+
+  useEffect(() => {
+    if (collapsed || finding || tab !== 'friends' || view.status !== 'signed_in') return
+    client.markKindSeen('friend_request')
+  }, [collapsed, finding, tab, view.status, view.attention, client])
+
   const { status, identity, friends, friendsHere, onlineCount, channel, incomingRequests } = view
   const signedIn = status === 'signed_in'
 
@@ -73,11 +85,15 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
         onClick={() => setCollapsed(false)}
       >
         <KickbackMark size={22} />
-        {friendsHere.length > 0 && <span className="kb-launcher-badge">{friendsHere.length}</span>}
-        {friendsHere.length === 0 && incomingRequests.length > 0 && (
+        {/* Unseen, actionable things only. A friend changing channel is not
+            news; a friend request or a gathering forming is. */}
+        {view.unread.length > 0 && (
           <span className="kb-launcher-badge kb-launcher-badge-request">
-            {incomingRequests.length}
+            {view.unread.length}
           </span>
+        )}
+        {view.unread.length === 0 && friendsHere.length > 0 && (
+          <span className="kb-launcher-badge">{friendsHere.length}</span>
         )}
       </button>
     )
@@ -142,6 +158,15 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
             setAccountOpen(false)
             client.signOut()
           }}
+          preferences={view.preferences}
+          onPreferencesChange={(patch) => {
+            setActionError(null)
+            client.setPreferences(patch).catch((cause: unknown) => {
+              setActionError(
+                cause instanceof Error ? cause.message : 'Could not save that setting.',
+              )
+            })
+          }}
           onVisibilityChange={(mode) => {
             setActionError(null)
             client.setPresenceVisibility(mode).catch((cause: unknown) => {
@@ -191,7 +216,7 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
                 🔥 {gathering.userIds.length} friends watching{' '}
                 {formatChannelName(gathering.channel)}
               </span>
-              <JoinButton channel={gathering.channel} />
+              <JoinButton channel={gathering.channel} source="gathering" />
             </div>
           ))}
 

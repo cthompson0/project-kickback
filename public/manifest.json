@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kickback",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "See which friends are around on Twitch, what they're watching, and jump in with one click.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqyuM/vGllIxcIyEC312P+IyJvG4LoefPdT2yLnupeSP1Ta/LOc6o0H2xmhFzYhrM8gtYIx6X8H1DjNRocYFWEP80JC7GCPxwyuoiAMILg+3dbi0MLBv358maiRKVx2ZD+gv09Ws7RU4U9ckMyfoPzVeQYtG3SDgLdkBqAoCcRIjMsyqJ/oN3yvgW2wLanbVTG+GVSnnbzaYDLLbIky+bcNCoqY2/Tf7Zv+XqUrsXLG3RGZFz/ZQkQUI01EwsDXo3p7mLD70ixczqXHPfa77Bk6E3ia1PyIw2RWjJKnKh1CkTomxSt0BmM2VtjoN/TiA1+Zb6dcUpSX/aGV2d7c4XPQIDAQAB",
   "icons": {
@@ -38,7 +38,8 @@
   "permissions": [
     "identity",
     "storage",
-    "alarms"
+    "alarms",
+    "notifications"
   ],
   "host_permissions": [
     "https://*.supabase.co/*"

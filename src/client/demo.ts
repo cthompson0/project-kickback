@@ -96,6 +96,9 @@ export function createDemoClient(): KickbackClient {
     removeFriend: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     refreshFriends: () => Promise.resolve(),
     reportActivity: () => {},
+    markSeen: () => {},
+    markKindSeen: () => {},
+    setPreferences: () => Promise.resolve(),
     setPresenceVisibility: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
   }
 }

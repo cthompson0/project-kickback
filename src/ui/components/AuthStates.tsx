@@ -1,5 +1,9 @@
 import { useState } from 'react'
-import type { KickbackIdentity, PresenceVisibility } from '../../client/types'
+import type {
+  KickbackIdentity,
+  KickbackPreferences,
+  PresenceVisibility,
+} from '../../client/types'
 import { KickbackMark } from './Icons'
 
 /**
@@ -93,10 +97,14 @@ export function AccountCard({
   identity,
   onSignOut,
   onVisibilityChange,
+  preferences,
+  onPreferencesChange,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
   onVisibilityChange: (mode: PresenceVisibility) => void
+  preferences: KickbackPreferences
+  onPreferencesChange: (patch: Partial<KickbackPreferences>) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -157,6 +165,29 @@ export function AccountCard({
         </div>
         <div className="kb-presence-hint">
           {VISIBILITY_OPTIONS.find((option) => option.value === identity.presenceVisibility)?.hint}
+        </div>
+      </div>
+
+      <div className="kb-presence-picker">
+        <button
+          type="button"
+          className="kb-toggle-row"
+          onClick={() =>
+            onPreferencesChange({ gatheringNotifications: !preferences.gatheringNotifications })
+          }
+        >
+          <span className="kb-account-label">Gathering alerts</span>
+          <span
+            className={`kb-toggle${preferences.gatheringNotifications ? ' kb-toggle-on' : ''}`}
+            aria-hidden="true"
+          >
+            <span className="kb-toggle-knob" />
+          </span>
+        </button>
+        <div className="kb-presence-hint">
+          {preferences.gatheringNotifications
+            ? 'Desktop alert when friends gather on a channel'
+            : 'No desktop alerts'}
         </div>
       </div>
 

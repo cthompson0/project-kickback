@@ -85,6 +85,14 @@ export interface KickbackState {
   signingIn: boolean
   /** Demo builds set this so the UI can label itself honestly. */
   demo: boolean
+
+  // --- attention -----------------------------------------------------------
+
+  /** Things currently worth noticing, seen or not. */
+  attention: AttentionItem[]
+  /** Of those, the ones not yet seen. Drives the collapsed launcher badge. */
+  unread: AttentionItem[]
+  preferences: KickbackPreferences
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -98,6 +106,9 @@ export const INITIAL_STATE: KickbackState = {
   friendsError: null,
   signingIn: false,
   demo: false,
+  attention: [],
+  unread: [],
+  preferences: { gatheringNotifications: true },
 }
 
 export interface KickbackClient {
@@ -133,6 +144,26 @@ export interface KickbackClient {
   reportActivity(channel: string | null, visible: boolean): void
   /** Change who can see what. Enforced server-side, not here. */
   setPresenceVisibility(mode: PresenceVisibility): Promise<void>
+
+  // --- attention -----------------------------------------------------------
+
+  /** Mark specific things seen, clearing their unread state. */
+  markSeen(keys: string[]): void
+  /** Mark everything of a kind seen - "the user looked at the requests". */
+  markKindSeen(kind: AttentionKind): void
+  setPreferences(patch: Partial<KickbackPreferences>): Promise<void>
 }
 
 export type PresenceVisibility = 'visible' | 'hide_activity' | 'invisible'
+
+export type AttentionKind = 'friend_request' | 'gathering'
+
+export interface AttentionItem {
+  key: string
+  kind: AttentionKind
+  count: number
+}
+
+export interface KickbackPreferences {
+  gatheringNotifications: boolean
+}

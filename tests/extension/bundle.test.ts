@@ -152,8 +152,10 @@ describe('manifest', () => {
     expect((manifest.key as string).length).toBeGreaterThan(300)
   })
 
-  it('requests only the permissions authentication needs', () => {
-    expect(manifest.permissions).toEqual(['identity', 'storage', 'alarms'])
+  it('requests only the permissions it actually uses', () => {
+    // notifications was added in Phase 2A for gathering alerts. No 'tabs':
+    // chrome.tabs.create does not require it, and reading tab data would.
+    expect(manifest.permissions).toEqual(['identity', 'storage', 'alarms', 'notifications'])
   })
 
   it('registers the service worker and the Twitch content script', () => {

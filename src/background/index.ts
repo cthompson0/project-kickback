@@ -4,6 +4,12 @@ import { createSocialSync } from './socialSync'
 import { createPresenceSync } from './presenceSync'
 import { createPresenceReporter } from './presence'
 import { createActivityRegistry } from './activity'
+import { createGatheringWatcher } from './gatherings'
+import { createAttentionService, friendRequestKey, gatheringKey } from './attention'
+import { createPreferences } from './preferences'
+import { createNotifier } from './notifier'
+import { findGatherings } from '../core/presence'
+import type { Activity } from '../core/types'
 import { createSupabasePresenceChannel, createSupabaseSocialChannel } from './supabaseRealtime'
 import {
   createSupabaseBackend,
@@ -118,9 +124,82 @@ const presenceReporter = createPresenceReporter({
 /** Which Twitch tab counts as "what the user is doing". See activity.ts. */
 const tabActivity = createActivityRegistry()
 
+const storageArea = {
+  get: (keys: string | string[]) => chrome.storage.local.get(keys),
+  set: (items: Record<string, unknown>) => chrome.storage.local.set(items),
+  remove: (keys: string | string[]) => chrome.storage.local.remove(keys),
+}
+
+const preferences = createPreferences(storageArea, logError)
+const attention = createAttentionService({ storage: storageArea, onError: logError })
+
+const notifier = createNotifier({
+  create: (id, options) => chrome.notifications.create(id, options),
+  clear: (id) => chrome.notifications.clear(id),
+  onClicked: (handler) => chrome.notifications.onClicked.addListener(handler),
+  onButtonClicked: (handler) => chrome.notifications.onButtonClicked.addListener(handler),
+  openUrl: (url) => void chrome.tabs.create({ url }),
+  iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+})
+
+/**
+ * Decides when a gathering deserves an interruption. All the anti-spam rules
+ * live in gatherings.ts; this only supplies the world and draws the result.
+ */
+const gatheringWatcher = createGatheringWatcher({
+  onNotify: ({ channel, friendIds }) => {
+    if (!preferences.get().gatheringNotifications) return
+    const names = friendIds
+      .map((id) => friendsState.friends.find((friend) => friend.user.id === id))
+      .filter((friend) => friend !== undefined)
+      .map((friend) => friend.user.displayName)
+    notifier.notifyGathering({ channel, names })
+  },
+})
+
+function currentChannel(): string | null {
+  const activity: Activity = tabActivity.effective()
+  return activity.type === 'watching' ? activity.channel : null
+}
+
+/**
+ * Recomputes what is worth noticing, and lets the watcher decide whether any
+ * of it warrants a desktop notification.
+ */
+function refreshAttention(): void {
+  const gatherings = findGatherings(
+    friendsState.friends.flatMap((friend) => (friend.presence ? [friend.presence] : [])),
+    // Friends on our own channel are HERE, not a place to be told to go.
+    currentChannel() ? { type: 'watching', platform: 'twitch', channel: currentChannel()! } : undefined,
+  ).filter((gathering) => gathering.userIds.length >= 2)
+
+  attention.setItems([
+    ...friendsState.incomingRequests.map((request) => ({
+      key: friendRequestKey(request.requestId),
+      kind: 'friend_request' as const,
+      count: 1,
+    })),
+    ...gatherings.map((gathering) => ({
+      key: gatheringKey(gathering.channel),
+      kind: 'gathering' as const,
+      count: gathering.userIds.length,
+    })),
+  ])
+
+  gatheringWatcher.update(
+    gatherings.map((gathering) => ({
+      channel: gathering.channel,
+      friendIds: gathering.userIds,
+    })),
+    currentChannel(),
+  )
+}
+
 function pushActivity(): void {
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
+  // Moving channels changes what counts as "somewhere else".
+  refreshAttention()
 }
 
 // ------------------------------------------------------------------- state
@@ -136,7 +215,15 @@ const ports = new Set<chrome.runtime.Port>()
  * erroring panel can never still be showing a friends list.
  */
 function currentState(): KickbackState {
-  return { ...INITIAL_STATE, ...authState, ...friendsState }
+  const attentionState = attention.getState()
+  return {
+    ...INITIAL_STATE,
+    ...authState,
+    ...friendsState,
+    attention: attentionState.items,
+    unread: attentionState.unread,
+    preferences: preferences.get(),
+  }
 }
 
 function broadcast(): void {
@@ -170,6 +257,8 @@ auth.subscribe((next) => {
     presenceSync.stop()
     presenceReporter.stop()
     friends.clear()
+    attention.clear()
+    gatheringWatcher.reset()
   }
 
   lastStatus = next.status
@@ -178,6 +267,7 @@ auth.subscribe((next) => {
 
 friends.subscribe((next) => {
   friendsState = next
+  if (authState.status === 'signed_in') refreshAttention()
   // Subscribe to exactly the current friends: a removed friend stops being
   // watched, and a new one starts. Idempotent when the set is unchanged.
   if (authState.status === 'signed_in') {
@@ -185,6 +275,9 @@ friends.subscribe((next) => {
   }
   broadcast()
 })
+
+attention.subscribe(() => broadcast())
+preferences.subscribe(() => broadcast())
 
 // --------------------------------------------------------------------- rpc
 
@@ -197,6 +290,8 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
   removeFriend: ([userId]) => friends.remove(String(userId)),
   refreshFriends: () => friends.refresh(),
+  setPreferences: async ([patch]) =>
+    preferences.set((patch ?? {}) as Parameters<typeof preferences.set>[0]),
   setPresenceVisibility: async ([mode]) => {
     const result = await setPresenceVisibility(supabase, String(mode))
     if (result.error) throw new Error('Could not change your presence setting.')
@@ -282,6 +377,10 @@ chrome.runtime.onConnect.addListener((port) => {
         })
         pushActivity()
         break
+      case 'seen':
+        if (Array.isArray(raw.keys)) attention.markSeen(raw.keys)
+        else if (raw.kind) attention.markKindSeen(raw.kind)
+        break
       case 'rpc':
         void handleRpc(port, raw)
         break
@@ -310,7 +409,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 })
 
 chrome.runtime.onStartup.addListener(() => {
-  void auth.initialize()
+  void preferences.hydrate()
+void attention.hydrate()
+void auth.initialize()
 })
 
 chrome.runtime.onInstalled.addListener(() => {
