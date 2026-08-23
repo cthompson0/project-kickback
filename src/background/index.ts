@@ -1,14 +1,20 @@
 import { createAuthService } from './auth'
-import { createSupabaseBackend, createSupabaseClient } from './supabaseBackend'
+import { createFriendsService } from './friends'
+import {
+  createSupabaseBackend,
+  createSupabaseClient,
+  createSupabaseFriendsBackend,
+} from './supabaseBackend'
 import { createExtensionStorage } from './storage'
 import { PORT_NAME } from '../client/messages'
-import type { ClientMessage, WorkerMessage } from '../client/messages'
+import type { ClientMessage, RpcMethod, WorkerMessage } from '../client/messages'
 import type { KickbackState } from '../client/types'
+import { INITIAL_STATE } from '../client/types'
 
 /**
  * Kickback's service worker: the one place that holds a session and talks to
  * Supabase. Twitch tabs connect over a port and receive state; they never see a
- * token.
+ * token, and they never call the database themselves.
  *
  * MV3 workers are killed after ~30s idle, so nothing here may live only in
  * memory. The session is in chrome.storage.local, and an alarm brings the
@@ -47,6 +53,11 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 
 const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, storage)
 
+const logError = (context: string, error: unknown) => {
+  // Never log the error object itself - Supabase errors can quote the request.
+  console.warn(`[Kickback] ${context} failed:`, error instanceof Error ? error.message : error)
+}
+
 const auth = createAuthService({
   backend: createSupabaseBackend(supabase),
   launchWebAuthFlow: (url) =>
@@ -55,18 +66,32 @@ const auth = createAuthService({
       return redirectedTo
     }),
   redirectUrl: chrome.identity.getRedirectURL(),
-  // Never log the error object itself - Supabase errors can quote the request.
-  onError: (context, error) => {
-    console.warn(`[Kickback] ${context} failed:`, error instanceof Error ? error.message : error)
-  },
+  onError: logError,
 })
 
-// ------------------------------------------------------------------ tabs
+const friends = createFriendsService({
+  backend: createSupabaseFriendsBackend(supabase),
+  onError: logError,
+})
+
+// ------------------------------------------------------------------- state
+
+let authState = auth.getState()
+let friendsState = friends.getState()
 
 const ports = new Set<chrome.runtime.Port>()
 
-function broadcast(state: KickbackState): void {
-  const message: WorkerMessage = { type: 'state', state }
+/**
+ * One state object out of two services. Friends come last so their real data
+ * wins, but they are cleared whenever auth is not healthy - so a signed-out or
+ * erroring panel can never still be showing a friends list.
+ */
+function currentState(): KickbackState {
+  return { ...INITIAL_STATE, ...authState, ...friendsState }
+}
+
+function broadcast(): void {
+  const message: WorkerMessage = { type: 'state', state: currentState() }
   for (const port of ports) {
     try {
       port.postMessage(message)
@@ -76,18 +101,94 @@ function broadcast(state: KickbackState): void {
   }
 }
 
-auth.subscribe(broadcast)
+let lastStatus = authState.status
+
+auth.subscribe((next) => {
+  authState = next
+
+  if (next.status === 'signed_in') {
+    // Only load on the transition, not on every unrelated auth update.
+    if (lastStatus !== 'signed_in') void friends.refresh()
+  } else {
+    friends.clear()
+  }
+
+  lastStatus = next.status
+  broadcast()
+})
+
+friends.subscribe((next) => {
+  friendsState = next
+  broadcast()
+})
+
+// --------------------------------------------------------------------- rpc
+
+const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
+  searchUsers: ([query]) => friends.search(String(query ?? '')),
+  sendFriendRequest: ([userId]) => friends.sendRequest(String(userId)),
+  respondToFriendRequest: ([requestId, accept]) =>
+    friends.respond(String(requestId), accept === true),
+  cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
+  removeFriend: ([userId]) => friends.remove(String(userId)),
+  refreshFriends: () => friends.refresh(),
+}
+
+async function handleRpc(port: chrome.runtime.Port, message: ClientMessage): Promise<void> {
+  if (message.type !== 'rpc') return
+
+  const handler = RPC_HANDLERS[message.method]
+  const reply = (result: WorkerMessage) => {
+    try {
+      port.postMessage(result)
+    } catch {
+      ports.delete(port)
+    }
+  }
+
+  if (!handler) {
+    reply({ type: 'rpcResult', callId: message.callId, ok: false, error: 'Unknown request' })
+    return
+  }
+
+  // Friend operations require a live session; refreshing first means a request
+  // made just after the token expired succeeds instead of failing confusingly.
+  const signedIn = await auth.ensureFreshSession()
+  if (!signedIn) {
+    reply({
+      type: 'rpcResult',
+      callId: message.callId,
+      ok: false,
+      error: 'Your Kickback session ended. Sign in again.',
+    })
+    return
+  }
+
+  try {
+    const value = await handler(message.args)
+    reply({ type: 'rpcResult', callId: message.callId, ok: true, value: value ?? null })
+  } catch (error) {
+    reply({
+      type: 'rpcResult',
+      callId: message.callId,
+      ok: false,
+      error: error instanceof Error ? error.message : 'Something went wrong',
+    })
+  }
+}
+
+// -------------------------------------------------------------------- tabs
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PORT_NAME) return
 
   ports.add(port)
-  port.postMessage({ type: 'state', state: auth.getState() } satisfies WorkerMessage)
+  port.postMessage({ type: 'state', state: currentState() } satisfies WorkerMessage)
 
   port.onMessage.addListener((raw: ClientMessage) => {
     switch (raw?.type) {
       case 'hello':
-        port.postMessage({ type: 'state', state: auth.getState() } satisfies WorkerMessage)
+        port.postMessage({ type: 'state', state: currentState() } satisfies WorkerMessage)
         break
       case 'signIn':
         void auth.signIn()
@@ -97,6 +198,9 @@ chrome.runtime.onConnect.addListener((port) => {
         break
       case 'retry':
         void auth.retry()
+        break
+      case 'rpc':
+        void handleRpc(port, raw)
         break
     }
   })

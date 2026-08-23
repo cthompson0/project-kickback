@@ -4,6 +4,8 @@ import type { KickbackClient } from '../client/types'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
+import { FindFriends } from './components/FindFriends'
+import { IncomingRequests } from './components/IncomingRequests'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
 import {
   AccountCard,
@@ -44,11 +46,22 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [tab, setTab] = useState<Tab>('friends')
   const [accountOpen, setAccountOpen] = useState(false)
+  const [finding, setFinding] = useState(false)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   useEffect(() => writeCollapsed(collapsed), [collapsed])
 
-  const { status, identity, friends, friendsHere, onlineCount, channel } = view
+  const { status, identity, friends, friendsHere, onlineCount, channel, incomingRequests } = view
   const signedIn = status === 'signed_in'
+
+  async function removeFriend(userId: string) {
+    setActionError(null)
+    try {
+      await client.removeFriend(userId)
+    } catch (cause) {
+      setActionError(cause instanceof Error ? cause.message : 'Could not remove that friend.')
+    }
+  }
 
   if (collapsed) {
     return (
@@ -60,6 +73,11 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
       >
         <KickbackMark size={22} />
         {friendsHere.length > 0 && <span className="kb-launcher-badge">{friendsHere.length}</span>}
+        {friendsHere.length === 0 && incomingRequests.length > 0 && (
+          <span className="kb-launcher-badge kb-launcher-badge-request">
+            {incomingRequests.length}
+          </span>
+        )}
       </button>
     )
   }
@@ -84,11 +102,10 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
                 id: identity.userId,
                 username: identity.twitchLogin ?? identity.displayName,
                 displayName: identity.displayName,
+                avatarUrl: identity.avatarUrl,
                 accentColor: '#ff8452',
               }}
-              avatarUrl={identity.avatarUrl}
               size={22}
-              state="online"
               showDot={false}
             />
           </button>
@@ -118,10 +135,13 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
       </div>
 
       {signedIn && identity && accountOpen && (
-        <AccountCard identity={identity} onSignOut={() => {
-          setAccountOpen(false)
-          client.signOut()
-        }} />
+        <AccountCard
+          identity={identity}
+          onSignOut={() => {
+            setAccountOpen(false)
+            client.signOut()
+          }}
+        />
       )}
 
       {status === 'loading' && <LoadingState />}
@@ -143,13 +163,7 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
             <div className="kb-here-banner">
               <div className="kb-avatar-stack">
                 {friendsHere.slice(0, 4).map((friend) => (
-                  <Avatar
-                    key={friend.user.id}
-                    user={friend.user}
-                    size={20}
-                    state="here"
-                    showDot={false}
-                  />
+                  <Avatar key={friend.user.id} user={friend.user} size={20} showDot={false} />
                 ))}
               </div>
               <span className="kb-here-banner-text">
@@ -163,32 +177,78 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
           <div className="kb-tabs">
             <button
               type="button"
-              className={`kb-tab${tab === 'friends' ? ' kb-tab-active' : ''}`}
-              onClick={() => setTab('friends')}
+              className={`kb-tab${tab === 'friends' && !finding ? ' kb-tab-active' : ''}`}
+              onClick={() => {
+                setTab('friends')
+                setFinding(false)
+              }}
             >
               Friends
               {friends.length > 0 && (
                 <span className="kb-tab-count">
-                  {onlineCount}/{friends.length}
+                  {view.hasPresence ? `${onlineCount}/${friends.length}` : friends.length}
                 </span>
+              )}
+              {incomingRequests.length > 0 && (
+                <span className="kb-tab-badge">{incomingRequests.length}</span>
               )}
             </button>
             <button
               type="button"
-              className={`kb-tab${tab === 'groups' ? ' kb-tab-active' : ''}`}
-              onClick={() => setTab('groups')}
+              className={`kb-tab${tab === 'groups' && !finding ? ' kb-tab-active' : ''}`}
+              onClick={() => {
+                setTab('groups')
+                setFinding(false)
+              }}
             >
               Groups
+            </button>
+            <span className="kb-header-spacer" />
+            <button
+              type="button"
+              className={`kb-add-btn${finding ? ' kb-add-btn-active' : ''}`}
+              title="Find friends"
+              onClick={() => setFinding((open) => !open)}
+            >
+              + Add
             </button>
           </div>
 
           <div className="kb-body">
-            {tab === 'groups' ? (
+            {finding ? (
+              <FindFriends
+                client={client}
+                outgoingRequests={view.outgoingRequests}
+                onBack={() => setFinding(false)}
+              />
+            ) : tab === 'groups' ? (
               <GroupsComingSoon />
-            ) : friends.length === 0 ? (
-              <EmptyFriends />
             ) : (
-              <FriendsTab friends={friends} localActivity={view.localActivity} />
+              <>
+                {actionError && <div className="kb-inline-note">{actionError}</div>}
+                {view.friendsError && <div className="kb-inline-note">{view.friendsError}</div>}
+
+                <IncomingRequests
+                  requests={incomingRequests}
+                  client={client}
+                  onError={setActionError}
+                />
+
+                {friends.length === 0 ? (
+                  incomingRequests.length === 0 && (
+                    <EmptyFriends
+                      loading={view.friendsLoading}
+                      onFindFriends={() => setFinding(true)}
+                    />
+                  )
+                ) : (
+                  <FriendsTab
+                    friends={friends}
+                    localActivity={view.localActivity}
+                    onRemove={removeFriend}
+                  />
+                )}
+              </>
             )}
           </div>
         </>

@@ -779,3 +779,171 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   letter-spacing: 0.02em;
 }
+
+/* ---------- friends: discovery, requests, management (Phase 1 CP4) ---------- */
+
+.kb-add-btn {
+  align-self: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--kb-dim);
+  border: 1px solid var(--kb-line);
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.kb-add-btn:hover,
+.kb-add-btn-active {
+  color: var(--kb-text);
+  border-color: rgba(255, 132, 82, 0.5);
+  background: rgba(255, 132, 82, 0.12);
+}
+
+.kb-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  margin-left: 5px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: var(--kb-accent);
+  color: #1a0d06;
+  font-size: 9.5px;
+  font-weight: 800;
+  vertical-align: middle;
+}
+
+.kb-launcher-badge-request {
+  background: var(--kb-accent);
+  color: #1a0d06;
+}
+
+.kb-search {
+  width: calc(100% - 8px);
+  margin: 2px 4px 8px;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--kb-text);
+  background: var(--kb-bg-raised);
+  border: 1px solid var(--kb-line);
+  outline: none;
+  transition: border-color 0.12s ease, background 0.12s ease;
+}
+
+.kb-search::placeholder {
+  color: var(--kb-faint);
+}
+
+.kb-search:focus {
+  border-color: rgba(255, 132, 82, 0.55);
+  background: var(--kb-bg-hover);
+}
+
+.kb-search-status {
+  padding: 6px 8px;
+}
+
+.kb-handle {
+  color: var(--kb-dim);
+}
+
+/* Neutral label for a relationship that offers no action. */
+.kb-relationship {
+  flex: none;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--kb-faint);
+}
+
+.kb-row-request {
+  background: rgba(255, 132, 82, 0.07);
+  box-shadow: inset 2px 0 0 var(--kb-accent);
+}
+
+.kb-row-request:hover {
+  background: rgba(255, 132, 82, 0.11);
+}
+
+.kb-ghost-btn-inline {
+  margin-top: 0;
+  margin-left: 6px;
+  flex: none;
+  padding: 4px 9px;
+  font-size: 10.5px;
+}
+
+.kb-find-btn {
+  width: auto;
+  margin-top: 12px;
+  padding: 8px 16px;
+}
+
+/* Remove stays out of sight until you mean it. */
+.kb-row-action {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--kb-faint);
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease;
+}
+
+.kb-row:hover .kb-row-action,
+.kb-row-action:focus-visible {
+  opacity: 1;
+}
+
+.kb-row-action:hover {
+  background: rgba(255, 79, 94, 0.16);
+  color: #ff8a95;
+}
+
+.kb-confirm {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.kb-confirm-yes,
+.kb-confirm-no {
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+.kb-confirm-yes {
+  color: #ff8a95;
+  background: rgba(255, 79, 94, 0.16);
+}
+
+.kb-confirm-yes:hover {
+  background: rgba(255, 79, 94, 0.26);
+}
+
+.kb-confirm-no {
+  color: var(--kb-dim);
+}
+
+.kb-confirm-no:hover {
+  color: var(--kb-text);
+}
+
+.kb-copy {
+  cursor: pointer;
+  transition: color 0.12s ease;
+}
+
+.kb-copy:hover {
+  color: var(--kb-accent);
+}

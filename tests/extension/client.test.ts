@@ -169,3 +169,100 @@ describe('session storage adapter', () => {
     expect(await createExtensionStorage(area).getItem('sb-auth-token')).toBe('session-blob')
   })
 })
+
+describe('port client friend operations', () => {
+  /** Reads the last rpc message the tab posted to the worker. */
+  function lastRpc(): { type: string; callId: number; method: string; args: unknown[] } {
+    const rpcs = ports[0].posted.filter(
+      (message): message is { type: string; callId: number; method: string; args: unknown[] } =>
+        typeof message === 'object' && message !== null && (message as { type?: string }).type === 'rpc',
+    )
+    return rpcs[rpcs.length - 1]
+  }
+
+  it('forwards a search to the worker and resolves with its answer', async () => {
+    const client = createPortClient()
+    const pending = client.searchUsers('nina')
+
+    const call = lastRpc()
+    expect(call.method).toBe('searchUsers')
+    expect(call.args).toEqual(['nina'])
+
+    ports[0].emit({
+      type: 'rpcResult',
+      callId: call.callId,
+      ok: true,
+      value: [{ userId: 'u-nina', displayName: 'Nina' }],
+    })
+
+    await expect(pending).resolves.toEqual([{ userId: 'u-nina', displayName: 'Nina' }])
+  })
+
+  it('rejects with the message the worker supplied', async () => {
+    const client = createPortClient()
+    const pending = client.sendFriendRequest('u-nina')
+
+    ports[0].emit({
+      type: 'rpcResult',
+      callId: lastRpc().callId,
+      ok: false,
+      error: 'Could not send that friend request.',
+    })
+
+    await expect(pending).rejects.toThrow('Could not send that friend request.')
+  })
+
+  it('surfaces a lost session rather than hanging', async () => {
+    const client = createPortClient()
+    const pending = client.removeFriend('u-nina')
+
+    ports[0].emit({
+      type: 'rpcResult',
+      callId: lastRpc().callId,
+      ok: false,
+      error: 'Your Kickback session ended. Sign in again.',
+    })
+
+    await expect(pending).rejects.toThrow(/session ended/i)
+  })
+
+  it('keeps concurrent calls apart', async () => {
+    const client = createPortClient()
+    const first = client.searchUsers('nina')
+    const firstId = lastRpc().callId
+    const second = client.searchUsers('omar')
+    const secondId = lastRpc().callId
+
+    expect(secondId).not.toBe(firstId)
+
+    // Answer them out of order; each promise must still get its own result.
+    ports[0].emit({ type: 'rpcResult', callId: secondId, ok: true, value: ['omar'] })
+    ports[0].emit({ type: 'rpcResult', callId: firstId, ok: true, value: ['nina'] })
+
+    await expect(first).resolves.toEqual(['nina'])
+    await expect(second).resolves.toEqual(['omar'])
+  })
+
+  it('rejects in-flight calls when the worker is shut down', async () => {
+    const client = createPortClient()
+    const pending = client.searchUsers('nina')
+
+    ports[0].drop() // MV3 idle termination mid-request
+
+    await expect(pending).rejects.toThrow(/lost its connection/i)
+  })
+
+  it('does not resolve a call from an unrelated result id', async () => {
+    const client = createPortClient()
+    let settled = false
+    void client.searchUsers('nina').then(
+      () => (settled = true),
+      () => (settled = true),
+    )
+
+    ports[0].emit({ type: 'rpcResult', callId: 9999, ok: true, value: [] })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+
+    expect(settled).toBe(false)
+  })
+})

@@ -1,3 +1,4 @@
+import { INITIAL_STATE } from './types'
 import type { Friend, KickbackClient, KickbackState } from './types'
 import { mockPresenceService } from '../mock/presenceService'
 import { FRIEND_IDS } from '../mock/social'
@@ -26,6 +27,8 @@ const DEMO_IDENTITY = {
   presenceVisibility: 'visible' as const,
 }
 
+const DEMO_UNAVAILABLE = 'Friend management needs the real backend; this is a demo build.'
+
 const offlinePresence = (userId: string): Presence => ({
   userId,
   status: 'offline',
@@ -46,11 +49,10 @@ export function createDemoClient(): KickbackClient {
   }
 
   let state: KickbackState = {
+    ...INITIAL_STATE,
     status: 'signed_in',
     identity: DEMO_IDENTITY,
-    error: null,
     friends: toFriends(mockPresenceService.getPresences()),
-    signingIn: false,
     demo: true,
   }
 
@@ -83,5 +85,14 @@ export function createDemoClient(): KickbackClient {
     signIn: () => setState({ status: 'signed_in', identity: DEMO_IDENTITY }),
     signOut: () => setState({ status: 'signed_out', identity: null, friends: [] }),
     retry: () => {},
+
+    // Friend management is a real-backend feature. Demo mode exists to work on
+    // the presence UI offline, so these refuse rather than pretend.
+    searchUsers: () => Promise.resolve([]),
+    sendFriendRequest: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    respondToFriendRequest: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    cancelFriendRequest: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    removeFriend: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    refreshFriends: () => Promise.resolve(),
   }
 }

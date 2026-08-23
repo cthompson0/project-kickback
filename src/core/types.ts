@@ -15,8 +15,10 @@ export interface User {
   username: string
   /** What we render. */
   displayName: string
-  /** Placeholder avatar tint (no real avatars in Phase 0). */
-  accentColor: string
+  /** Real profile image when the platform gave us one. */
+  avatarUrl?: string | null
+  /** Placeholder avatar tint. Derived from the id when absent. */
+  accentColor?: string
 }
 
 /** Watching a live channel on some platform. */

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { KickbackIdentity } from '../../client/types'
 import { KickbackMark } from './Icons'
 
@@ -40,11 +41,28 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry: () 
   )
 }
 
-export function EmptyFriends() {
+export function EmptyFriends({
+  loading,
+  onFindFriends,
+}: {
+  loading: boolean
+  onFindFriends: () => void
+}) {
+  if (loading) {
+    return (
+      <div className="kb-quiet">
+        <div className="kb-quiet-sub">Loading your friends&hellip;</div>
+      </div>
+    )
+  }
+
   return (
     <div className="kb-quiet">
       <div className="kb-quiet-title">Your Kickback is quiet.</div>
       <div className="kb-quiet-sub">Your friends will show up here once you add them.</div>
+      <button type="button" className="kb-signin-btn kb-find-btn" onClick={onFindFriends}>
+        Find friends
+      </button>
     </div>
   )
 }
@@ -68,6 +86,8 @@ export function AccountCard({
   identity: KickbackIdentity
   onSignOut: () => void
 }) {
+  const [copied, setCopied] = useState(false)
+
   return (
     <div className="kb-account">
       <div className="kb-account-row">
@@ -82,7 +102,22 @@ export function AccountCard({
       )}
       <div className="kb-account-row">
         <span className="kb-account-label">Friend code</span>
-        <span className="kb-account-value kb-mono">{identity.friendCode}</span>
+        <button
+          type="button"
+          className="kb-account-value kb-mono kb-copy"
+          title="Copy your friend code"
+          onClick={() => {
+            navigator.clipboard
+              ?.writeText(identity.friendCode)
+              .then(() => {
+                setCopied(true)
+                window.setTimeout(() => setCopied(false), 1500)
+              })
+              .catch(() => setCopied(false))
+          }}
+        >
+          {copied ? 'Copied!' : identity.friendCode}
+        </button>
       </div>
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out

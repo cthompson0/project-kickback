@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IDLE } from '../core/types'
-import type { Activity } from '../core/types'
+import type { Activity, Presence } from '../core/types'
 import { isHere, sortForDisplay } from '../core/presence'
 import { watchChannel } from '../platforms/twitch/navigation'
 import { getCurrentChannel } from '../platforms/twitch/channels'
@@ -18,6 +18,15 @@ export interface KickbackView extends KickbackState {
   channel: string | null
   friendsHere: Friend[]
   onlineCount: number
+  /** True when at least one friend has real presence to show. */
+  hasPresence: boolean
+}
+
+/** Narrowed copy so the presence sorter can be given only what it understands. */
+type FriendWithPresence = { user: Friend['user']; presence: Presence }
+
+function hasPresence(friend: Friend): friend is FriendWithPresence {
+  return friend.presence !== null
 }
 
 export function useKickbackState(client: KickbackClient): KickbackView {
@@ -39,20 +48,34 @@ export function useKickbackState(client: KickbackClient): KickbackView {
     [channel],
   )
 
-  const friends = useMemo(
-    () => sortForDisplay(clientState.friends, localActivity),
-    [clientState.friends, localActivity],
-  )
+  const friends = useMemo(() => {
+    // Friends with presence sort by what they are doing; the rest fall to the
+    // bottom in name order, since there is nothing to rank them by.
+    const known = clientState.friends.filter(hasPresence)
+    const unknown = clientState.friends
+      .filter((friend) => !hasPresence(friend))
+      .sort((a, b) => a.user.displayName.localeCompare(b.user.displayName))
+
+    return [...sortForDisplay(known, localActivity), ...unknown]
+  }, [clientState.friends, localActivity])
 
   const friendsHere = useMemo(
-    () => friends.filter((friend) => isHere(friend.presence, localActivity)),
+    () => friends.filter((friend) => friend.presence !== null && isHere(friend.presence, localActivity)),
     [friends, localActivity],
   )
 
   const onlineCount = useMemo(
-    () => friends.filter((friend) => friend.presence.status === 'online').length,
+    () => friends.filter((friend) => friend.presence?.status === 'online').length,
     [friends],
   )
 
-  return { ...clientState, friends, localActivity, channel, friendsHere, onlineCount }
+  return {
+    ...clientState,
+    friends,
+    localActivity,
+    channel,
+    friendsHere,
+    onlineCount,
+    hasPresence: friends.some(hasPresence),
+  }
 }
