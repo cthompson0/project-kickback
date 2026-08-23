@@ -1,5 +1,7 @@
 import { createAuthService } from './auth'
 import { createFriendsService } from './friends'
+import { createSocialSync } from './socialSync'
+import { createSupabaseSocialChannel } from './supabaseRealtime'
 import {
   createSupabaseBackend,
   createSupabaseClient,
@@ -74,6 +76,20 @@ const friends = createFriendsService({
   onError: logError,
 })
 
+/**
+ * Keeps friendships and friend requests current without polling. It carries no
+ * data: an event only means "re-read", and the re-read goes through the same
+ * authorized RPCs as everything else.
+ *
+ * This is social-graph sync only. Presence is Checkpoint 5.
+ */
+const socialSync = createSocialSync({
+  channel: createSupabaseSocialChannel(supabase),
+  onInvalidate: () => void friends.refresh(),
+  onStatusChange: (status) => console.info('[Kickback] social sync', status),
+  onError: logError,
+})
+
 // ------------------------------------------------------------------- state
 
 let authState = auth.getState()
@@ -106,10 +122,13 @@ let lastStatus = authState.status
 auth.subscribe((next) => {
   authState = next
 
-  if (next.status === 'signed_in') {
+  if (next.status === 'signed_in' && next.identity) {
     // Only load on the transition, not on every unrelated auth update.
     if (lastStatus !== 'signed_in') void friends.refresh()
+    // start() is idempotent for the same user and swaps cleanly for a new one.
+    socialSync.start(next.identity.userId)
   } else {
+    socialSync.stop()
     friends.clear()
   }
 
@@ -129,6 +148,7 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   sendFriendRequest: ([userId]) => friends.sendRequest(String(userId)),
   respondToFriendRequest: ([requestId, accept]) =>
     friends.respond(String(requestId), accept === true),
+  acceptFriendRequestFrom: ([userId]) => friends.acceptFrom(String(userId)),
   cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
   removeFriend: ([userId]) => friends.remove(String(userId)),
   refreshFriends: () => friends.refresh(),
@@ -215,7 +235,11 @@ chrome.runtime.onConnect.addListener((port) => {
 chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES })
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === REFRESH_ALARM) void auth.ensureFreshSession()
+  if (alarm.name !== REFRESH_ALARM) return
+  void auth.ensureFreshSession()
+  // Safety net, not a polling strategy: if the socket died quietly, this puts
+  // the friends list right within the half hour rather than never.
+  if (authState.status === 'signed_in') void friends.refresh()
 })
 
 chrome.runtime.onStartup.addListener(() => {

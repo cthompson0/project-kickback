@@ -117,6 +117,12 @@ export interface KickbackClient {
   searchUsers(query: string): Promise<SearchResult[]>
   sendFriendRequest(userId: string): Promise<SendRequestOutcome>
   respondToFriendRequest(requestId: string, accept: boolean): Promise<'accepted' | 'declined'>
+  /**
+   * Accept the pending request from this person. The UI knows who asked; the
+   * worker owns the request id, so it resolves it rather than making callers
+   * carry it around.
+   */
+  acceptFriendRequestFrom(userId: string): Promise<'accepted'>
   cancelFriendRequest(requestId: string): Promise<void>
   removeFriend(userId: string): Promise<void>
   refreshFriends(): Promise<void>

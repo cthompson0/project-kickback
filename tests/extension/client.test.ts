@@ -243,6 +243,19 @@ describe('port client friend operations', () => {
     await expect(second).resolves.toEqual(['omar'])
   })
 
+  it('asks the worker to accept by person, not by request id', async () => {
+    // The tab must not need to know a request id to act on "accept".
+    const client = createPortClient()
+    const pending = client.acceptFriendRequestFrom('u-nina')
+
+    const call = lastRpc()
+    expect(call.method).toBe('acceptFriendRequestFrom')
+    expect(call.args).toEqual(['u-nina'])
+
+    ports[0].emit({ type: 'rpcResult', callId: call.callId, ok: true, value: 'accepted' })
+    await expect(pending).resolves.toBe('accepted')
+  })
+
   it('rejects in-flight calls when the worker is shut down', async () => {
     const client = createPortClient()
     const pending = client.searchUsers('nina')

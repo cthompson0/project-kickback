@@ -154,6 +154,7 @@ export function createPortClient(): KickbackClient {
     sendFriendRequest: (userId) => rpc<SendRequestOutcome>('sendFriendRequest', userId),
     respondToFriendRequest: (requestId, accept) =>
       rpc<'accepted' | 'declined'>('respondToFriendRequest', requestId, accept),
+    acceptFriendRequestFrom: (userId) => rpc<'accepted'>('acceptFriendRequestFrom', userId),
     cancelFriendRequest: async (requestId) => {
       await rpc('cancelFriendRequest', requestId)
     },

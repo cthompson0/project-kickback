@@ -54,6 +54,14 @@ describe('production bundle contains no simulated social data', () => {
   })
 })
 
+describe('no redirect-to-Friends workaround survives', () => {
+  // The shipped panel must never again show an ACCEPT control that only tells
+  // the user to go and do it somewhere else.
+  it('ships no "open the Friends tab" instruction', () => {
+    expect(content.toLowerCase()).not.toContain('open the friends tab')
+  })
+})
+
 describe('production bundle contains no secrets', () => {
   const FORBIDDEN = [
     'service_role',

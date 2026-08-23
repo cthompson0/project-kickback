@@ -65,6 +65,14 @@ export interface FriendsService {
   search(query: string): Promise<SearchResult[]>
   sendRequest(userId: string): Promise<SendRequestOutcome>
   respond(requestId: string, accept: boolean): Promise<'accepted' | 'declined'>
+  /**
+   * Accept whoever asked, by person rather than by request id.
+   *
+   * The UI knows "this person wants to be my friend" - it should not have to
+   * carry request ids around to act on that. Resolving the id here, against the
+   * authoritative list, is also what makes accepting from search work at all.
+   */
+  acceptFrom(userId: string): Promise<'accepted'>
   cancel(requestId: string): Promise<void>
   remove(userId: string): Promise<void>
 }
@@ -171,6 +179,27 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
 
     respond: (requestId, accept) =>
       mutate('respond', () => deps.backend.respondToFriendRequest(requestId, accept)),
+
+    async acceptFrom(userId: string): Promise<'accepted'> {
+      const find = () =>
+        state.incomingRequests.find((request) => request.user.id === userId)
+
+      // Our view of the inbox can lag behind the database - the request may
+      // have arrived seconds ago. Re-read once before giving up.
+      let request = find()
+      if (!request) {
+        await refresh()
+        request = find()
+      }
+      if (!request) {
+        throw new Error('That friend request is no longer available.')
+      }
+
+      await mutate('respond', () =>
+        deps.backend.respondToFriendRequest(request.requestId, true),
+      )
+      return 'accepted'
+    },
 
     async cancel(requestId) {
       await mutate('cancel', () => deps.backend.cancelFriendRequest(requestId))

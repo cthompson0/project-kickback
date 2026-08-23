@@ -366,6 +366,78 @@ describe('answering a friend request', () => {
   })
 })
 
+describe('accepting by person (the Find Friends ACCEPT path)', () => {
+  // Regression: the manual two-user test found ACCEPT in search results did
+  // nothing but tell the user to go to the Friends tab. The UI had been
+  // searching the OUTGOING list for an INCOMING request, so the lookup could
+  // never succeed. Accepting is now expressed by person, and resolved here.
+
+  it('accepts the pending request from that person', async () => {
+    const friends = service()
+    backend.requests = [request(NINA, 'incoming', 'req-77')]
+    await friends.refresh()
+
+    backend.requests = []
+    backend.friends = [friend(NINA)]
+    const result = await friends.acceptFrom(NINA.id)
+
+    expect(result).toBe('accepted')
+    expect(backend.calls).toContain('respond:req-77:true')
+    expect(friends.getState().friends.map((f) => f.user.displayName)).toEqual(['Nina'])
+    expect(friends.getState().incomingRequests).toEqual([])
+  })
+
+  it('finds a request that arrived after our last read', async () => {
+    // Exactly the reported scenario: B has Kickback open, A sends a request,
+    // B searches A. Search (fresh from the database) says request_received,
+    // but B's cached inbox is empty.
+    const friends = service()
+    await friends.refresh()
+    expect(friends.getState().incomingRequests).toEqual([])
+
+    backend.requests = [request(NINA, 'incoming', 'req-late')]
+    const result = await friends.acceptFrom(NINA.id)
+
+    expect(result).toBe('accepted')
+    expect(backend.calls).toContain('respond:req-late:true')
+  })
+
+  it('never picks up an outgoing request by mistake', async () => {
+    // The original bug in reverse: an outgoing request to Nina must not be
+    // mistaken for one from her.
+    const friends = service()
+    backend.requests = [request(NINA, 'outgoing', 'req-mine')]
+    await friends.refresh()
+
+    await expect(friends.acceptFrom(NINA.id)).rejects.toThrow(/no longer available/i)
+    expect(backend.calls.some((call) => call.startsWith('respond:'))).toBe(false)
+  })
+
+  it('reports clearly when the request has already gone', async () => {
+    const friends = service()
+    await expect(friends.acceptFrom(NINA.id)).rejects.toThrow(/no longer available/i)
+  })
+
+  it('does not tell the user to go somewhere else', async () => {
+    const friends = service()
+    try {
+      await friends.acceptFrom(NINA.id)
+      throw new Error('expected a rejection')
+    } catch (cause) {
+      expect((cause as Error).message).not.toMatch(/friends tab/i)
+    }
+  })
+
+  it('surfaces a backend refusal', async () => {
+    const friends = service()
+    backend.requests = [request(NINA, 'incoming', 'req-77')]
+    await friends.refresh()
+
+    backend.failMutationWith = 'gone'
+    await expect(friends.acceptFrom(NINA.id)).rejects.toThrow(/Could not answer/i)
+  })
+})
+
 describe('cancelling an outgoing request', () => {
   it('cancels and re-reads', async () => {
     const friends = service()

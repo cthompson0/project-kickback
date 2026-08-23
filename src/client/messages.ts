@@ -19,6 +19,7 @@ export type RpcMethod =
   | 'searchUsers'
   | 'sendFriendRequest'
   | 'respondToFriendRequest'
+  | 'acceptFriendRequestFrom'
   | 'cancelFriendRequest'
   | 'removeFriend'
   | 'refreshFriends'

@@ -120,26 +120,23 @@ export function FindFriends({ client, outgoingRequests, onBack }: FindFriendsPro
     }
   }
 
+  /**
+   * A control labelled ACCEPT accepts. It does not send the user somewhere
+   * else to do it. The worker owns the request id and looks it up - the
+   * earlier version searched the *outgoing* list for an *incoming* request,
+   * so it could never find one.
+   */
   async function accept(result: SearchResult) {
-    const request = outgoingRequestFor(result.userId)
-    if (!request) {
-      // We know they asked us, but not the request id; the Friends tab has it.
-      setError('Open the Friends tab to answer that request.')
-      return
-    }
     setBusyUserId(result.userId)
+    setError(null)
     try {
-      await client.respondToFriendRequest(request.requestId, true)
+      await client.acceptFriendRequestFrom(result.userId)
       applyRelationship(result.userId, 'friend')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not accept that request.')
     } finally {
       setBusyUserId(null)
     }
-  }
-
-  function outgoingRequestFor(userId: string): FriendRequest | undefined {
-    return outgoingRequests.find((request) => request.user.id === userId)
   }
 
   async function cancel(request: FriendRequest) {

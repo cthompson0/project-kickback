@@ -33,6 +33,12 @@ export function createSupabaseClient(
       autoRefreshToken: false, // driven by chrome.alarms instead; see index.ts
       detectSessionInUrl: false, // there is no URL bar in a service worker
     },
+    realtime: {
+      // Chrome resets a service worker's 30s idle timer on WebSocket traffic,
+      // so the heartbeat must land comfortably inside that window or the
+      // worker is torn down between beats and the subscription dies with it.
+      heartbeatIntervalMs: 20_000,
+    },
   })
 }
 
