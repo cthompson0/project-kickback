@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 
@@ -13,6 +13,7 @@ const DIST = join(process.cwd(), 'dist')
 const CONTENT = join(DIST, 'kickback-content.js')
 const BACKGROUND = join(DIST, 'kickback-background.js')
 const MANIFEST = join(DIST, 'manifest.json')
+const SRC = join(process.cwd(), 'src')
 
 let content = ''
 let background = ''
@@ -165,7 +166,57 @@ describe('manifest', () => {
     expect(scripts[0].matches).toContain('https://www.twitch.tv/*')
   })
 
-  it('does not request host access beyond Supabase', () => {
-    expect(manifest.host_permissions).toEqual(['https://*.supabase.co/*'])
+  it('requests host access only for Supabase and 7TV', () => {
+    // 7TV was added in Phase 2B.1. Note what is NOT here: api.twitch.tv. Every
+    // Twitch emote endpoint needs an OAuth token we have no safe way to hold,
+    // so we do not ask for access we cannot use.
+    expect(manifest.host_permissions).toEqual([
+      'https://*.supabase.co/*',
+      'https://7tv.io/*',
+      'https://cdn.7tv.app/*',
+    ])
+  })
+})
+
+describe('emote providers are reached only from the worker', () => {
+  it('does not call 7TV from the Twitch page', () => {
+    // Fetching from the content script would run on twitch.tv's origin and put
+    // provider traffic inside the page. All of it belongs to the worker.
+    expect(content).not.toContain('7tv.io')
+    expect(background).toContain('7tv.io')
+  })
+
+  it('lets the page render provider images but never fetch from the provider', () => {
+    // The CDN host appears in the content script only as a derived <img> src.
+    expect(content).toContain('cdn.7tv.app/emote/')
+  })
+
+  it('never puts a Twitch provider token inside the Twitch page', () => {
+    // The strongest form of the rule: the content script has no notion of a
+    // provider token at all, so there is nothing for the page to reach.
+    for (const needle of ['provider_token', 'provider_refresh_token', 'api.twitch.tv']) {
+      expect(content).not.toContain(needle)
+    }
+  })
+
+  it('makes no Twitch API calls from anywhere', () => {
+    // Every Twitch emote endpoint requires an OAuth token that would require
+    // the client secret to obtain and refresh. We do not call them at all.
+    expect(background).not.toContain('api.twitch.tv')
+    expect(background).not.toContain('Client-Id')
+  })
+
+  it("reads no provider token in Kickback's own code", () => {
+    // supabase-js parses provider_token out of an auth response, so the string
+    // is in the vendored SDK. What matters is that we never touch it: the
+    // source is the honest place to assert that, since the bundle cannot tell
+    // our code from its dependencies.
+    const sources = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
+      .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
+      .map((entry) => readFileSync(join(SRC, entry), 'utf8'))
+    expect(sources.length).toBeGreaterThan(10)
+    for (const source of sources) {
+      expect(source).not.toContain('provider_token')
+    }
   })
 })

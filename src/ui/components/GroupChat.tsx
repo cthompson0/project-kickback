@@ -4,6 +4,7 @@ import { annotateCombos } from '../../core/combos'
 import type { ComboAnnotation } from '../../core/combos'
 import type { ChatMessage, KickbackClient } from '../../client/types'
 import { EmoteImage } from './EmoteImage'
+import { EmotePicker } from './EmotePicker'
 
 /**
  * Group chat.
@@ -37,7 +38,7 @@ function MessageBody({ body }: { body: string }) {
 function ComboBadge({ annotation }: { annotation: ComboAnnotation }) {
   if (annotation.comboCount && annotation.comboEmote) {
     return (
-      <span className="kb-combo" title={`${annotation.comboEmote.label} combo`}>
+      <span className="kb-combo" title={`${annotation.comboEmote.name} combo`}>
         <EmoteImage emote={annotation.comboEmote} size={14} />×{annotation.comboCount}
       </span>
     )
@@ -133,23 +134,15 @@ export function GroupChat({
       {error && <div className="kb-inline-note">{error}</div>}
 
       {pickerOpen && (
-        <div className="kb-emote-picker">
-          {EMOTES.map((emote) => (
-            <button
-              key={emote.id}
-              type="button"
-              className="kb-emote-btn"
-              title={emote.label}
-              onClick={() => {
-                setDraft((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${emote.token} `)
-                setPickerOpen(false)
-                inputRef.current?.focus()
-              }}
-            >
-              <EmoteImage emote={emote} size={20} />
-            </button>
-          ))}
-        </div>
+        <EmotePicker
+          client={client}
+          onPick={(text) => {
+            setDraft((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${text} `)
+            // The picker stays open: picking several emotes in a row is the
+            // normal case, and reopening it each time would be tedious.
+            inputRef.current?.focus()
+          }}
+        />
       )}
 
       <div className="kb-composer">

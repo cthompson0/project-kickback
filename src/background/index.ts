@@ -14,6 +14,8 @@ import {
 } from './attention'
 import { createGroupsService } from './groups'
 import { createGroupSync } from './groupSync'
+import { createEmoteCatalog } from './emoteCatalog'
+import { createSevenTvClient } from './sevenTv'
 import { createPreferences } from './preferences'
 import { createNotifier } from './notifier'
 import { findGatherings } from '../core/presence'
@@ -136,6 +138,15 @@ const presenceReporter = createPresenceReporter({
 
 /** Which Twitch tab counts as "what the user is doing". See activity.ts. */
 const tabActivity = createActivityRegistry()
+
+/**
+ * Emotes available to the composer. Follows the channel the user is watching,
+ * so 7TV context changes with SPA navigation and no reload.
+ */
+const emoteCatalog = createEmoteCatalog({
+  client: createSevenTvClient(fetch, logError),
+  onError: logError,
+})
 
 const storageArea = {
   get: (keys: string | string[]) => chrome.storage.local.get(keys),
@@ -262,6 +273,9 @@ function refreshAttention(): void {
 }
 
 function pushActivity(): void {
+  // The emote catalog follows the channel even when signed out - it costs
+  // nothing and means the picker is warm by the time chat is opened.
+  emoteCatalog.setChannel(currentChannel())
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
   // Moving channels changes what counts as "somewhere else".
@@ -389,7 +403,11 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   leaveGroup: ([groupId]) => groups.leaveGroup(String(groupId)),
   removeGroupMember: ([groupId, userId]) =>
     groups.removeMember(String(groupId), String(userId)),
-  sendGroupMessage: ([groupId, body]) => groups.sendMessage(String(groupId), String(body)),
+  sendGroupMessage: ([groupId, body]) =>
+    // Bare emote names become stable provider+id tokens here, once, so the
+    // message records exactly which emote was meant.
+    groups.sendMessage(String(groupId), emoteCatalog.resolveOutgoing(String(body))),
+  searchEmotes: ([query]) => Promise.resolve(emoteCatalog.search(String(query ?? ''))),
   setGroupMuted: ([groupId, muted]) => groups.setMuted(String(groupId), muted === true),
   setPreferences: async ([patch]) =>
     preferences.set((patch ?? {}) as Parameters<typeof preferences.set>[0]),

@@ -1249,13 +1249,74 @@
 
 .kb-emote-picker {
   display: flex;
-  flex-wrap: wrap;
-  gap: 3px;
+  flex-direction: column;
+  gap: 6px;
   padding: 6px;
   margin: 0 2px;
   border-radius: 9px;
   background: var(--kb-bg-raised);
   border: 1px solid var(--kb-line);
+}
+
+.kb-emote-search {
+  padding: 5px 8px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--kb-text);
+  background: var(--kb-bg);
+  border: 1px solid var(--kb-line);
+  outline: none;
+}
+
+.kb-emote-search:focus {
+  border-color: rgba(255, 132, 82, 0.55);
+}
+
+.kb-emote-search::placeholder {
+  color: var(--kb-faint);
+}
+
+/* Bounded height: a big 7TV channel would otherwise push chat off screen. */
+.kb-emote-scroll {
+  max-height: 168px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.kb-emote-empty {
+  padding: 6px 2px;
+}
+
+.kb-emote-section-title {
+  margin-bottom: 3px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--kb-faint);
+}
+
+.kb-emote-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+/* An external emote is a remote image of unknown aspect: contain it rather
+   than letting a tall one stretch its row. */
+.kb-emote-external {
+  object-fit: contain;
+}
+
+/* Shown when an emote image will not load, so the meaning survives. */
+.kb-emote-fallback {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--kb-faint);
 }
 
 .kb-emote-btn {

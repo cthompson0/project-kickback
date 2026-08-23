@@ -7,6 +7,12 @@
  */
 
 import type { Presence, User } from '../core/types'
+import type { Emote } from '../core/emotes'
+
+export interface EmoteSection {
+  title: string
+  emotes: Emote[]
+}
 
 export type AuthStatus =
   /** Still working out whether there is a session. Show nothing social yet. */
@@ -185,6 +191,11 @@ export interface KickbackClient {
   /** The user is looking at this group; clear its unread. */
   markGroupRead(groupId: string): void
   setGroupMuted(groupId: string, muted: boolean): Promise<void>
+  /**
+   * Emote picker search. The worker filters and caps the result, so the panel
+   * never holds - or renders - a whole 1,000-emote channel set.
+   */
+  searchEmotes(query: string): Promise<EmoteSection[]>
 }
 
 export type PresenceVisibility = 'visible' | 'hide_activity' | 'invisible'

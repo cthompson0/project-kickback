@@ -1,4 +1,4 @@
-import { soleEmote } from './emotes'
+import { emoteKey, soleEmote } from './emotes'
 import type { Emote } from './emotes'
 
 /**
@@ -13,6 +13,9 @@ import type { Emote } from './emotes'
  *
  *   - A message qualifies if it is nothing but one emote (repeats of that
  *     same emote are fine). Mixed text or two different emotes do not.
+ *   - "Same emote" means same provider AND same stable id. Two emotes that
+ *     merely share a name - Kickback's :lol: and a 7TV one called lol, say -
+ *     are different emotes and do not extend one another's combo.
  *   - Consecutive qualifying messages with the same emote extend the run.
  *   - The same person may extend a combo. For a small friend group, one
  *     person spamming the chant is part of the joke rather than cheating.
@@ -80,7 +83,7 @@ export function annotateCombos(messages: ComboMessage[]): Map<string, ComboAnnot
   for (const message of messages) {
     const emote = soleEmote(message.body)
 
-    if (emote && runEmote && emote.id === runEmote.id) {
+    if (emote && runEmote && emoteKey(emote) === emoteKey(runEmote)) {
       runCount += 1
       runLastId = message.id
       continue

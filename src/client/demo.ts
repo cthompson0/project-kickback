@@ -109,6 +109,7 @@ export function createDemoClient(): KickbackClient {
     sendGroupMessage: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     markGroupRead: () => {},
     setGroupMuted: () => Promise.resolve(),
+    searchEmotes: () => Promise.resolve([]),
     setPresenceVisibility: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
   }
 }

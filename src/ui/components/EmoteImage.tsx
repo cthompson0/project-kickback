@@ -1,4 +1,6 @@
-import type { Emote, EmoteId } from '../../core/emotes'
+import { useState } from 'react'
+import { isKickbackEmote } from '../../core/emotes'
+import type { Emote, KickbackEmoteId } from '../../core/emotes'
 
 /**
  * Kickback's own emote artwork, drawn as inline SVG.
@@ -8,7 +10,7 @@ import type { Emote, EmoteId } from '../../core/emotes'
  * no image URL anywhere in this path.
  */
 
-const FACES: Record<EmoteId, { bg: string; render: () => React.ReactNode }> = {
+const FACES: Record<KickbackEmoteId, { bg: string; render: () => React.ReactNode }> = {
   lol: {
     bg: '#ffd45e',
     render: () => (
@@ -120,7 +122,35 @@ const FACES: Record<EmoteId, { bg: string; render: () => React.ReactNode }> = {
 }
 
 export function EmoteImage({ emote, size = 18 }: { emote: Emote; size?: number }) {
-  const face = FACES[emote.id]
+  const [failed, setFailed] = useState(false)
+
+  // External emotes are images from a provider CDN. The URL was derived from a
+  // validated id, never taken from a payload, so there is nothing here a
+  // provider could redirect. If it fails to load we fall back to the name
+  // rather than leaving a hole in the conversation.
+  if (!isKickbackEmote(emote)) {
+    if (!emote.url || failed) {
+      return <span className="kb-emote-fallback">{emote.name}</span>
+    }
+    return (
+      <img
+        className="kb-emote kb-emote-external"
+        src={emote.url}
+        alt={emote.name}
+        title={emote.name}
+        width={size}
+        height={size}
+        loading="lazy"
+        decoding="async"
+        referrerPolicy="no-referrer"
+        onError={() => setFailed(true)}
+      />
+    )
+  }
+
+  const face = FACES[emote.id as KickbackEmoteId]
+  if (!face) return <span className="kb-emote-fallback">{emote.name}</span>
+
   return (
     <svg
       className="kb-emote"

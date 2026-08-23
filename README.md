@@ -111,8 +111,9 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 116 tests: authorization + auth state machine + bundle
+npm test            # 451 tests: authorization, auth, presence, groups, emotes, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
+npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run db:bundle   # one pasteable .sql for the Supabase SQL editor
 npm run verify:config # asks Supabase whether your .env.local key actually works
 npm run build:demo  # mock-data build into dist-demo/ (never load this as your real extension)
@@ -156,6 +157,44 @@ code — `tests/extension/bundle.test.ts` asserts it — and production **never*
 falls back to mock data when the backend is unreachable. It shows an error.
 
 ---
+
+## Emotes (Phase 2B.1)
+
+Group chat draws on three sources, in the order a typed name resolves:
+
+1. **Kickback built-ins** — inline SVG, fixed ids, always available.
+2. **7TV channel set** — for the Twitch channel *you* are currently watching.
+3. **7TV global set** — always available once fetched.
+
+A few decisions worth knowing about:
+
+- **Identity is `provider + stable id`, never the name or the URL.** Names
+  collide across providers, get renamed, and get removed from sets. Combos,
+  de-duplication and history all key on the id.
+- **Names resolve at send time.** Typing `OMEGALUL` sends
+  `[[7tv|01F00Z…|OMEGALUL]]`, so the message records exactly which emote was
+  meant. A message stays drawable after the emote leaves the channel, and two
+  emotes that share a name are never confused for one another.
+- **Precedence on a name collision: channel beats global beats nothing.**
+  Kickback built-ins are unaffected — they use `:tokens:` and cannot collide.
+- **The composer offers *your* channel's emotes, not a union of the group's.**
+  A union would be unbounded, surprising, and would leak what other members are
+  watching. Once sent it makes no difference: the recipient renders from the id.
+- **Provider data is untrusted.** Ids and names are validated against strict
+  patterns and the image URL is *derived* from the id — `data.host.url` from
+  the payload is deliberately ignored, so a hostile response cannot point chat
+  at an arbitrary host.
+- **7TV is reached only from the service worker**, never from the Twitch page.
+
+### Why there are no Twitch emotes
+
+Every Twitch emote endpoint — global, channel, and user-entitled alike —
+requires an OAuth token. Verified empirically: `GET
+/helix/chat/emotes/global` returns `401 OAuth token is missing` with no auth
+and with a Client-Id header. Obtaining and refreshing such a token needs the
+Twitch client secret, which must stay in the Supabase dashboard and cannot
+enter the extension. See the Phase 2B.1 report for what a server-side component
+would involve.
 
 ## Manual test checklist
 

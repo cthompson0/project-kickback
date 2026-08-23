@@ -34,6 +34,7 @@ export type RpcMethod =
   | 'removeGroupMember'
   | 'sendGroupMessage'
   | 'setGroupMuted'
+  | 'searchEmotes'
 
 /** Tab -> worker. */
 export type ClientMessage =

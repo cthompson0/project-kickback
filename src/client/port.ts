@@ -1,5 +1,6 @@
 import { INITIAL_STATE } from './types'
 import type {
+  EmoteSection,
   KickbackClient,
   KickbackState,
   SearchResult,
@@ -195,6 +196,7 @@ export function createPortClient(): KickbackClient {
     setGroupMuted: async (groupId, muted) => {
       await rpc('setGroupMuted', groupId, muted)
     },
+    searchEmotes: (query) => rpc<EmoteSection[]>('searchEmotes', query),
     setPresenceVisibility: async (mode) => {
       await rpc('setPresenceVisibility', mode)
     },

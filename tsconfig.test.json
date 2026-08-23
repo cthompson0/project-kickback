@@ -10,6 +10,8 @@
     "moduleResolution": "bundler",
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
+    // Component tests render real components, so they need JSX.
+    "jsx": "react-jsx",
     "noEmit": true,
 
     "noUnusedLocals": true,
