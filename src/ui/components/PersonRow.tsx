@@ -8,14 +8,15 @@ import { Avatar } from './Avatar'
 import type { AvatarState } from './Avatar'
 import { JoinButton } from './JoinButton'
 import { UserCard } from './UserCard'
+import type { UserCardContext } from './UserCard'
 
 interface PersonRowProps {
   person: Friend
   localActivity: Activity
   onRemove?: (userId: string) => void
-  /** Present in the Friends tab, so the identity can open a card. */
+  /** Both present in the Friends tab, so the identity can open a card. */
   client?: KickbackClient
-  selfId?: string | null
+  cardContext?: UserCardContext
 }
 
 export function PersonRow({
@@ -23,11 +24,12 @@ export function PersonRow({
   localActivity,
   onRemove,
   client,
-  selfId = null,
+  cardContext,
 }: PersonRowProps) {
   const { user, presence } = person
   const [confirmingRemove, setConfirmingRemove] = useState(false)
   const [cardOpen, setCardOpen] = useState(false)
+  const canOpenCard = Boolean(client && cardContext)
   const channelName = useChannelName()
 
   /**
@@ -80,7 +82,7 @@ export function PersonRow({
       <Avatar user={user} state={avatarState} />
 
       <div className="kb-row-main">
-        {client ? (
+        {canOpenCard ? (
           // Clicking the name opens the card; JOIN remains a separate,
           // explicit target so the two never compete for one click.
           <button
@@ -118,15 +120,12 @@ export function PersonRow({
       {here && <span className="kb-badge-here">HERE</span>}
       {channel && <JoinButton channel={channel} />}
 
-      {cardOpen && client && (
+      {cardOpen && client && cardContext && (
         <UserCard
           user={user}
           presence={presence}
           client={client}
-          // Everyone in the Friends tab is, by definition, a friend.
-          isFriend
-          isSelf={user.id === selfId}
-          viewerActivity={localActivity}
+          context={cardContext}
           onClose={() => setCardOpen(false)}
         />
       )}

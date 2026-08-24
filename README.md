@@ -111,7 +111,7 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 757 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
+npm test            # 786 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
@@ -244,6 +244,13 @@ already with you, then channels biggest-cluster-first with JOIN on the cluster,
 then people merely around, then offline. Everyone under one heading is
 literally together. The roster stays complete, so a group is still something
 you can look at rather than a list of whoever happens to be online.
+
+**One context per card.** `UserCard` takes a single required `UserCardContext`
+- who you are, what you are doing, who you are friends with. It used to take
+the viewer's activity as an optional prop, and the one call site that forgot it
+(group chat) silently offered a JOIN to the stream you were already watching
+while the other two got it right. Required means forgetting it is a compile
+error rather than a behaviour change.
 
 **One interpretation per person, too.** `core/personPresence.ts` decides
 whether somebody is watching with you, watching elsewhere, around, or offline -

@@ -5,6 +5,7 @@ import { useChannelName } from '../ChannelNames'
 import { GroupPresence } from './GroupPresence'
 import { GroupIcon, GroupIconPicker } from './GroupIcon'
 import { GroupActivitySummary } from './GroupActivitySummary'
+import type { UserCardContext } from './UserCard'
 import type { Friend, GroupMember, KickbackClient, KickbackState } from '../../client/types'
 import { Avatar } from './Avatar'
 import { BackIcon } from './Icons'
@@ -24,6 +25,8 @@ const NO_MEMBERS: GroupMember[] = []
 interface GroupsTabProps {
   view: KickbackState & { localActivity: Activity }
   client: KickbackClient
+  /** The one card context, built by the panel and shared by every surface. */
+  cardContext: UserCardContext
   friends: Friend[]
   openGroupId: string | null
   onOpenGroup: (groupId: string | null) => void
@@ -158,12 +161,14 @@ function GroupDetail({
   client,
   friends,
   groupId,
+  cardContext,
   onBack,
 }: {
   view: GroupsTabProps['view']
   client: KickbackClient
   friends: Friend[]
   groupId: string
+  cardContext: UserCardContext
   onBack: () => void
 }) {
   const group = view.groups.find((entry) => entry.groupId === groupId)
@@ -185,18 +190,14 @@ function GroupDetail({
     client.markGroupRead(groupId)
   }, [client, groupId, messages.length])
 
-  // Passed to the user card so it offers Add friend to exactly the people it
-  // applies to, and never to someone already connected. Computed above the
-  // early return below, because hook order cannot depend on a branch.
-  const friendIds = useMemo(() => new Set(friends.map((friend) => friend.user.id)), [friends])
+  // Invite state only. Card context comes from the panel, so it is not
+  // rebuilt here - one place assembles it, every surface reads it. Computed
+  // above the early return below, because hook order cannot depend on a
+  // branch.
   const memberIds = useMemo(() => new Set(members.map((member) => member.user.id)), [members])
   const pendingIds = useMemo(
     () => new Set(view.groupSentInvites[groupId] ?? []),
     [view.groupSentInvites, groupId],
-  )
-  const outgoingRequestIds = useMemo(
-    () => new Set(view.outgoingRequests.map((request) => request.user.id)),
-    [view.outgoingRequests],
   )
 
   if (!group) {
@@ -271,9 +272,7 @@ function GroupDetail({
             members={members}
             localActivity={view.localActivity}
             client={client}
-            friendIds={friendIds}
-            outgoingRequestIds={outgoingRequestIds}
-            selfId={view.identity?.userId ?? null}
+            cardContext={cardContext}
           />
 
           {group.isOwner && removable.length > 0 && (
@@ -438,8 +437,7 @@ function GroupDetail({
             selfId={view.identity?.userId ?? null}
             client={client}
             members={members}
-            friendIds={friendIds}
-            outgoingRequestIds={outgoingRequestIds}
+            cardContext={cardContext}
           />
         </>
       )}
@@ -458,7 +456,14 @@ function GroupDetail({
   }
 }
 
-export function GroupsTab({ view, client, friends, openGroupId, onOpenGroup }: GroupsTabProps) {
+export function GroupsTab({
+  view,
+  client,
+  friends,
+  cardContext,
+  openGroupId,
+  onOpenGroup,
+}: GroupsTabProps) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -469,6 +474,7 @@ export function GroupsTab({ view, client, friends, openGroupId, onOpenGroup }: G
         client={client}
         friends={friends}
         groupId={openGroupId}
+        cardContext={cardContext}
         onBack={() => onOpenGroup(null)}
       />
     )

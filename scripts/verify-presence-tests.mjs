@@ -18,6 +18,8 @@ const SUITE = 'tests/extension/presenceConsistency.test.ts'
 const PERSON_SUITE = 'tests/extension/personPresence.test.ts'
 const INDEX = 'src/background/presenceIndex.ts'
 const PERSON = 'src/core/personPresence.ts'
+const CARD_SUITE = 'tests/extension/cardConsistency.test.tsx'
+const CARD = 'src/ui/components/UserCard.tsx'
 const GROUP = 'src/core/groupPresence.ts'
 
 const MUTATIONS = [
@@ -158,6 +160,42 @@ const MUTATIONS = [
     to: '      isAround(entry.presence, now),',
     expect: 'counts only other people as being around',
     suite: PERSON_SUITE,
+  },
+
+  // ------------------------------------------------ the card's context
+  {
+    // The reported bug, restored: the card decides without knowing what the
+    // viewer is doing, so the chat entry point offers a same-channel JOIN.
+    name: 'card: decide without the viewer context',
+    file: CARD,
+    from: '    : describePresence(presence, context.viewerActivity)',
+    to: '    : describePresence(presence, null)',
+    expect: 'says watching with you, and offers no JOIN from group chat',
+    suite: CARD_SUITE,
+  },
+  {
+    name: 'card: read your own presence like anybody else',
+    file: CARD,
+    from: '    ? describeSelf(context.viewerActivity)',
+    to: '    ? describePresence(presence, context.viewerActivity)',
+    expect: 'reports your own activity from the local path, not from presence',
+    suite: CARD_SUITE,
+  },
+  {
+    name: 'card: let a self card offer friendship controls',
+    file: CARD,
+    from: '  const isSelf = context.selfId !== null && user.id === context.selfId',
+    to: '  const isSelf = false',
+    expect: 'offers no friendship controls',
+    suite: CARD_SUITE,
+  },
+  {
+    name: 'self: report yourself as joinable',
+    file: PERSON,
+    from: "    ? { kind: 'watching_elsewhere', channel, canJoin: false }",
+    to: "    ? { kind: 'watching_elsewhere', channel, canJoin: true }",
+    expect: 'reports what you are watching, with nowhere to join',
+    suite: CARD_SUITE,
   },
 ]
 

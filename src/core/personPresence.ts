@@ -95,6 +95,25 @@ export function describePresence(
 }
 
 /**
+ * What the viewer themselves is doing.
+ *
+ * Self is not a social-presence target. The friend and group projections
+ * describe *other* people, so reading your own row out of one reports
+ * "offline" about somebody demonstrably sitting at their computer - and could
+ * offer a JOIN to yourself. Your own activity is already known locally and
+ * authoritatively, because it is the very thing Kickback reports on your
+ * behalf, so this reads that and asks nothing else.
+ *
+ * Never joinable: there is nowhere to go, and never offline: you are here.
+ */
+export function describeSelf(activity: Activity | null | undefined): PersonPresence {
+  const channel = viewerChannel(activity)
+  return channel
+    ? { kind: 'watching_elsewhere', channel, canJoin: false }
+    : { kind: 'around', channel: null, canJoin: false }
+}
+
+/**
  * True when JOIN would take the viewer somewhere they already are.
  *
  * Checked at the action layer as well as when deciding whether to draw the

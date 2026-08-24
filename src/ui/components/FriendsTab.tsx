@@ -1,6 +1,7 @@
 import type { Activity } from '../../core/types'
 import { effectiveStatus, isHere, isWatching } from '../../core/presence'
 import type { Friend, KickbackClient } from '../../client/types'
+import type { UserCardContext } from './UserCard'
 import { PersonRow } from './PersonRow'
 
 interface FriendsTabProps {
@@ -9,7 +10,7 @@ interface FriendsTabProps {
   onRemove?: (userId: string) => void
   /** Passed through so a friend's name opens the same card as everywhere. */
   client: KickbackClient
-  selfId: string | null
+  cardContext: UserCardContext
 }
 
 type Bucket = 'here' | 'watching' | 'online' | 'offline' | 'unknown'
@@ -40,7 +41,7 @@ export function FriendsTab({
   localActivity,
   onRemove,
   client,
-  selfId,
+  cardContext,
 }: FriendsTabProps) {
   if (friends.length === 0) {
     return <div className="kb-empty">No friends yet.</div>
@@ -66,7 +67,7 @@ export function FriendsTab({
                 localActivity={localActivity}
                 onRemove={onRemove}
                 client={client}
-                selfId={selfId}
+                cardContext={cardContext}
               />
             ))}
           </div>

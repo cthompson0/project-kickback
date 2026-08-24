@@ -6,6 +6,7 @@ import type { GroupMember, KickbackClient } from '../../client/types'
 import { Avatar } from './Avatar'
 import { JoinButton } from './JoinButton'
 import { UserCard } from './UserCard'
+import type { UserCardContext } from './UserCard'
 import { useChannelName } from '../ChannelNames'
 
 /**
@@ -68,17 +69,13 @@ export function GroupPresence({
   members,
   localActivity,
   client,
-  friendIds,
-  outgoingRequestIds,
-  selfId,
+  cardContext,
 }: {
   members: GroupMember[]
   localActivity: Activity
   client: KickbackClient
-  /** So the card can offer Add friend to exactly the people it applies to. */
-  friendIds: ReadonlySet<string>
-  outgoingRequestIds: ReadonlySet<string>
-  selfId: string | null
+  /** One coherent context, shared with every other card in the panel. */
+  cardContext: UserCardContext
 }) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
   const channelName = useChannelName()
@@ -96,9 +93,9 @@ export function GroupPresence({
         // is impure, and the value is only used to age presence out.
         undefined,
         // "Where is everyone else": the viewer is never one of them.
-        selfId,
+        cardContext.selfId,
       ),
-    [members, localActivity, selfId],
+    [members, localActivity, cardContext.selfId],
   )
 
   return (
@@ -127,10 +124,7 @@ export function GroupPresence({
                   user={member.user}
                   presence={member.presence}
                   client={client}
-                  isFriend={friendIds.has(member.user.id)}
-                  requestPending={outgoingRequestIds.has(member.user.id)}
-                  isSelf={member.user.id === selfId}
-                  viewerActivity={localActivity}
+                  context={cardContext}
                   onClose={() => setOpenCardId(null)}
                 />
               )}

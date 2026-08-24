@@ -212,6 +212,19 @@ describe('the shipped identity and version', () => {
   })
 })
 
+describe('user-facing wording', () => {
+  it('ships Profile rather than the older, wordier label', () => {
+    // The action just opens somebody's Twitch profile; "View on Twitch" said
+    // the same thing at three times the length.
+    expect(content).toContain('Profile')
+    expect(content).not.toContain('View on Twitch')
+  })
+
+  it('still ships JOIN, which means something else entirely', () => {
+    expect(content).toContain('JOIN')
+  })
+})
+
 describe('Kickback does not modify Twitch', () => {
   const CONTENT_SOURCE = () =>
     readdirSync(join(SRC, 'content'), { recursive: true, encoding: 'utf8' })

@@ -6,6 +6,7 @@ import type { ChatMessage, KickbackClient } from '../../client/types'
 import { EmoteImage } from './EmoteImage'
 import { EmotePicker } from './EmotePicker'
 import { UserCard } from './UserCard'
+import type { UserCardContext } from './UserCard'
 import type { GroupMember } from '../../client/types'
 
 /**
@@ -82,8 +83,7 @@ export function GroupChat({
   selfId,
   client,
   members = NO_MEMBERS,
-  friendIds,
-  outgoingRequestIds,
+  cardContext,
 }: {
   groupId: string
   messages: ChatMessage[]
@@ -91,8 +91,14 @@ export function GroupChat({
   client: KickbackClient
   /** The roster, so a sender's card shows the same presence as everywhere. */
   members?: GroupMember[]
-  friendIds?: ReadonlySet<string>
-  outgoingRequestIds?: ReadonlySet<string>
+  /**
+   * The same context every other card gets.
+   *
+   * Required: this call site is exactly the one that used to omit the viewer's
+   * activity, so a card opened from chat offered a JOIN to the stream the
+   * viewer was already watching.
+   */
+  cardContext: UserCardContext
 }) {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
@@ -190,9 +196,7 @@ export function GroupChat({
                   }
                   presence={byUserId.get(message.userId)?.presence ?? null}
                   client={client}
-                  isFriend={friendIds?.has(message.userId) ?? false}
-                  requestPending={outgoingRequestIds?.has(message.userId) ?? false}
-                  isSelf={message.userId === selfId}
+                  context={cardContext}
                   onClose={() => setOpenCardFor(null)}
                 />
               )}

@@ -120,6 +120,26 @@ export function KickbackPanel({
     ).length
 
   const { status, identity, friends, friendsHere, onlineCount, channel, incomingRequests } = view
+
+  /**
+   * One context for every user card in the panel.
+   *
+   * Built here because this is the only place that knows all of it, and
+   * threaded down rather than reassembled per surface - three call sites
+   * computing "what is the viewer doing" three times is three chances for one
+   * of them to forget, which is exactly how group chat came to offer a JOIN
+   * to the stream the viewer was already watching.
+   */
+  const cardContext = useMemo(
+    () => ({
+      selfId: identity?.userId ?? null,
+      viewerActivity: view.localActivity,
+      friendIds: new Set(friends.map((friend) => friend.user.id)),
+      outgoingRequestIds: new Set(view.outgoingRequests.map((request) => request.user.id)),
+    }),
+    [identity, view.localActivity, friends, view.outgoingRequests],
+  )
+
   const signedIn = status === 'signed_in'
 
   async function removeFriend(userId: string) {
@@ -366,6 +386,7 @@ export function KickbackPanel({
               <GroupsTab
                 view={view}
                 client={client}
+                cardContext={cardContext}
                 friends={friends}
                 openGroupId={openGroupId}
                 onOpenGroup={setOpenGroupId}
@@ -394,7 +415,7 @@ export function KickbackPanel({
                     localActivity={view.localActivity}
                     onRemove={removeFriend}
                     client={client}
-                    selfId={identity?.userId ?? null}
+                    cardContext={cardContext}
                   />
                 )}
               </>

@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { UserCard } from '../../src/ui/components/UserCard'
+import type { UserCardContext } from '../../src/ui/components/UserCard'
 import { GroupChat } from '../../src/ui/components/GroupChat'
 import { ChannelNameProvider } from '../../src/ui/ChannelNames'
 import { GroupIcon } from '../../src/ui/components/GroupIcon'
@@ -37,6 +38,15 @@ const watching = (channel: string): Presence => ({
   lastSeenAt: Date.now(),
 })
 
+/** The one context every card takes. Overridden per test as needed. */
+const context = (over: Partial<UserCardContext> = {}): UserCardContext => ({
+  selfId: 'me',
+  viewerActivity: { type: 'idle' },
+  friendIds: new Set(),
+  outgoingRequestIds: new Set(),
+  ...over,
+})
+
 function stubClient(): KickbackClient {
   return {
     sendFriendRequest: async () => 'req',
@@ -63,7 +73,7 @@ describe('the user card', () => {
         user={user()}
         presence={watching('lirik')}
         client={stubClient()}
-        isFriend={false}
+        context={context()}
         onClose={() => {}}
         {...over}
       />,
@@ -79,23 +89,25 @@ describe('the user card', () => {
   it('offers Add friend to a group member who is not a friend yet', () => {
     // The point of the card: a path from "I see this person every night" to
     // "we are friends".
-    const html = card({ isFriend: false })
+    const html = card({ context: context() })
     expect(html).toContain('Add friend')
     expect(html).not.toContain('Remove friend')
   })
 
   it('offers Remove friend to a friend, and no Add', () => {
-    const html = card({ isFriend: true })
+    const html = card({ context: context({ friendIds: new Set(['u1']) }) })
     expect(html).toContain('Remove friend')
     expect(html).not.toContain('Add friend')
   })
 
   it('says a request is already sent rather than offering it again', () => {
-    expect(card({ requestPending: true })).toContain('Request sent')
+    expect(card({ context: context({ outgoingRequestIds: new Set(['u1']) }) })).toContain(
+      'Request sent',
+    )
   })
 
   it('offers no relationship actions on your own card', () => {
-    const html = card({ isSelf: true })
+    const html = card({ context: context({ selfId: 'u1' }) })
     expect(html).not.toContain('Add friend')
     expect(html).not.toContain('Remove friend')
   })
@@ -173,7 +185,13 @@ describe('a chat line is one inline formatting context', () => {
       },
     ]
     const html = withNames(
-      <GroupChat groupId="g1" messages={messages} selfId="me" client={stubClient()} />,
+      <GroupChat
+        groupId="g1"
+        messages={messages}
+        selfId="me"
+        client={stubClient()}
+        cardContext={context()}
+      />,
     )
 
     // One row, name then body, nothing wrapping the body in its own block.
@@ -196,7 +214,13 @@ describe('a chat line is one inline formatting context', () => {
       },
     ]
     const html = withNames(
-      <GroupChat groupId="g1" messages={messages} selfId="me" client={stubClient()} />,
+      <GroupChat
+        groupId="g1"
+        messages={messages}
+        selfId="me"
+        client={stubClient()}
+        cardContext={context()}
+      />,
     )
     // The name is text, with no width of its own to impose on the message.
     expect(html).toContain('AVeryLongDisplayNameIndeed')

@@ -67,7 +67,16 @@ function row(presence: Presence | null, viewer: Activity = IDLE, withClient = tr
         person={friend}
         localActivity={viewer}
         client={withClient ? stubClient() : undefined}
-        selfId="me"
+        cardContext={
+          withClient
+            ? {
+                selfId: 'me',
+                viewerActivity: viewer,
+                friendIds: new Set(['u1']),
+                outgoingRequestIds: new Set(),
+              }
+            : undefined
+        }
       />
     </ChannelNameProvider>,
   )
@@ -143,7 +152,12 @@ describe('the friends list', () => {
           friends={friends}
           localActivity={viewer}
           client={stubClient()}
-          selfId="me"
+          cardContext={{
+            selfId: 'me',
+            viewerActivity: viewer,
+            friendIds: new Set(['u1']),
+            outgoingRequestIds: new Set(),
+          }}
         />
       </ChannelNameProvider>,
     )

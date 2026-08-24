@@ -84,8 +84,12 @@ describe('a chat sender is clickable', () => {
         selfId="me"
         client={stubClient()}
         members={[{ user: user(), role: 'member', presence: watching('lirik') }]}
-        friendIds={new Set()}
-        outgoingRequestIds={new Set()}
+        cardContext={{
+          selfId: 'me',
+          viewerActivity: { type: 'idle' },
+          friendIds: new Set(),
+          outgoingRequestIds: new Set(),
+        }}
       />,
       { lirik: 'LIRIK' },
     )

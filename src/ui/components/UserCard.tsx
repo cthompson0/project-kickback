@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { describePresence } from '../../core/personPresence'
+import { describePresence, describeSelf } from '../../core/personPresence'
 import { channelUrl } from '../../platforms/twitch/channels'
 import type { Activity, Presence, User } from '../../core/types'
 import type { KickbackClient } from '../../client/types'
@@ -25,35 +25,46 @@ import { useChannelName } from '../ChannelNames'
  * their activity is as quiet in the card as in the list.
  */
 
+/**
+ * Everything the card needs about the viewer, in one object.
+ *
+ * REQUIRED, and deliberately not a set of optional props.
+ *
+ * The viewer's activity used to be an optional prop that defaulted to null.
+ * Two of the three call sites passed it and one - group chat - did not, so
+ * opening the same person's card from chat offered a JOIN to the stream you
+ * were already watching, while opening it from Friends correctly did not.
+ * Nothing failed; the card just quietly answered a different question.
+ *
+ * Making the context one required value turns forgetting it into a compile
+ * error rather than a behaviour change, which is the only version of this that
+ * stays fixed when the next call site is added.
+ */
+export interface UserCardContext {
+  /** The signed-in user, so the card can recognise itself. */
+  selfId: string | null
+  /** What the viewer is doing, which decides "with you" and whether to JOIN. */
+  viewerActivity: Activity
+  /** Who the viewer is already friends with. */
+  friendIds: ReadonlySet<string>
+  /** Friend requests the viewer has already sent. */
+  outgoingRequestIds: ReadonlySet<string>
+}
+
 export interface UserCardProps {
   user: User
   presence: Presence | null
   client: KickbackClient
-  /** True when this person is already a friend. */
-  isFriend: boolean
-  /** True when a request to them is already outstanding. */
-  requestPending?: boolean
-  /** Hides relationship actions for the signed-in user's own card. */
-  isSelf?: boolean
-  /**
-   * What the viewer is doing, so the card can tell "watching with you" from
-   * "watching something else" - and never offer a JOIN to where they already
-   * are.
-   */
-  viewerActivity?: Activity | null
+  context: UserCardContext
   onClose: () => void
 }
 
-export function UserCard({
-  user,
-  presence,
-  client,
-  isFriend,
-  requestPending = false,
-  isSelf = false,
-  viewerActivity = null,
-  onClose,
-}: UserCardProps) {
+export function UserCard({ user, presence, client, context, onClose }: UserCardProps) {
+  // Derived here rather than passed in, for the same reason: three call sites
+  // computing "is this a friend" three times is three chances to disagree.
+  const isSelf = context.selfId !== null && user.id === context.selfId
+  const isFriend = context.friendIds.has(user.id)
+  const requestPending = context.outgoingRequestIds.has(user.id)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,10 +90,11 @@ export function UserCard({
     }
   }, [onClose])
 
-  // One interpretation, shared with every other surface. The card used to
-  // decide this for itself and disagreed with the group cluster about the
-  // same person.
-  const state = describePresence(presence, viewerActivity)
+  // Your own card is a different question, so it gets a different answer -
+  // see describeSelf. Everyone else goes through the one shared selector.
+  const state = isSelf
+    ? describeSelf(context.viewerActivity)
+    : describePresence(presence, context.viewerActivity)
 
   async function act(run: () => Promise<unknown>, after?: () => void) {
     setBusy(true)
@@ -109,7 +121,19 @@ export function UserCard({
       </div>
 
       <div className="kb-usercard-activity">
-        {state.kind === 'watching_with_you' && state.channel ? (
+        {isSelf ? (
+          <>
+            <span className="kb-usercard-self">This is you</span>
+            {state.kind === 'watching_elsewhere' && state.channel ? (
+              <>
+                {' · Watching '}
+                <span className="kb-channel">{channelName(state.channel)}</span>
+              </>
+            ) : (
+              ' · On Twitch'
+            )}
+          </>
+        ) : state.kind === 'watching_with_you' && state.channel ? (
           <>
             Watching with you
             <span className="kb-channel kb-usercard-channel">{channelName(state.channel)}</span>
@@ -130,7 +154,9 @@ export function UserCard({
       {error && <div className="kb-inline-note">{error}</div>}
 
       <div className="kb-usercard-actions">
-        {/* Never offered when they are already where the viewer is. */}
+        {/* Never offered when they are already where the viewer is. Your own
+            card needs no separate guard: describeSelf never reports anywhere
+            to go, and there is a mutation proving that. */}
         {state.canJoin && state.channel && (
           <JoinButton channel={state.channel} source="group" />
         )}
@@ -141,7 +167,7 @@ export function UserCard({
           target="_blank"
           rel="noreferrer noopener"
         >
-          View on Twitch
+          Profile
         </a>
 
         {!isSelf && !isFriend && (
