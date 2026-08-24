@@ -152,8 +152,27 @@ export interface AnalyticsEventMap {
 export type AnalyticsEventName = keyof AnalyticsEventMap
 
 export type SessionEndReason = 'idle' | 'signed_out'
-export type TogetherEndReason = 'left_channel' | 'alone_again' | 'session_ended'
-export type PostSocialEndReason = 'left_channel' | 'rejoined' | 'session_ended'
+/**
+ * Why a shared watch or the retention after it ended.
+ *
+ * "observation_lost" is the honest answer when the service worker was gone
+ * long enough that we cannot say what happened: the interval is closed at the
+ * last moment we could vouch for, and labelled so nobody later reads it as
+ * something the user did. See background/togetherStore.ts.
+ *
+ * These are property VALUES, not keys, so adding one needs no migration - the
+ * contract constrains which keys an event may carry, not what they may say.
+ */
+export type TogetherEndReason =
+  | 'left_channel'
+  | 'alone_again'
+  | 'session_ended'
+  | 'observation_lost'
+export type PostSocialEndReason =
+  | 'left_channel'
+  | 'rejoined'
+  | 'session_ended'
+  | 'observation_lost'
 export type LengthBucket = 'short' | 'medium' | 'long'
 
 /** Message length as a bucket, because the length itself is nearly the message. */

@@ -30,6 +30,8 @@ import { createSevenTvClient } from './sevenTv'
 import { createPreferences } from './preferences'
 import { createAnalyticsHub } from './analyticsHub'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
+import { isPersistedLifecycle } from './togetherStore'
+import type { PersistedLifecycle } from './togetherStore'
 import type { SessionRecord } from './analyticsSession'
 import type { JoinAttribution } from './joinAttribution'
 import { describePresence } from '../core/personPresence'
@@ -186,6 +188,20 @@ const presenceSync = createPresenceSync({
 /** Our own presence: what this browser is watching, and that it still is. */
 const presenceReporter = createPresenceReporter({
   backend: createSupabasePresenceBackend(supabase),
+  /*
+   * The heartbeat doubles as analytics' liveness signal.
+   *
+   * An open shared watch is persisted so it survives the worker being evicted,
+   * and on the way back it has to decide whether the gap was a restart or a
+   * closed laptop. Its evidence is when we last confirmed the user was on the
+   * channel - and without this, that was only refreshed when somebody's
+   * presence CHANGED, so a quiet ten minutes looked identical to being away.
+   *
+   * It also means the two-minute "everyone left" grace now expires on its own
+   * rather than waiting for the user to move: this is the periodic tick the
+   * shared-watch machine never had.
+   */
+  onHeartbeat: () => updateTogether(),
   onError: logError,
 })
 
@@ -236,9 +252,22 @@ const analytics = createAnalyticsHub({
     'kickback:analytics:join',
     isJoinAttribution,
   ),
+  /*
+   * The open shared watch, so an evicted worker does not take it with it.
+   *
+   * These intervals run for hours - longer than a worker lives - and the long
+   * ones are exactly the ones the Social Gravity comparison will rest on.
+   */
+  lifecycleStore: createStoredValue<PersistedLifecycle>(
+    storageArea,
+    'kickback:analytics:lifecycle',
+    isPersistedLifecycle,
+  ),
   // No actor, no events sent. They queue rather than being thrown away, so a
   // session that starts before auth resolves is not lost.
   canSend: () => authState.status === 'signed_in',
+  // Who a stored interval must belong to before it may be resumed or ended.
+  selfId: () => authState.identity?.userId ?? null,
   onError: logError,
 })
 

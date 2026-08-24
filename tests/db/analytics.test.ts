@@ -684,3 +684,90 @@ describe('how far the client clock is trusted', () => {
     expect(row.recent).toBe(true)
   })
 })
+
+describe('an interval closed because the worker was evicted', () => {
+  it('stores its reason without any contract change', async () => {
+    /*
+     * "observation_lost" is a property VALUE, not a key.
+     *
+     * The contract constrains which keys an event may carry, never what they
+     * may say - so adding a reason needs no migration at all. Asserted rather
+     * than assumed, because "no migration required" is exactly the kind of
+     * claim that is comfortable to believe and cheap to check.
+     */
+    await track(nina, [
+      event({
+        event_name: 'watching_together_ended',
+        destination_channel: 'summit1g',
+        properties: {
+          other_count_peak: 2,
+          duration_ms: 600_000,
+          end_reason: 'observation_lost',
+          detection_delay_ms: 3 * 60 * 60 * 1000,
+        },
+      }),
+      event({
+        event_name: 'post_social_retention_ended',
+        destination_channel: 'summit1g',
+        properties: { duration_ms: 0, from_join: true, end_reason: 'observation_lost' },
+      }),
+    ])
+
+    const rows = await db.root<{ reason: string }>(
+      `select properties ->> 'end_reason' as reason
+         from public.analytics_events
+        where event_name in ('watching_together_ended', 'post_social_retention_ended')
+        order by event_name`,
+    )
+    expect(rows.map((row) => row.reason)).toEqual(['observation_lost', 'observation_lost'])
+  })
+
+  it('is visible in the reporting views as what it is', async () => {
+    const t0 = Date.now() - 60 * 60 * 1000
+    const iso = (ms: number) => new Date(ms).toISOString()
+    const session = '44444444-4444-4444-8444-444444444444'
+
+    await track(nina, [
+      {
+        event_name: 'watching_together_started',
+        environment: 'private_beta',
+        session_id: session,
+        occurred_at: iso(t0),
+        destination_channel: 'summit1g',
+        properties: { other_count: 2, from_join: false },
+      },
+      {
+        event_name: 'watching_together_ended',
+        environment: 'private_beta',
+        session_id: session,
+        // Dated to the last moment we could vouch for, ten minutes in - not to
+        // the three-hours-later moment we noticed.
+        occurred_at: iso(t0 + 600_000),
+        destination_channel: 'summit1g',
+        properties: {
+          other_count_peak: 2,
+          duration_ms: 600_000,
+          end_reason: 'observation_lost',
+          detection_delay_ms: 3 * 60 * 60 * 1000,
+        },
+      },
+    ])
+
+    const [row] = await db.root<{
+      reason: string
+      duration: string
+      delay: string
+      retained: boolean
+    }>(
+      `select end_reason as reason, duration::text as duration,
+              detection_delay::text as delay, post_social_retained as retained
+         from public.analytics_together_v`,
+    )
+
+    expect(row.reason).toBe('observation_lost')
+    // Ten minutes of measured co-viewing, three hours of not knowing.
+    expect(row.duration).toBe('00:10:00')
+    expect(row.delay).toBe('03:00:00')
+    expect(row.retained).toBe(false)
+  })
+})

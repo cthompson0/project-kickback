@@ -26,30 +26,74 @@ function harness(options: { enabled?: boolean; environment?: 'private_beta' | 'p
     },
   })
 
-  const hub = createAnalyticsHub({
-    backend: {
-      async send(events) {
-        if (failing) throw new Error('backend down')
-        sent.push(...events)
-        return events.length
+  let selfId: string | null = 'user-a'
+
+  const build = () =>
+    createAnalyticsHub({
+      backend: {
+        async send(events) {
+          if (failing) throw new Error('backend down')
+          sent.push(...events)
+          return events.length
+        },
       },
-    },
-    environment: options.environment ?? 'private_beta',
-    appVersion: '0.5.0',
-    enabled: options.enabled ?? true,
-    sessionStore: cell('session'),
-    attributionStore: cell('join'),
-    canSend: () => signedIn,
-    now: () => clock,
-  })
+      environment: options.environment ?? 'private_beta',
+      appVersion: '0.5.0',
+      enabled: options.enabled ?? true,
+      sessionStore: cell('session'),
+      attributionStore: cell('join'),
+      lifecycleStore: cell('lifecycle'),
+      canSend: () => signedIn,
+      selfId: () => selfId,
+      now: () => clock,
+    })
+
+  /*
+   * A mutable reference, because a worker restart is modelled by building a
+   * SECOND hub over the same storage and throwing the first away. Nothing else
+   * reproduces the thing being tested: the state machine starts empty and
+   * everything it is supposed to remember has to come back out of storage.
+   */
+  let hub = build()
 
   // Deterministic ids, so the funnel can be asserted rather than eyeballed.
   const originalUuid = crypto.randomUUID
   crypto.randomUUID = (() => `00000000-0000-4000-8000-${String(++ids).padStart(12, '0')}`) as never
 
   return {
-    hub,
+    get hub() {
+      return hub
+    },
     sent,
+    /** What Chrome evicting the service worker actually does to us. */
+    restartWorker: () => {
+      hub = build()
+    },
+    setSelfId: (value: string | null) => {
+      selfId = value
+    },
+    /**
+     * Time passing while the worker is alive and the user is watching.
+     *
+     * Models the presence heartbeat, which calls through to noteTogether every
+     * 45 seconds - the signal that keeps the stored interval's last-seen
+     * timestamp fresh. Advancing the clock without it would model the worker
+     * being dead, which is a different test.
+     */
+    keepAlive: async (totalMs: number, channel: string | null, otherCount: number) => {
+      const beat = 45_000
+      for (let elapsed = 0; elapsed < totalMs; elapsed += beat) {
+        clock += Math.min(beat, totalMs - elapsed)
+        hub.noteTogether({ channel, otherCount })
+      }
+      for (let index = 0; index < 5; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+      await hub.flush()
+      for (let index = 0; index < 5; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
+    },
     restore: () => {
       crypto.randomUUID = originalUuid
     },
@@ -632,6 +676,507 @@ describe('what never reaches the wire', () => {
         expect(Object.keys(event)).not.toContain('actor_id')
         expect(Object.keys(event)).not.toContain('user_id')
       }
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+/**
+ * Surviving the service worker being evicted.
+ *
+ * The tracker is a state machine in a closure and an MV3 worker is thrown away
+ * whenever Chrome feels like it. A shared watch runs for however long people
+ * watch together and the retention after it for however long somebody stays
+ * on - both routinely longer than a worker lives. When the worker died
+ * mid-interval the end was never emitted, and if the user was still watching
+ * with somebody a second START was, counting one evening as two.
+ *
+ * Every test here models a restart the only way that proves anything: by
+ * building a SECOND hub over the same storage and throwing the first away, so
+ * the state machine really does begin empty and everything it is supposed to
+ * remember has to come back out of storage.
+ */
+describe('surviving a worker restart', () => {
+  const MINUTE = 60 * 1000
+
+  it('resumes a shared watch that is still going', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      expect(h.named('watching_together_started')).toHaveLength(1)
+
+      // Ten minutes of watching, with the heartbeat ticking as it does while
+      // the worker is alive.
+      await h.keepAlive(10 * MINUTE, 'summit1g', 1)
+
+      // Then Chrome throws the worker away, and a moment later it is back.
+      h.advance(3_000)
+      h.restartWorker()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      // The interval continued. A second start would have counted one evening
+      // as two, which is the bug this exists for.
+      expect(h.named('watching_together_started')).toHaveLength(1)
+      expect(h.named('watching_together_ended')).toHaveLength(0)
+
+      await h.keepAlive(10 * MINUTE, 'summit1g', 1)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      // Twenty minutes and change, measured from the original start rather
+      // than from the restart.
+      expect(end.properties.duration_ms).toBe(20 * MINUTE + 3_000)
+      expect(end.properties.end_reason).toBe('left_channel')
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('carries post-social retention through a restart', async () => {
+    const h = harness()
+    try {
+      // A JOIN brings the user to summit1g, where somebody already is.
+      h.hub.noteActive()
+      h.hub.recordJoin({
+        channel: 'summit1g',
+        source: 'friend_row',
+        socialCount: 1,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      h.hub.noteChannel('summit1g')
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const attribution = h.named('join_clicked')[0].attribution_id
+      const startedAt = 1_700_000_000_000
+
+      // The friend leaves after ten minutes and the grace expires, so the
+      // retention interval is open when the worker dies.
+      h.advance(10 * MINUTE)
+      const friendLeftAt = startedAt + 10 * MINUTE
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      h.advance(3 * MINUTE)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      expect(h.named('watching_together_ended')).toHaveLength(1)
+      expect(h.named('post_social_retention_ended')).toHaveLength(0)
+
+      h.restartWorker()
+
+      // Still watching on alone; the new worker picks the interval back up.
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      expect(h.named('post_social_retention_ended')).toHaveLength(0)
+
+      // Twenty more minutes alone, then they leave.
+      h.advance(20 * MINUTE)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const post = h.named('post_social_retention_ended')
+      expect(post).toHaveLength(1)
+      // Measured from when the friend actually left, across the restart.
+      expect(post[0].properties.duration_ms).toBe(23 * MINUTE)
+      expect(post[0].properties.end_reason).toBe('left_channel')
+      // destination_left_at, and the JOIN that is still responsible for it.
+      expect(Date.parse(post[0].occurred_at)).toBe(friendLeftAt + 23 * MINUTE)
+      expect(post[0].attribution_id).toBe(attribution)
+      expect(post[0].properties.from_join).toBe(true)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('resumes mid-grace without ending the shared watch', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      h.advance(10 * MINUTE)
+      // The co-viewer drops off; the two-minute grace starts.
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      const droppedAt = 1_700_000_000_000 + 10 * MINUTE
+
+      h.advance(30_000)
+      h.restartWorker()
+
+      // They come back inside the grace: a flap, not a departure.
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      expect(h.named('watching_together_ended')).toHaveLength(0)
+
+      h.advance(10 * MINUTE)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      // The whole stretch counts, flap and restart included.
+      expect(end.properties.duration_ms).toBe(20 * MINUTE + 30_000)
+      expect(Date.parse(end.occurred_at)).toBeGreaterThan(droppedAt)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('keeps the effective end when the restart lands between end and detection', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const startedAt = 1_700_000_000_000
+
+      // The co-viewer goes. The grace has not expired, so nothing is emitted -
+      // the pending end lives only in the interval's aloneSince.
+      await h.keepAlive(10 * MINUTE, 'summit1g', 1)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      expect(h.named('watching_together_ended')).toHaveLength(0)
+
+      // The worker dies a minute into the grace, and is back thirty seconds
+      // later - so the grace expires on the far side of the restart.
+      h.advance(60_000)
+      h.restartWorker()
+      h.advance(90_000)
+
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      /*
+       * Ten minutes, dated to when the co-viewer actually went - even though
+       * the worker that saw them go no longer exists and the grace expired
+       * under a different one. The pending end travelled through storage in
+       * the interval's aloneSince.
+       */
+      expect(end.properties.duration_ms).toBe(10 * MINUTE)
+      expect(Date.parse(end.occurred_at)).toBe(startedAt + 10 * MINUTE)
+      expect(end.properties.end_reason).toBe('alone_again')
+      expect(end.properties.detection_delay_ms).toBe(150_000)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('keeps a JOIN attributable when the restart happens before anyone is there', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.recordJoin({
+        channel: 'summit1g',
+        source: 'gathering',
+        socialCount: 3,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      h.hub.noteChannel('summit1g')
+      await h.settle()
+      const attribution = h.named('join_clicked')[0].attribution_id
+      expect(h.named('join_arrived')).toHaveLength(1)
+
+      // No shared watch yet - presence has not caught up. Then the worker dies.
+      h.advance(30_000)
+      h.restartWorker()
+
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 3 })
+      await h.settle()
+
+      const [started] = h.named('watching_together_started')
+      // The attribution survives in its own store, so the shared watch is
+      // still that JOIN's outcome.
+      expect(started.attribution_id).toBe(attribution)
+      expect(started.properties.from_join).toBe(true)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('closes a stale interval at the last moment it could vouch for', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+      const startedAt = 1_700_000_000_000
+
+      // Ten minutes of watching together, and then the laptop lid is shut.
+      h.advance(10 * MINUTE)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+      const lastSeenAt = startedAt + 10 * MINUTE
+
+      // Three hours later the machine wakes and the tab is still open.
+      h.advance(3 * 60 * MINUTE)
+      h.restartWorker()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+
+      const ends = h.named('watching_together_ended')
+      expect(ends).toHaveLength(1)
+      /*
+       * Ten minutes, not three hours and ten. We have no idea what happened
+       * while nothing was running, so the interval is closed at the last
+       * moment we could vouch for and labelled as what it is.
+       */
+      expect(ends[0].properties.duration_ms).toBe(10 * MINUTE)
+      expect(Date.parse(ends[0].occurred_at)).toBe(lastSeenAt)
+      expect(ends[0].properties.end_reason).toBe('observation_lost')
+
+      // And the world we woke up to starts a fresh interval of its own.
+      expect(h.named('watching_together_started')).toHaveLength(2)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('closes an interval whose channel changed while nothing was running', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const startedAt = 1_700_000_000_000
+
+      h.advance(10 * MINUTE)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      h.advance(MINUTE)
+      h.restartWorker()
+      // They are on a different channel now.
+      h.hub.noteTogether({ channel: 'lirik', otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      // They did leave; we simply did not see when, so it ends at the last
+      // moment we could vouch for and the gap is reported as detection lag.
+      expect(end.properties.end_reason).toBe('left_channel')
+      expect(end.properties.duration_ms).toBe(10 * MINUTE)
+      expect(Date.parse(end.occurred_at)).toBe(startedAt + 10 * MINUTE)
+      expect(end.properties.detection_delay_ms).toBe(MINUTE)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('does not double-emit across several restarts', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      for (let round = 0; round < 5; round += 1) {
+        h.advance(2 * MINUTE)
+        h.restartWorker()
+        h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+        await h.settle()
+      }
+
+      expect(h.named('watching_together_started')).toHaveLength(1)
+      expect(h.named('watching_together_ended')).toHaveLength(0)
+
+      h.advance(MINUTE)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+      expect(h.named('watching_together_ended')).toHaveLength(1)
+      expect(h.named('watching_together_started')).toHaveLength(1)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('pins the interval to the session it began in', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const startedSession = h.named('watching_together_started')[0].session_id
+
+      // Long enough that the analytics session itself has expired, so the
+      // worker that wakes up opens a new one.
+      h.advance(3 * 60 * MINUTE)
+      h.restartWorker()
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      /*
+       * The end carries the session the interval STARTED in.
+       *
+       * The reporting views pair a start with its end on actor, session and
+       * channel. An end filed under the new session would pair with nothing,
+       * turning one shared watch into an unfinished start plus an orphan end.
+       */
+      expect(end.session_id).toBe(startedSession)
+      expect(h.named('extension_session_started').length).toBeGreaterThan(1)
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+describe('the stored interval and other accounts', () => {
+  const MINUTE = 60 * 1000
+
+  it('never emits one account interval under the next', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const before = h.sent.length
+
+      // A different person signs in on the same machine, and the worker has
+      // been restarted in between.
+      h.advance(MINUTE)
+      h.restartWorker()
+      h.setSelfId('user-b')
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      /*
+       * User A's interval is dropped rather than ended.
+       *
+       * The actor on every event is auth.uid() server-side, so emitting the
+       * end now would file A's viewing under B's name. Losing the interval is
+       * the correct trade.
+       */
+      const ends = h.sent.slice(before).filter((e) => e.event_name === 'watching_together_ended')
+      expect(ends).toHaveLength(0)
+      // B gets a clean start of their own.
+      expect(h.named('watching_together_started')).toHaveLength(2)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('clears the stored interval on sign-out', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      expect(h.storage().lifecycle).toBeTruthy()
+
+      h.advance(5 * MINUTE)
+      h.hub.noteSignedOut()
+      await h.settle()
+
+      // Ended properly, and nothing left behind for the next account to find.
+      expect(h.named('watching_together_ended')).toHaveLength(1)
+      expect(h.storage().lifecycle ?? null).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('ends an interval a restarted worker never saw, on sign-out', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const startedAt = 1_700_000_000_000
+
+      // The worker restarts and the user signs out before any presence
+      // arrives, so this worker has never seen the interval in memory.
+      h.advance(2 * MINUTE)
+      h.restartWorker()
+      h.hub.noteSignedOut()
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      expect(end).toBeDefined()
+      // Closed at the last moment we could vouch for, not at the sign-out.
+      expect(Date.parse(end.occurred_at)).toBe(startedAt)
+      expect(h.storage().lifecycle ?? null).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('stores nothing once the interval is over', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      expect(h.storage().lifecycle).toBeTruthy()
+
+      h.advance(5 * MINUTE)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      // Nothing about what anybody watched is left lying around.
+      expect(h.storage().lifecycle ?? null).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('fails closed on a corrupt stored interval', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const before = h.sent.length
+
+      // Whatever wrote this, it is not something this version understands.
+      h.storage().lifecycle = { userId: 'user-a', state: { channel: 42 }, lastSeenAt: 'soon' }
+
+      h.advance(MINUTE)
+      h.restartWorker()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      // No interval resumed, no end invented from a shape we cannot read.
+      const ends = h.sent.slice(before).filter((e) => e.event_name === 'watching_together_ended')
+      expect(ends).toHaveLength(0)
+      expect(h.named('watching_together_started')).toHaveLength(2)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('stores nothing while there is nobody to store it for', async () => {
+    const h = harness()
+    try {
+      // Signed out, so there is no actor. The interval is still tracked in
+      // memory - it may become attributable once somebody signs in - but
+      // nothing about anyone's viewing is written down with no owner on it.
+      h.setSelfId(null)
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+
+      expect(h.storage().lifecycle ?? null).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('stores nothing at all when analytics is disabled', async () => {
+    const h = harness({ enabled: false })
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+      expect(h.storage()).toEqual({})
     } finally {
       h.restore()
     }

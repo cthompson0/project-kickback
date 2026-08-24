@@ -44,6 +44,15 @@
  * whoever happened to still be there at the end.
  */
 
+import type { PostSocialEndReason, TogetherEndReason } from '../core/analytics'
+
+/*
+ * Re-exported so callers of this module get the whole vocabulary from one
+ * place, while core stays the single definition. Two enums that must agree is
+ * a promise nobody keeps.
+ */
+export type { PostSocialEndReason, TogetherEndReason }
+
 export interface TogetherState {
   channel: string
   startedAt: number
@@ -60,8 +69,6 @@ export interface TogetherState {
   socialEndedAt: number | null
 }
 
-export type TogetherEndReason = 'left_channel' | 'alone_again' | 'session_ended'
-export type PostSocialEndReason = 'left_channel' | 'rejoined' | 'session_ended'
 
 export type TogetherEvent =
   | {
@@ -119,6 +126,35 @@ export interface TogetherWatch {
    */
   wantsAttribution(): boolean
   current(): TogetherState | null
+
+  // --------------------------------------------------- surviving a restart
+  //
+  // An MV3 worker is evicted whenever Chrome feels like it, and a shared watch
+  // or the retention after it can run for hours. These three let the hub keep
+  // the open interval in extension storage without this file knowing storage
+  // exists - it stays a pure state machine, and every rule above stays
+  // testable without a browser.
+
+  /** A plain copy of the open interval, safe to serialise. */
+  snapshot(): TogetherState | null
+  /**
+   * Install an interval read back from storage.
+   *
+   * Emits nothing, deliberately: the start was recorded before the worker
+   * died, and a second one would double-count it.
+   */
+  restore(state: TogetherState): void
+  /**
+   * Close a restored interval as of a moment in the past.
+   *
+   * For when the world moved on while nothing was running: the interval ended
+   * at the last moment we could vouch for, and we are only finding out now.
+   */
+  closeAt(
+    reason: TogetherEndReason & PostSocialEndReason,
+    effectiveAt: number,
+    detectedAt: number,
+  ): TogetherEvent[]
 }
 
 export function createTogetherWatch(deps: TogetherWatchDeps = {}): TogetherWatch {
@@ -179,7 +215,16 @@ export function createTogetherWatch(deps: TogetherWatchDeps = {}): TogetherWatch
    * it ends now. Handling both here means the two phases can never disagree
    * about when one stopped and the other started.
    */
-  function closeAll(reason: TogetherEndReason & PostSocialEndReason, at: number): TogetherEvent[] {
+  function closeAll(
+    reason: TogetherEndReason & PostSocialEndReason,
+    at: number,
+    /*
+     * When we worked it out, which differs from the moment above only when
+     * closing a lifecycle restored from storage: that one ended at the last
+     * moment we could vouch for, and was noticed now.
+     */
+    detectedAt: number = at,
+  ): TogetherEvent[] {
     if (!state) return []
     const out: TogetherEvent[] = []
 
@@ -193,7 +238,9 @@ export function createTogetherWatch(deps: TogetherWatchDeps = {}): TogetherWatch
        * user navigating away several minutes later. Reporting that as
        * `left_channel` was the second half of the observed bug.
        */
-      out.push(togetherEnded(state.aloneSince !== null ? 'alone_again' : reason, effectiveAt, at))
+      out.push(
+        togetherEnded(state.aloneSince !== null ? 'alone_again' : reason, effectiveAt, detectedAt),
+      )
       if (state.aloneSince !== null) out.push(postSocialEnded(reason, state.aloneSince, at))
     } else {
       out.push(postSocialEnded(reason, state.socialEndedAt, at))
@@ -303,5 +350,20 @@ export function createTogetherWatch(deps: TogetherWatchDeps = {}): TogetherWatch
     wantsAttribution: () => state === null,
 
     current: () => state,
+
+    snapshot: () => (state ? { ...state } : null),
+
+    restore(restored: TogetherState): void {
+      // Copied, so a caller holding the object it read out of storage cannot
+      // mutate the machine's state behind its back.
+      state = { ...restored }
+      pendingAttribution = null
+    },
+
+    closeAt(reason, effectiveAt, detectedAt): TogetherEvent[] {
+      const events = closeAll(reason, effectiveAt, detectedAt)
+      pendingAttribution = null
+      return events
+    },
   }
 }

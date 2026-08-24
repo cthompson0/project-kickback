@@ -22,6 +22,9 @@ import { createJoinAttribution } from './joinAttribution'
 import type { AttributionStore } from './joinAttribution'
 import { createExposureTracker, friendPresenceKey, gatheringKey } from './exposure'
 import { createTogetherWatch } from './togetherWatch'
+import { reconcileLifecycle } from './togetherStore'
+import type { PersistedLifecycle } from './togetherStore'
+import type { StoredValue } from './storedValue'
 import { normalizeChannel } from '../core/analytics'
 import type {
   AnalyticsEnvironment,
@@ -29,6 +32,14 @@ import type {
   AnalyticsEventName,
   AnalyticsSurface,
 } from '../core/analytics'
+
+/**
+ * How often the open interval's last-seen timestamp is refreshed in storage.
+ *
+ * It only has to be finer than the window a restart is judged against, and
+ * this is an order of magnitude finer.
+ */
+const LAST_SEEN_WRITE_MS = 30_000
 
 export interface ExposureReport {
   friends: Array<{
@@ -46,8 +57,24 @@ export interface AnalyticsHubDeps {
   enabled: boolean
   sessionStore: SessionStore
   attributionStore: AttributionStore
+  /**
+   * Where the currently open shared watch lives between worker lives.
+   *
+   * An MV3 worker is evicted at will and these intervals run for hours, so
+   * without this the long ones - the ones worth measuring - were the ones
+   * most likely to be lost. See togetherStore.ts.
+   */
+  lifecycleStore: StoredValue<PersistedLifecycle>
   /** True once there is a signed-in user to attribute events to. */
   canSend: () => boolean
+  /**
+   * Who is signed in, for the stored lifecycle's owner check.
+   *
+   * Separate from canSend because "may we send" and "whose interval is this"
+   * are different questions, and conflating them is how one account's viewing
+   * ends up recorded against another's.
+   */
+  selfId: () => string | null
   now?: () => number
   onError?: (context: string, error: unknown) => void
 }
@@ -109,6 +136,24 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
   /** Guards the whole surface, so a disabled build has no live code path at all. */
   const off = !deps.enabled
 
+  /**
+   * The session the open interval began in, pinned for its whole life.
+   *
+   * The reporting views pair a start with its end on (actor, session,
+   * channel). An interval that outlives its session - a worker gone long
+   * enough that the session expired - would otherwise end under a new id and
+   * pair with nothing, turning one shared watch into an unfinished start plus
+   * an orphan end.
+   */
+  let lifecycleSessionId: string | null = null
+
+  /** Whether this worker has looked in storage yet. Once per worker life. */
+  let lifecycleRestored = false
+
+  /** What was last written, so an unchanged interval is not rewritten. */
+  let persistedJson: string | null = null
+  let persistedAt = 0
+
   /*
    * Serialises the storage-backed work.
    *
@@ -148,11 +193,15 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
   function emitTogether(events: ReturnType<typeof together.update>): void {
     for (const event of events) {
       if (event.type === 'started') {
+        // A new interval belongs to whatever session is open now, and keeps
+        // that id even if it outlives the session.
+        lifecycleSessionId = session.currentId()
         record({
           name: 'watching_together_started',
           properties: { other_count: event.otherCount, from_join: event.attributionId !== null },
           channel: event.channel,
           attributionId: event.attributionId,
+          sessionId: lifecycleSessionId,
           occurredAt: event.at,
         })
         continue
@@ -169,6 +218,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
           },
           channel: event.channel,
           attributionId: event.attributionId,
+          sessionId: lifecycleSessionId,
           /*
            * The EFFECTIVE end, not the moment we noticed.
            *
@@ -193,9 +243,92 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
         },
         channel: event.channel,
         attributionId: event.attributionId,
+        sessionId: lifecycleSessionId,
         occurredAt: event.at,
       })
     }
+
+    // The interval is over, so the pinned session goes with it. The next one
+    // will pin whatever session is open when it starts.
+    if (!together.current()) lifecycleSessionId = null
+  }
+
+  /**
+   * Writes the open interval to storage, or removes it once there is none.
+   *
+   * Throttled on the last-seen timestamp alone: noteTogether runs on every
+   * presence change, which is several times a minute with a few friends
+   * online, and rewriting an unchanged interval that often would be silly.
+   * Anything that actually changes the interval is written immediately.
+   */
+  async function persistLifecycle(now: number): Promise<void> {
+    const state = together.snapshot()
+
+    if (!state) {
+      if (persistedJson !== null) {
+        await deps.lifecycleStore.write(null)
+        persistedJson = null
+      }
+      return
+    }
+
+    // No actor means nothing we could safely resume under later.
+    const userId = deps.selfId()
+    if (!userId) return
+
+    const json = JSON.stringify(state)
+    if (json === persistedJson && now - persistedAt < LAST_SEEN_WRITE_MS) return
+
+    await deps.lifecycleStore.write({
+      userId,
+      sessionId: lifecycleSessionId,
+      state,
+      // Written now because we have just confirmed the user is on that
+      // channel; this is the moment a restart would close the interval at.
+      lastSeenAt: now,
+    })
+    persistedJson = json
+    persistedAt = now
+  }
+
+  /**
+   * Reads the stored interval back, once per worker life, and acts on it.
+   *
+   * Every rule lives in reconcileLifecycle, which is pure; this only applies
+   * the decision. Resume installs the interval and emits nothing - the start
+   * was recorded before the worker died, and a second one would double-count
+   * it. Close emits the ends at the last moment we could vouch for.
+   */
+  async function ensureLifecycle(channel: string | null, now: number): Promise<void> {
+    if (lifecycleRestored) return
+    // Set first: a failure below must not make this run again and again, and
+    // whatever went wrong, the safe state is "nothing restored".
+    lifecycleRestored = true
+
+    const stored = await deps.lifecycleStore.read()
+    const decision = reconcileLifecycle(stored, { userId: deps.selfId(), channel, now })
+
+    if (decision.action === 'discard') {
+      // Includes another account's interval, which is dropped rather than
+      // emitted: the actor is always auth.uid() server-side, so recording it
+      // now would file one person's viewing under another's name.
+      if (stored) await deps.lifecycleStore.write(null)
+      persistedJson = null
+      return
+    }
+
+    lifecycleSessionId = decision.lifecycle.sessionId
+    together.restore(decision.lifecycle.state)
+
+    if (decision.action === 'resume') {
+      persistedJson = JSON.stringify(decision.lifecycle.state)
+      persistedAt = decision.lifecycle.lastSeenAt
+      return
+    }
+
+    emitTogether(together.closeAt(decision.reason, decision.effectiveAt, now))
+    await deps.lifecycleStore.write(null)
+    persistedJson = null
   }
 
   return {
@@ -245,7 +378,17 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
     noteSignedOut(): void {
       if (off) return
       serial(async () => {
+        /*
+         * A worker that started and signed out without ever seeing presence
+         * still has an interval in storage. Restoring it first means it is
+         * ended properly rather than left to be found - and closed at the last
+         * moment we could vouch for, not at the moment of the sign-out.
+         */
+        await ensureLifecycle(null, now())
         emitTogether(together.stop())
+        await deps.lifecycleStore.write(null)
+        persistedJson = null
+        lifecycleSessionId = null
         const closed = await session.close()
         if (closed) {
           recorder.track({
@@ -342,6 +485,14 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       const login = normalizeChannel(channel)
       serial(async () => {
         /*
+         * Before anything else, and only once per worker life: whatever
+         * interval was open when the last worker died is either resumed or
+         * closed here. Doing it lazily rather than at startup means there is
+         * no ordering to get wrong - this is the first place that needs it.
+         */
+        await ensureLifecycle(login, now())
+
+        /*
          * A shared watch beginning on a channel a JOIN led to is that JOIN's
          * outcome even if presence took a minute to catch up.
          *
@@ -355,6 +506,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
           if (credit) together.attribute(credit.id)
         }
         emitTogether(together.update({ channel: login, otherCount }))
+        await persistLifecycle(now())
       }, 'analytics.noteTogether')
     },
 

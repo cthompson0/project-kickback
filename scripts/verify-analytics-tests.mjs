@@ -45,6 +45,10 @@ const DB_SUITE = 'tests/db/analytics.test.ts'
 const MIGRATION_15 = 'supabase/migrations/0015_social_discovery.sql'
 const VIEWS_16 = 'supabase/migrations/0016_social_discovery_views.sql'
 const LIFECYCLE_SUITE = 'tests/extension/socialLifecycle.test.ts'
+const WATCH = 'src/background/togetherWatch.ts'
+const STORE = 'src/background/togetherStore.ts'
+const PRESENCE = 'src/background/presence.ts'
+const STORE_SUITE = 'tests/extension/togetherStore.test.ts'
 
 const MUTATIONS = [
   // ------------------------------------------------------------- privacy
@@ -443,8 +447,9 @@ const MUTATIONS = [
   {
     name: 'together: blame whatever revealed the end rather than what caused it',
     file: TOGETHER,
-    from: "      out.push(togetherEnded(state.aloneSince !== null ? 'alone_again' : reason, effectiveAt, at))",
-    to: '      out.push(togetherEnded(reason, effectiveAt, at))',
+    from:
+      "      out.push(\n        togetherEnded(state.aloneSince !== null ? 'alone_again' : reason, effectiveAt, detectedAt),\n      )",
+    to: '      out.push(togetherEnded(reason, effectiveAt, detectedAt))',
     expect: 'says it ended because everyone left, not because B did',
     suite: LIFECYCLE_SUITE,
   },
@@ -577,6 +582,145 @@ const MUTATIONS = [
     to: '  e.occurred_at\n    + make_interval(secs => coalesce((e.properties ->> \'detection_delay_ms\')::bigint, 0) / 1000.0)\n                                as effective_ended_at,',
     expect: 'separates when co-viewing ended from when we noticed',
     suite: DB_SUITE,
+  },
+
+  // ------------------------------------------- surviving a worker restart
+  //
+  // The interval state is in a closure and an MV3 worker is evicted at will,
+  // so the intervals most likely to be lost were the long ones - exactly the
+  // ones Social Gravity will be judged on. These break each recovery rule in
+  // turn.
+  {
+    name: 'restart: never write the open interval down',
+    file: HUB,
+    from: '        emitTogether(together.update({ channel: login, otherCount }))\n        await persistLifecycle(now())',
+    to: '        emitTogether(together.update({ channel: login, otherCount }))',
+    expect: 'resumes a shared watch that is still going',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: never read it back',
+    file: HUB,
+    from: '        await ensureLifecycle(login, now())',
+    to: '',
+    expect: 'resumes a shared watch that is still going',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: emit a second start when resuming',
+    file: WATCH,
+    from: '      state = { ...restored }\n      pendingAttribution = null',
+    to: '      pendingAttribution = null',
+    expect: 'does not double-emit across several restarts',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: credit the whole outage as viewing time',
+    file: STORE,
+    from: "      effectiveAt: stored.lastSeenAt,\n      reason: 'observation_lost',",
+    to: "      effectiveAt: world.now,\n      reason: 'observation_lost',",
+    expect: 'closes a stale interval at the last moment it could vouch for',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: resume however long the gap was',
+    file: STORE,
+    from: '  if (world.now - stored.lastSeenAt > resumeWindowMs) {',
+    to: '  if (false) {',
+    expect: 'closes a stale interval at the last moment it could vouch for',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: resume an interval for a channel they are no longer on',
+    file: STORE,
+    from: '  if (stored.state.channel !== world.channel) {',
+    to: '  if (false) {',
+    expect: 'closes an interval whose channel changed while nothing was running',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: split every restart into two intervals',
+    file: STORE,
+    from: "  return { action: 'resume', lifecycle: stored }",
+    to: "  return {\n    action: 'close',\n    lifecycle: stored,\n    effectiveAt: stored.lastSeenAt,\n    reason: 'observation_lost',\n  }",
+    expect: 'resumes a shared watch that is still going',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: lose the post-social interval across a restart',
+    file: HUB,
+    from: '    lifecycleSessionId = decision.lifecycle.sessionId\n    together.restore(decision.lifecycle.state)',
+    to: '    lifecycleSessionId = decision.lifecycle.sessionId',
+    expect: 'carries post-social retention through a restart',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'restart: file the end under whatever session is open now',
+    file: HUB,
+    from: "        lifecycleSessionId = session.currentId()\n        record({\n          name: 'watching_together_started',",
+    to: "        lifecycleSessionId = null\n        record({\n          name: 'watching_together_started',",
+    expect: 'pins the interval to the session it began in',
+    suite: HUB_SUITE,
+  },
+
+  // --------------------------------------------------- account and cleanup
+  {
+    name: 'accounts: resume one person interval under the next',
+    file: STORE,
+    from: "  if (stored.userId !== world.userId) return { action: 'discard', why: 'other_account' }",
+    to: '',
+    expect: 'never emits one account interval under the next',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'accounts: keep the stored interval after signing out',
+    file: HUB,
+    from: '        await deps.lifecycleStore.write(null)\n        persistedJson = null\n        lifecycleSessionId = null',
+    to: '        lifecycleSessionId = null',
+    expect: 'clears the stored interval on sign-out',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'cleanup: leave the interval in storage once it is over',
+    file: HUB,
+    from: '    if (!state) {\n      if (persistedJson !== null) {\n        await deps.lifecycleStore.write(null)\n        persistedJson = null\n      }\n      return\n    }',
+    to: '    if (!state) return',
+    expect: 'stores nothing once the interval is over',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'cleanup: trust whatever shape storage returns',
+    file: STORE,
+    from: '  if (typeof state.channel !== \'string\' || state.channel === \'\') return false',
+    to: '',
+    expect: 'rejects anything it does not fully understand',
+    suite: STORE_SUITE,
+  },
+  {
+    name: 'cleanup: persist an interval with no owner',
+    file: HUB,
+    from: '    const userId = deps.selfId()\n    if (!userId) return',
+    to: "    const userId = deps.selfId() ?? 'unknown'",
+    expect: 'stores nothing while there is nobody to store it for',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'disabled: write the interval to storage anyway',
+    file: HUB,
+    from: '  const off = !deps.enabled',
+    to: '  const off = false',
+    expect: 'stores nothing at all when analytics is disabled',
+    suite: HUB_SUITE,
+  },
+
+  // ------------------------------------------------------ liveness signal
+  {
+    name: 'liveness: stop refreshing last-seen on the heartbeat',
+    file: PRESENCE,
+    from: '      deps.onHeartbeat?.()',
+    to: '',
+    expect: 'ticks on every presence heartbeat, before the write',
+    suite: STORE_SUITE,
   },
 ]
 

@@ -30,6 +30,16 @@ export interface PresenceReporterDeps {
   heartbeatMs?: number
   /** How long to wait before declaring offline after the last tab goes. */
   offlineGraceMs?: number
+  /**
+   * Called on every heartbeat tick, before the write.
+   *
+   * The one periodic signal that exists only while the worker is alive AND
+   * the user is online. Analytics uses it to keep the open shared watch's
+   * last-seen timestamp fresh, so a service-worker restart can be told apart
+   * from a laptop that was shut for three hours - which is otherwise exactly
+   * the same thing from the far side of the gap.
+   */
+  onHeartbeat?: () => void
   onError?: (context: string, error: unknown) => void
 }
 
@@ -76,6 +86,9 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
   function startHeartbeat(): void {
     if (heartbeatTimer !== undefined) return
     heartbeatTimer = setInterval(() => {
+      // Before the write, and regardless of whether it succeeds: this says
+      // the worker is running and the user is online, which is true either way.
+      deps.onHeartbeat?.()
       void deps.backend.heartbeat().then((result) => {
         if (result.error) deps.onError?.('heartbeat', result.error)
       })

@@ -246,6 +246,43 @@ So every end carries **both** times:
 `detection_delay` as separate columns. **A late detection can no longer inflate
 a duration**, and how late we were stays visible instead of being lost.
 
+### Surviving the service worker being evicted
+
+An MV3 worker is thrown away whenever Chrome decides to, and both intervals
+routinely outlive one. Held only in memory, an evicted worker took the open
+interval with it: the end was never emitted, and if the user was still watching
+with somebody a second **start** was — counting one evening as two. The numbers
+most likely to be lost were the long ones.
+
+So the currently open interval is kept in `chrome.storage.local`: the phase,
+the destination, its timestamps, the attribution, the peak count, the session it
+began in, and when we last confirmed the user was there. **One value, describing
+only what is open right now.** No history, no list of channels, no events. It is
+deleted the moment the interval closes, so somebody who is not in a shared watch
+has nothing about their viewing stored anywhere.
+
+Coming back, we do not guess:
+
+| On restart | What happens |
+|---|---|
+| Same channel, gap under **5 minutes** | Resume. Nothing is emitted — the start was already recorded. |
+| Gap over 5 minutes | **Close** at the last moment we could vouch for, reason `observation_lost`. |
+| Channel changed | **Close** at the last moment we could vouch for, reason `left_channel`; the gap becomes detection lag. |
+| A different account's interval | **Discard silently.** The actor is `auth.uid()` server-side, so emitting it would file one person's viewing under another's name. |
+| Unreadable stored value | Discard. Fails closed: nothing resumed, nothing invented. |
+
+That is deliberately conservative. A long eviction is split into two intervals
+rather than credited as unbroken viewing — under-reporting, never over-reporting.
+An interval also keeps the **session id it began in**, so its end pairs with its
+start in the reporting views even when it outlives that session.
+
+The gap is measured against the presence heartbeat, which ticks every 45s while
+the worker is alive and the user is online. That is what distinguishes a
+two-second restart from a laptop shut for three hours — without it, a quiet ten
+minutes of watching looked identical to being away. It also means the
+"everyone left" grace now expires on its own rather than waiting for the user to
+move, so detection lag is usually seconds rather than however long they stay.
+
 ### Hysteresis, and why durations still exclude it
 
 - Presence heartbeats every 45s and goes stale at 90s, so a friend can briefly
@@ -267,6 +304,7 @@ a duration**, and how late we were stays visible instead of being lost.
 | Friend returns after the context dissolved | a **new** shared watch starts | ends, reason `rejoined` |
 | User changes channel | ends | ends, reason `left_channel` |
 | Sign-out | ends, reason `session_ended` | ends, reason `session_ended` |
+| Worker evicted, gap over 5 min | ends, reason `observation_lost` | ends, reason `observation_lost` |
 | Co-viewing that no JOIN caused | measured | measured, but with **no attribution** |
 
 That last row matters. The intervals are facts and are recorded either way; the
@@ -715,6 +753,7 @@ interpretation stays in the query, where it can be argued with.
 | JOIN attribution | `src/background/joinAttribution.ts` |
 | Impression dedupe | `src/background/exposure.ts` |
 | Shared-watch and post-social detection | `src/background/togetherWatch.ts` |
+| Surviving a worker restart | `src/background/togetherStore.ts` |
 | Schema, contract, writer, reset | `supabase/migrations/0013_analytics.sql` |
 | Reporting views | `supabase/migrations/0014_analytics_views.sql` |
 | Social discovery semantics, contract and clock | `supabase/migrations/0015_social_discovery.sql` |
