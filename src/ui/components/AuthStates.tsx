@@ -88,12 +88,15 @@ export function AccountCard({
   onVisibilityChange,
   preferences,
   onPreferencesChange,
+  onResetLayout,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
   onVisibilityChange: (mode: PresenceVisibility) => void
   preferences: KickbackPreferences
   onPreferencesChange: (patch: Partial<KickbackPreferences>) => void
+  /** Back to the default position and size, without clearing storage by hand. */
+  onResetLayout: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -179,6 +182,10 @@ export function AccountCard({
             : 'No desktop alerts'}
         </div>
       </div>
+
+      <button type="button" className="kb-ghost-btn" onClick={onResetLayout}>
+        Reset layout
+      </button>
 
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out

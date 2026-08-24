@@ -111,9 +111,10 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 451 tests: authorization, auth, presence, groups, emotes, bundle
+npm test            # 537 tests: authorization, auth, presence, groups, emotes, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
+npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
 npm run db:bundle   # one pasteable .sql for the Supabase SQL editor
 npm run verify:config # asks Supabase whether your .env.local key actually works
 npm run build:demo  # mock-data build into dist-demo/ (never load this as your real extension)
@@ -157,6 +158,39 @@ code — `tests/extension/bundle.test.ts` asserts it — and production **never*
 falls back to mock data when the backend is unreachable. It shows an error.
 
 ---
+
+## Panel layout (Phase 2C)
+
+The panel can be moved and resized, and remembers both.
+
+- **Drag** it by the header. Buttons, inputs and the chat log are excluded, so
+  a drag never swallows a click.
+- **Resize** from the bottom edge or either bottom corner. Both corners exist
+  because the panel can be parked on either side of the window.
+- **Reset layout** lives in the account card, next to Sign out.
+
+Two rules do the work, and the difference between them matters:
+
+- While *you* are dragging, the panel may hang off an edge - that is a
+  legitimate thing to want - but never far enough to lose the header.
+- When the *window* changes underneath you (resize, un-maximise, a move to a
+  smaller monitor, a different DPI), the panel is pulled fully back into view.
+  You did not ask for it to go off screen, so it does not stay there.
+
+A saved layout is never trusted: anything that is not four finite numbers with
+a matching version stamp is discarded in favour of the default. That is what
+stops a hand-edited or stale value from putting the panel somewhere it cannot
+be grabbed.
+
+Height is a *budget*, not a fixed size. Friend and group lists stay their
+natural height inside it; an open conversation claims the whole thing, so extra
+height goes almost entirely to the message log. `MIN_HEIGHT` is measured
+rather than chosen - it is the point below which the composer would be pushed
+out through the bottom of the panel.
+
+Kickback still never modifies Twitch. It appends one host element to `<body>`
+and renders inside its shadow root; the host covers the viewport but ignores
+pointer events, so every click that is not on the panel reaches the page.
 
 ## Emotes (Phase 2B.1)
 

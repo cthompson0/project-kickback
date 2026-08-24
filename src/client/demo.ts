@@ -1,5 +1,12 @@
 import { INITIAL_STATE } from './types'
-import type { Friend, KickbackClient, KickbackState } from './types'
+import type {
+  ChatMessage,
+  Friend,
+  GroupMember,
+  GroupSummary,
+  KickbackClient,
+  KickbackState,
+} from './types'
 import { mockPresenceService } from '../mock/presenceService'
 import { FRIEND_IDS } from '../mock/social'
 import { getUser } from '../mock/users'
@@ -29,6 +36,51 @@ const DEMO_IDENTITY = {
 
 const DEMO_UNAVAILABLE = 'Friend management needs the real backend; this is a demo build.'
 
+/**
+ * One scripted conversation.
+ *
+ * Demo mode exists so the panel can be worked on without a backend, and chat
+ * is the view whose layout most needs looking at - it is the reason the panel
+ * became resizable. Sending is still refused: this is a conversation to look
+ * at, not one to take part in.
+ */
+const DEMO_GROUP_ID = 'demo-group'
+
+const DEMO_GROUP: GroupSummary = {
+  groupId: DEMO_GROUP_ID,
+  name: 'The Boys',
+  ownerId: 'demo-user',
+  isOwner: true,
+  memberCount: 4,
+}
+
+const chat = (id: number, userId: string, displayName: string, body: string): ChatMessage => ({
+  id: `demo-msg-${id}`,
+  groupId: DEMO_GROUP_ID,
+  userId,
+  displayName,
+  avatarUrl: null,
+  body,
+  // Fixed timestamps: a demo that drifts with the clock is harder to compare
+  // against a screenshot from yesterday.
+  createdAt: `2024-01-01T20:${String(id).padStart(2, '0')}:00.000Z`,
+})
+
+const DEMO_MESSAGES: ChatMessage[] = [
+  chat(1, 'u_jake', 'Jake', 'anyone else seeing this'),
+  chat(2, 'u_matt', 'Matt', 'no way he lands that'),
+  chat(3, 'u_jake', 'Jake', ':pog:'),
+  chat(4, 'u_sarah', 'Sarah', ':pog:'),
+  chat(5, 'u_matt', 'Matt', ':pog:'),
+  chat(6, 'u_nina', 'Nina', ':pog:'),
+  chat(7, 'u_dave', 'Dave', 'ok that was actually incredible'),
+  chat(8, 'u_sarah', 'Sarah', 'clipped it :fire:'),
+  chat(9, 'u_jake', 'Jake', 'send it in the group'),
+  chat(10, 'u_nina', 'Nina', ':lol: :lol: :lol:'),
+  chat(11, 'u_matt', 'Matt', 'what channel is he on after this'),
+  chat(12, 'u_dave', 'Dave', 'said he was raiding someone'),
+]
+
 const offlinePresence = (userId: string): Presence => ({
   userId,
   status: 'offline',
@@ -38,6 +90,12 @@ const offlinePresence = (userId: string): Presence => ({
 
 export function createDemoClient(): KickbackClient {
   const listeners = new Set<(state: KickbackState) => void>()
+
+  const demoMembers = (): GroupMember[] =>
+    ['u_jake', 'u_matt', 'u_sarah', 'u_nina'].flatMap((id) => {
+      const user = getUser(id)
+      return user ? [{ user, role: 'member' as const, presence: null }] : []
+    })
 
   const toFriends = (presences: Presence[]): Friend[] => {
     const byId = new Map(presences.map((presence) => [presence.userId, presence]))
@@ -53,6 +111,9 @@ export function createDemoClient(): KickbackClient {
     status: 'signed_in',
     identity: DEMO_IDENTITY,
     friends: toFriends(mockPresenceService.getPresences()),
+    groups: [DEMO_GROUP],
+    groupMembers: { [DEMO_GROUP_ID]: demoMembers() },
+    groupMessages: { [DEMO_GROUP_ID]: DEMO_MESSAGES },
     demo: true,
   }
 

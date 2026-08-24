@@ -38,3 +38,8 @@ supabase/.generated
 
 # Demo build output
 dist-demo
+
+# Screenshots and reports written by scripts/cdp.mjs during manual layout work.
+*.png
+!public/icons/*.png
+!src/**/*.png

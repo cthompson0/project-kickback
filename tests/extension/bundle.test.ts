@@ -178,6 +178,47 @@ describe('manifest', () => {
   })
 })
 
+describe('Kickback does not modify Twitch', () => {
+  const CONTENT_SOURCE = () =>
+    readdirSync(join(SRC, 'content'), { recursive: true, encoding: 'utf8' })
+      .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
+      .map((entry) => readFileSync(join(SRC, 'content', entry), 'utf8'))
+      .join('\n')
+
+  it('appends exactly one host element and removes nothing', () => {
+    const source = CONTENT_SOURCE()
+    // The only mutation Kickback performs on the page is appending its own
+    // host to <body>. Everything it renders lives inside that host's shadow
+    // root, so no Twitch node is moved, wrapped, restyled or removed.
+    expect(source).toContain('document.body.appendChild(host)')
+    for (const destructive of ['removeChild', 'replaceChild', 'replaceWith', 'insertBefore']) {
+      expect(source).not.toContain(destructive)
+    }
+  })
+
+  it('never writes markup into the page', () => {
+    const source = CONTENT_SOURCE()
+    for (const forbidden of ['innerHTML', 'outerHTML', 'insertAdjacentHTML', 'document.write']) {
+      expect(source).not.toContain(forbidden)
+    }
+  })
+
+  it("does not attach itself inside Twitch's own layout", () => {
+    const source = CONTENT_SOURCE()
+    // Docking into the chat rail was investigated and deliberately not done;
+    // this is the assertion that says so out loud.
+    for (const selector of ['right-column', 'chat-room', 'channel-root', 'twilight-']) {
+      expect(source).not.toContain(selector)
+    }
+  })
+
+  it('lets pointer events through everywhere except the panel', () => {
+    // The host covers the whole viewport, so if it accepted pointer events it
+    // would swallow every click on Twitch.
+    expect(content).toContain('pointer-events:none')
+  })
+})
+
 describe('emote providers are reached only from the worker', () => {
   it('does not call 7TV from the Twitch page', () => {
     // Fetching from the content script would run on twitch.tv's origin and put

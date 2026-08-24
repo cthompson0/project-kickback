@@ -14,7 +14,8 @@
     "db:bundle": "node scripts/bundle-migrations.mjs",
     "build:demo": "vite build --mode demo --outDir dist-demo && vite build -c vite.background.config.ts --mode demo --outDir dist-demo",
     "verify:config": "node scripts/verify-supabase-config.mjs",
-    "test:emotes": "node scripts/verify-emote-tests.mjs"
+    "test:emotes": "node scripts/verify-emote-tests.mjs",
+    "test:layout": "node scripts/verify-layout-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

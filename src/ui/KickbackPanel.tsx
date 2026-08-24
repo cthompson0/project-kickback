@@ -9,6 +9,7 @@ import { IncomingRequests } from './components/IncomingRequests'
 import { GroupsTab } from './components/GroupsTab'
 import { JoinButton } from './components/JoinButton'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
+import { usePanelLayout } from './layout/usePanelLayout'
 import {
   AccountCard,
   EmptyFriends,
@@ -42,7 +43,17 @@ function writeCollapsed(collapsed: boolean): void {
   }
 }
 
-export function KickbackPanel({ client }: { client: KickbackClient }) {
+export function KickbackPanel({
+  client,
+  topOffset = 58,
+  reservedRight = 0,
+}: {
+  client: KickbackClient
+  /** Bottom of Twitch's top nav, so the default placement clears it. */
+  topOffset?: number
+  /** Width of Twitch's chat rail, so the default placement avoids it. */
+  reservedRight?: number
+}) {
   const view = useKickbackState(client)
   const [collapsed, setCollapsed] = useState(readCollapsed)
   const [tab, setTab] = useState<Tab>('friends')
@@ -50,6 +61,15 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
   const [finding, setFinding] = useState(false)
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+
+  const { layout, gesturing, onDragStart, onResizeStart, reset } = usePanelLayout({
+    collapsed,
+    topOffset,
+    reservedRight,
+  })
+
+  // A conversation is the one view worth filling the whole height budget with.
+  const chatOpen = tab === 'groups' && openGroupId !== null && !finding
 
   useEffect(() => writeCollapsed(collapsed), [collapsed])
 
@@ -90,11 +110,19 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
     }
   }
 
+  const position = {
+    '--kb-x': `${layout.x}px`,
+    '--kb-y': `${layout.y}px`,
+    '--kb-w': `${layout.width}px`,
+    '--kb-h': `${layout.height}px`,
+  } as React.CSSProperties
+
   if (collapsed) {
     return (
       <button
         type="button"
         className="kb-launcher"
+        style={position}
         title="Open Kickback"
         onClick={() => setCollapsed(false)}
       >
@@ -114,8 +142,11 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
   }
 
   return (
-    <div className="kb-panel">
-      <div className="kb-header">
+    <div
+      className={`kb-panel${chatOpen || gesturing ? ' kb-panel-filled' : ''}`}
+      style={position}
+    >
+      <div className="kb-header" onPointerDown={onDragStart}>
         <KickbackMark />
         <span className="kb-wordmark">kickback</span>
         {view.demo && <span className="kb-demo-badge">DEMO</span>}
@@ -181,6 +212,7 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
               )
             })
           }}
+          onResetLayout={reset}
           onVisibilityChange={(mode) => {
             setActionError(null)
             client.setPresenceVisibility(mode).catch((cause: unknown) => {
@@ -278,7 +310,7 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
             </button>
           </div>
 
-          <div className="kb-body">
+          <div className={`kb-body${chatOpen ? ' kb-body-chat' : ''}`}>
             {finding ? (
               <FindFriends
                 client={client}
@@ -329,6 +361,12 @@ export function KickbackPanel({ client }: { client: KickbackClient }) {
         <span className="kb-footer-dot" />
         <span>{view.demo ? 'demo mode — mock data' : 'Phase 1'}</span>
       </div>
+
+      {/* Grips on both bottom corners, because the panel can be parked on
+          either side of the window and only one of them is natural there. */}
+      <div className="kb-resize kb-resize-sw" onPointerDown={onResizeStart('sw')} />
+      <div className="kb-resize kb-resize-s" onPointerDown={onResizeStart('s')} />
+      <div className="kb-resize kb-resize-se" onPointerDown={onResizeStart('se')} />
     </div>
   )
 }

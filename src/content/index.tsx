@@ -4,6 +4,7 @@ import { ErrorBoundary } from '../ui/ErrorBoundary'
 import { createPortClient } from '../client/port'
 import type { KickbackClient } from '../client/types'
 import { watchTopOffset } from '../platforms/twitch/anchor'
+import { measureChatRail } from '../platforms/twitch/chatRail'
 import { watchChannel } from '../platforms/twitch/navigation'
 import { getCurrentChannel } from '../platforms/twitch/channels'
 import panelStyles from '../ui/kickback.css?inline'
@@ -36,14 +37,13 @@ async function createClient(): Promise<KickbackClient> {
 function createHost(): HTMLDivElement {
   const host = document.createElement('div')
   host.id = HOST_ID
-  // Zero-width strip pinned to the right edge; the panel positions itself
-  // against it and is the only thing that accepts pointer events.
+  // A transparent layer over the whole viewport. It ignores pointer events
+  // entirely - only the panel inside it accepts them - so Twitch behaves
+  // exactly as if Kickback were not here, while the panel is free to be
+  // dragged anywhere rather than being pinned to one edge.
   host.style.cssText = [
     'position:fixed',
-    'top:0',
-    'right:0',
-    'bottom:0',
-    'width:0',
+    'inset:0',
     'overflow:visible',
     'pointer-events:none',
     'z-index:2147483000',
@@ -68,14 +68,28 @@ async function mount(): Promise<void> {
 
   const client = await createClient()
 
-  createRoot(container).render(
-    <ErrorBoundary>
-      <KickbackPanel client={client} />
-    </ErrorBoundary>,
-  )
+  const root = createRoot(container)
+  const render = (topOffset: number, reservedRight: number) =>
+    root.render(
+      <ErrorBoundary>
+        <KickbackPanel client={client} topOffset={topOffset} reservedRight={reservedRight} />
+      </ErrorBoundary>,
+    )
+
+  // Twitch's nav can move and its chat rail can be collapsed, so both are
+  // measured rather than assumed. They only feed the *default* placement:
+  // once the user has moved the panel, their choice wins.
+  let topOffset = 58
+  let reservedRight = measureChatRail()
+  render(topOffset, reservedRight)
+
+  watchTopOffset((topPx) => {
+    topOffset = topPx
+    reservedRight = measureChatRail()
+    render(topOffset, reservedRight)
+  })
 
   reportActivity(client)
-  watchTopOffset((topPx) => container.style.setProperty('--kb-top', `${topPx}px`))
   keepAttached(host)
   hideDuringFullscreen(host)
 }

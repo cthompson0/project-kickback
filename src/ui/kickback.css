@@ -23,10 +23,9 @@
   --kb-shadow: 0 10px 34px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
 
   position: absolute;
-  top: var(--kb-top, 58px);
-  right: 12px;
-  transition: top 0.15s ease;
-  pointer-events: auto;
+  inset: 0;
+  /* The layer itself is inert; only the panel and launcher take pointers. */
+  pointer-events: none;
   font-family: "Inter", "Roobert", "Helvetica Neue", Helvetica, Arial, sans-serif;
   font-size: 13px;
   line-height: 1.35;
@@ -54,7 +53,10 @@
 /* ---------- collapsed launcher ---------- */
 
 .kb-launcher {
-  position: relative;
+  position: absolute;
+  left: var(--kb-x, 0px);
+  top: var(--kb-y, 58px);
+  pointer-events: auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -94,7 +96,16 @@
 /* ---------- panel shell ---------- */
 
 .kb-panel {
-  width: 300px;
+  position: absolute;
+  left: var(--kb-x, 0px);
+  top: var(--kb-y, 58px);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  width: var(--kb-w, 320px);
+  /* A budget rather than a fixed height: friend and group lists stay compact
+     instead of stretching into empty space. */
+  max-height: var(--kb-h, 720px);
   background: var(--kb-bg);
   border: 1px solid var(--kb-line);
   border-radius: var(--kb-radius);
@@ -102,6 +113,107 @@
   backdrop-filter: blur(14px);
   overflow: hidden;
   animation: kb-pop 0.18s ease-out;
+}
+
+/* Chat is the one view that should claim the whole budget - and while a
+   resize is in progress, so the drag visibly does something. */
+.kb-panel-filled {
+  height: var(--kb-h, 720px);
+}
+
+/* Everything except the scrolling body keeps its natural height. */
+.kb-panel > .kb-header,
+.kb-panel > .kb-now,
+.kb-panel > .kb-tabs,
+.kb-panel > .kb-footer,
+.kb-panel > .kb-here-banner,
+.kb-panel > .kb-gathering-banner,
+.kb-panel > .kb-inline-note {
+  flex: none;
+}
+
+/* ---------- drag handle ---------- */
+
+.kb-header {
+  cursor: grab;
+  /* Stop the browser from treating the gesture as a scroll or a selection. */
+  touch-action: none;
+  user-select: none;
+}
+
+.kb-dragging .kb-header {
+  cursor: grabbing;
+}
+
+/* Controls inside the header are still controls. */
+.kb-header button {
+  cursor: pointer;
+}
+
+/* ---------- resize grips ---------- */
+
+.kb-resize {
+  position: absolute;
+  z-index: 2;
+  touch-action: none;
+}
+
+.kb-resize-s {
+  left: 14px;
+  right: 14px;
+  bottom: 0;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.kb-resize-sw,
+.kb-resize-se {
+  bottom: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.kb-resize-sw {
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.kb-resize-se {
+  right: 0;
+  cursor: nwse-resize;
+}
+
+/* A quiet corner hint, so the grip is discoverable without shouting. */
+.kb-resize-se::after,
+.kb-resize-sw::after {
+  content: '';
+  position: absolute;
+  bottom: 3px;
+  width: 7px;
+  height: 7px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.22);
+  transition: border-color 0.12s ease;
+}
+
+.kb-resize-se::after {
+  right: 3px;
+  border-right: 2px solid rgba(255, 255, 255, 0.22);
+}
+
+.kb-resize-sw::after {
+  left: 3px;
+  border-left: 2px solid rgba(255, 255, 255, 0.22);
+}
+
+.kb-resize:hover::after,
+.kb-resizing .kb-resize::after {
+  border-color: var(--kb-accent);
+}
+
+/* While a gesture runs, nothing inside should be selectable or clickable. */
+.kb-dragging,
+.kb-resizing {
+  user-select: none;
 }
 
 @keyframes kb-pop {
@@ -284,11 +396,23 @@
 /* ---------- scroll body ---------- */
 
 .kb-body {
-  max-height: 46vh;
+  flex: 1 1 auto;
   min-height: 96px;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 6px;
+}
+
+/* With a conversation open the body becomes a column so the message log can
+   take the leftover height rather than a fixed 210px. */
+.kb-body-chat {
+  display: flex;
+  flex-direction: column;
+}
+
+.kb-body-chat > .kb-chat {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .kb-body::-webkit-scrollbar {
@@ -1094,13 +1218,20 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  /* The composer must survive every size the panel can be dragged to, so
+     everything above it has to be allowed to give way first. */
+  overflow: hidden;
 }
 
 .kb-chat-log {
   display: flex;
   flex-direction: column;
   gap: 5px;
-  max-height: 210px;
+  /* 1 1 0, not 1 1 auto: the basis must be zero, or the log claims its full
+     content height first and squeezes the composer out of the panel at small
+     sizes. Shrinking to nothing is ugly; losing the composer is broken. */
+  flex: 1 1 0;
+  min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 4px 2px 8px;
@@ -1198,6 +1329,8 @@
 /* ---------- composer ---------- */
 
 .kb-composer {
+  /* Never shrinks: it is the one part of chat that must always be reachable. */
+  flex: none;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -1248,6 +1381,10 @@
 }
 
 .kb-emote-picker {
+  /* Gives way before the composer does. */
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1279,7 +1416,9 @@
 
 /* Bounded height: a big 7TV channel would otherwise push chat off screen. */
 .kb-emote-scroll {
-  max-height: 168px;
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: min(38vh, 240px);
   overflow-y: auto;
   overscroll-behavior: contain;
   display: flex;
