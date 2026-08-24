@@ -163,10 +163,24 @@ export function GroupChat({
           return (
             <div key={message.id} className="kb-msg">
               <div className="kb-msg-head">
-                <button
-                  type="button"
-                  // Inline so it stays part of the sentence: the name is a
-                  // word in the line, not a control beside it.
+                {/*
+                  * A span, not a button, and that is load-bearing.
+                  *
+                  * `<button>` cannot be `display: inline`: Chrome coerces it
+                  * to inline-block, because a button may not be split across
+                  * lines. That makes the sender name an ATOMIC inline box, and
+                  * the line-breaking after an atomic box differs - a message
+                  * whose first unbreakable run does not fit in the space left
+                  * on the line starts a fresh line instead of filling it, so
+                  * the message reads as its own block under the name.
+                  *
+                  * A span with role="button" is a genuine inline box, so the
+                  * name is a word in the sentence again, and is still a
+                  * control for anyone using a keyboard or a screen reader.
+                  */}
+                <span
+                  role="button"
+                  tabIndex={0}
                   className={`kb-msg-who kb-msg-who-btn${
                     message.userId === selfId ? ' kb-msg-who-self' : ''
                   }`}
@@ -174,9 +188,17 @@ export function GroupChat({
                   onClick={() =>
                     setOpenCardFor((open) => (open === message.id ? null : message.id))
                   }
+                  onKeyDown={(event) => {
+                    if (event.key !== 'Enter' && event.key !== ' ') return
+                    event.preventDefault()
+                    setOpenCardFor((open) => (open === message.id ? null : message.id))
+                  }}
                 >
-                  {message.displayName}
-                </button>
+                  {/* The colon belongs to the sender label, so it lives inside
+                      the identity: it copies with the name, and clicking it
+                      does what clicking the name does. */}
+                  {message.displayName}:
+                </span>
                 <MessageBody body={message.body} />
                 {annotation && <ComboBadge annotation={annotation} />}
               </div>

@@ -19,7 +19,8 @@
     "test:combos": "node scripts/verify-combo-tests.mjs",
     "verify:groups": "node scripts/verify-group-schema.mjs",
     "package:beta": "node scripts/package-beta.mjs",
-    "test:presence": "node scripts/verify-presence-tests.mjs"
+    "test:presence": "node scripts/verify-presence-tests.mjs",
+    "test:wrap": "node scripts/verify-chat-wrapping.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

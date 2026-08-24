@@ -102,18 +102,28 @@ describe('a chat sender is clickable', () => {
   })
 
   it('keeps the name inline, so the wrapping fix survives', () => {
-    // A block-level or flex control here would reintroduce the bug the name
-    // sits inside: the body would be sized around it on every line.
+    /*
+     * A block-level or flex control here would reintroduce the bug the name
+     * sits inside: the body would be sized around it on every line.
+     *
+     * A `<button>` would too, for a reason no stylesheet can express - Chrome
+     * coerces `display: inline` to `inline-block` on one - so the tag itself
+     * is asserted. `npm run test:wrap` measures the resulting line boxes.
+     */
     const html = chat()
     expect(html).not.toMatch(/kb-msg-who-btn[^"]*"[^>]*style="[^"]*display:\s*(block|flex)/)
+    expect(html).toMatch(/<span[^>]*role="button"[^>]*class="kb-msg-who/)
+    const head = html.slice(html.indexOf('kb-msg-head'), html.indexOf('</div>'))
+    expect(head).not.toContain('<button')
   })
 
   it('leaves the message body outside the control', () => {
     // Selecting message text must not be interrupted by the name being a
-    // button, so the body is a sibling rather than a child.
+    // control, so the body is a sibling rather than a child.
     const html = chat()
-    const button = html.slice(html.indexOf('<button'), html.indexOf('</button>'))
-    expect(button).not.toContain('hello there')
+    const label = html.match(/<span[^>]*class="kb-msg-who[^"]*"[^>]*>(.*?)<\/span>/)
+    expect(label).not.toBeNull()
+    expect(label?.[1]).toBe('AnoterosTV:')
     expect(html).toContain('hello there')
   })
 

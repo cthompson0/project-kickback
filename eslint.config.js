@@ -26,10 +26,34 @@ export default defineConfig([
   },
   {
     // Test suite, build config and tooling all run in Node.
-    files: ['tests/**/*.ts', 'scripts/**/*.mjs', 'vite.config.ts', 'vitest.config.ts'],
+    //
+    // `.tsx` as well as `.ts`: several suites render components, and matching
+    // only `.ts` quietly left them linted by nothing at all.
+    files: ['tests/**/*.{ts,tsx}', 'scripts/**/*.mjs', 'vite.config.ts', 'vitest.config.ts'],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
       globals: globals.node,
+    },
+  },
+  {
+    /*
+     * The browser-driving gates.
+     *
+     * These are Node scripts, but they carry functions that are serialised and
+     * evaluated inside a page - so `document` and `window` are real there, and
+     * Node's globals are not. Both sets apply.
+     */
+    files: ['scripts/verify-chat-wrapping.mjs'],
+    languageOptions: {
+      globals: { ...globals.node, ...globals.browser },
+    },
+  },
+  {
+    // Fixtures rendered by those gates: React components, browser globals.
+    files: ['scripts/fixtures/**/*.tsx'],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
+    languageOptions: {
+      globals: globals.browser,
     },
   },
 ])

@@ -1846,19 +1846,23 @@ a.kb-ghost-btn {
 /* ---------- clickable chat sender ---------- */
 
 /*
- * A button that is still a word in the sentence. Inline, no padding and no
- * background, so it takes part in the line's inline formatting exactly as the
- * span it replaced did - otherwise it would reintroduce the wrapping bug.
+ * The clickable sender name.
+ *
+ * A span rather than a button, deliberately - see GroupChat.tsx. `display`
+ * is not set at all here: a span is already inline, and the whole point is
+ * that the name takes part in the line rather than sitting in it as an
+ * atomic box.
  */
 .kb-msg-who-btn {
-  display: inline;
-  padding: 0;
-  font: inherit;
-  font-weight: 800;
-  color: var(--kb-accent);
   cursor: pointer;
   /* Selecting message text should not be interrupted by the name. */
   user-select: text;
+}
+
+.kb-msg-who-btn:focus-visible {
+  outline: 2px solid var(--kb-accent);
+  outline-offset: 1px;
+  border-radius: 3px;
 }
 
 .kb-msg-who-btn.kb-msg-who-self {
