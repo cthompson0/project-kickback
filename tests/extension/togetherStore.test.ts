@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   RESUME_WINDOW_MS,
+  isObservationLost,
   isPersistedLifecycle,
   reconcileLifecycle,
 } from '../../src/background/togetherStore'
@@ -40,6 +41,50 @@ const stored = (overrides: Partial<PersistedLifecycle> = {}): PersistedLifecycle
   state: state(),
   lastSeenAt: NOW - 30_000,
   ...overrides,
+})
+
+describe('the staleness rule itself', () => {
+  /*
+   * One rule, two callers. Coming back from storage after a restart asks it,
+   * and so does the tick that runs while a worker is still alive - because an
+   * OS suspend freezes a worker without killing it, and a worker that woke up
+   * with its state intact would otherwise have no reason to doubt any of it.
+   *
+   * Tested directly so the two callers cannot drift into asking slightly
+   * different questions of the same constant.
+   */
+  it('accepts a gap up to and including the window', () => {
+    expect(isObservationLost(NOW - RESUME_WINDOW_MS, NOW)).toBe(false)
+    expect(isObservationLost(NOW - 1_000, NOW)).toBe(false)
+    expect(isObservationLost(NOW, NOW)).toBe(false)
+  })
+
+  it('rejects anything past it', () => {
+    expect(isObservationLost(NOW - RESUME_WINDOW_MS - 1, NOW)).toBe(true)
+    expect(isObservationLost(NOW - 3 * 60 * 60 * 1000, NOW)).toBe(true)
+  })
+
+  it('takes a window, so callers can be tested without waiting minutes', () => {
+    expect(isObservationLost(NOW - 2_000, NOW, 1_000)).toBe(true)
+    expect(isObservationLost(NOW - 500, NOW, 1_000)).toBe(false)
+  })
+
+  it('is the same rule reconcileLifecycle applies', () => {
+    // The boundary reconcile draws must be this function's boundary, not a
+    // second copy of the comparison that happens to agree today.
+    const atEdge = reconcileLifecycle(stored({ lastSeenAt: NOW - RESUME_WINDOW_MS }), {
+      userId: 'user-a',
+      channel: 'summit1g',
+      now: NOW,
+    })
+    const pastEdge = reconcileLifecycle(stored({ lastSeenAt: NOW - RESUME_WINDOW_MS - 1 }), {
+      userId: 'user-a',
+      channel: 'summit1g',
+      now: NOW,
+    })
+    expect(atEdge.action).toBe('resume')
+    expect(pastEdge).toMatchObject({ action: 'close', reason: 'observation_lost' })
+  })
 })
 
 describe('resuming an interval', () => {

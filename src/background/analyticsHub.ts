@@ -22,7 +22,7 @@ import { createJoinAttribution } from './joinAttribution'
 import type { AttributionStore } from './joinAttribution'
 import { createExposureTracker, friendPresenceKey, gatheringKey } from './exposure'
 import { createTogetherWatch } from './togetherWatch'
-import { reconcileLifecycle } from './togetherStore'
+import { isObservationLost, reconcileLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
 import type { StoredValue } from './storedValue'
 import { normalizeChannel } from '../core/analytics'
@@ -149,6 +149,16 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
 
   /** Whether this worker has looked in storage yet. Once per worker life. */
   let lifecycleRestored = false
+
+  /**
+   * The last tick at which we could vouch for the open interval.
+   *
+   * Kept separately from the throttled storage write, because it has to be
+   * exact: it is both what a restart closes a stale interval at, and what the
+   * tick below measures the gap against. The stored copy is this value, so the
+   * two can never disagree about when we last actually saw the user.
+   */
+  let lifecycleSeenAt = 0
 
   /** What was last written, so an unchanged interval is not rewritten. */
   let persistedJson: string | null = null
@@ -283,12 +293,45 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       userId,
       sessionId: lifecycleSessionId,
       state,
-      // Written now because we have just confirmed the user is on that
-      // channel; this is the moment a restart would close the interval at.
-      lastSeenAt: now,
+      // The tick's own timestamp, not this write's: writes are throttled, and
+      // storing the write time would quietly age the interval by up to the
+      // throttle interval every time we skipped one.
+      lastSeenAt: lifecycleSeenAt,
     })
     persistedJson = json
     persistedAt = now
+  }
+
+  /**
+   * Doubts an interval that is still in memory, on every tick.
+   *
+   * THE CASE THIS EXISTS FOR
+   *
+   * ensureLifecycle runs once per worker life, which is right for a worker
+   * that DIED - it comes back, reads storage, and decides. But an OS suspend
+   * freezes a worker without killing it. Such a worker wakes with its state
+   * intact and no reason to doubt any of it, so the interval simply carried on
+   * and the entire sleep was reported as time spent watching together.
+   *
+   * That was the one place in the system that could invent viewing time rather
+   * than merely lose some, which is the wrong direction to be wrong in.
+   *
+   * So the same staleness rule is asked on every tick, of the in-memory
+   * interval, against the last moment we could vouch for. A frozen worker and
+   * a restarted one now produce the same answer.
+   *
+   * Only the staleness dimension is checked here. Whether the user has changed
+   * channel is togetherWatch's own job, and it handles it with a better reason
+   * and no grace - taking that decision away from it here would emit the wrong
+   * end for an ordinary navigation.
+   */
+  function closeIfObservationLost(now: number): void {
+    if (!together.current()) return
+    if (!isObservationLost(lifecycleSeenAt, now)) return
+
+    emitTogether(together.closeAt('observation_lost', lifecycleSeenAt, now))
+    persistedJson = null
+    void deps.lifecycleStore.write(null)
   }
 
   /**
@@ -323,6 +366,9 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
     if (decision.action === 'resume') {
       persistedJson = JSON.stringify(decision.lifecycle.state)
       persistedAt = decision.lifecycle.lastSeenAt
+      // Carry the stored moment forward, so the very next tick measures its
+      // gap from when we last saw the user rather than from the restart.
+      lifecycleSeenAt = decision.lifecycle.lastSeenAt
       return
     }
 
@@ -385,6 +431,11 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * moment we could vouch for, not at the moment of the sign-out.
          */
         await ensureLifecycle(null, now())
+        /*
+         * Before stop(), which closes at now(). Signing out after a long sleep
+         * must not credit the sleep any more than a heartbeat tick would.
+         */
+        closeIfObservationLost(now())
         emitTogether(together.stop())
         await deps.lifecycleStore.write(null)
         persistedJson = null
@@ -493,6 +544,15 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
         await ensureLifecycle(login, now())
 
         /*
+         * Then doubt it again, every time.
+         *
+         * A worker that was merely frozen by an OS suspend comes back with its
+         * state intact and would otherwise carry the interval straight through
+         * the sleep. This is the tick that stops the gap being counted.
+         */
+        closeIfObservationLost(now())
+
+        /*
          * A shared watch beginning on a channel a JOIN led to is that JOIN's
          * outcome even if presence took a minute to catch up.
          *
@@ -506,6 +566,10 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
           if (credit) together.attribute(credit.id)
         }
         emitTogether(together.update({ channel: login, otherCount }))
+
+        // This tick is now the last moment we can vouch for, and the stored
+        // copy is written from it - see persistLifecycle.
+        if (together.current()) lifecycleSeenAt = now()
         await persistLifecycle(now())
       }, 'analytics.noteTogether')
     },

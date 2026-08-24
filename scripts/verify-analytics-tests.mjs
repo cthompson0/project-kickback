@@ -593,8 +593,9 @@ const MUTATIONS = [
   {
     name: 'restart: never write the open interval down',
     file: HUB,
-    from: '        emitTogether(together.update({ channel: login, otherCount }))\n        await persistLifecycle(now())',
-    to: '        emitTogether(together.update({ channel: login, otherCount }))',
+    from:
+      '        if (together.current()) lifecycleSeenAt = now()\n        await persistLifecycle(now())',
+    to: '',
     expect: 'resumes a shared watch that is still going',
     suite: HUB_SUITE,
   },
@@ -625,7 +626,7 @@ const MUTATIONS = [
   {
     name: 'restart: resume however long the gap was',
     file: STORE,
-    from: '  if (world.now - stored.lastSeenAt > resumeWindowMs) {',
+    from: '  if (isObservationLost(stored.lastSeenAt, world.now, resumeWindowMs)) {',
     to: '  if (false) {',
     expect: 'closes a stale interval at the last moment it could vouch for',
     suite: HUB_SUITE,
@@ -661,6 +662,90 @@ const MUTATIONS = [
     to: "        lifecycleSessionId = null\n        record({\n          name: 'watching_together_started',",
     expect: 'pins the interval to the session it began in',
     suite: HUB_SUITE,
+  },
+
+  // ---------------------------------------- gaps a living worker woke from
+  //
+  // The restore path only runs once per worker life, which is right for a
+  // worker that died and wrong for one an OS suspend merely froze. These break
+  // the tick-time recheck in each of the ways that would let a sleep be
+  // counted as viewing.
+  {
+    name: 'sleep: never doubt an interval the worker is already holding',
+    file: HUB,
+    // Anchored on the comment: the call itself appears twice, and the first
+    // occurrence in the file is the sign-out one.
+    from: '         */\n        closeIfObservationLost(now())\n\n        /*',
+    to: '         */\n\n        /*',
+    expect: 'closes a shared watch at the last moment it could vouch for',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: close at the moment we noticed rather than the last we saw',
+    file: HUB,
+    from: "    emitTogether(together.closeAt('observation_lost', lifecycleSeenAt, now))",
+    to: "    emitTogether(together.closeAt('observation_lost', now, now))",
+    expect: 'closes a shared watch at the last moment it could vouch for',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: let the tick answer differently from a restart',
+    file: HUB,
+    from: '    if (!isObservationLost(lifecycleSeenAt, now)) return',
+    to: '    if (true) return',
+    expect: 'gives the same answer whether the worker survived or not',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: doubt every interval, however recently seen',
+    file: HUB,
+    from: '    if (!isObservationLost(lifecycleSeenAt, now)) return',
+    to: '    if (false) return',
+    expect: 'leaves a short gap alone',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: stop tracking when we last vouched for the interval',
+    file: HUB,
+    from: '        if (together.current()) lifecycleSeenAt = now()',
+    to: '',
+    expect: 'leaves a short gap alone',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: credit the gap as post-social retention',
+    file: HUB,
+    from: '  function closeIfObservationLost(now: number): void {\n    if (!together.current()) return',
+    to: '  function closeIfObservationLost(now: number): void {\n    if (true) return',
+    expect: 'does not credit a sleep as post-social retention',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: let signing out after one close at the wrong moment',
+    file: HUB,
+    from: "        closeIfObservationLost(now())\n        emitTogether(together.stop())",
+    to: '        emitTogether(together.stop())',
+    expect: 'does not credit a sleep when the user signs out on waking',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'sleep: store the write time rather than the tick time',
+    file: HUB,
+    from: '      lastSeenAt: lifecycleSeenAt,',
+    to: '      lastSeenAt: now,',
+    expect: 'closes a stale interval at the last moment it could vouch for',
+    suite: HUB_SUITE,
+    // The two agree whenever a write is not throttled, so this only bites on
+    // the alignment the restart tests happen to exercise.
+    optional: true,
+  },
+  {
+    name: 'sleep: give the two callers different staleness rules',
+    file: STORE,
+    from: '  return now - lastSeenAt > resumeWindowMs',
+    to: '  return now - lastSeenAt > resumeWindowMs * 100',
+    expect: 'rejects anything past it',
+    suite: STORE_SUITE,
   },
 
   // --------------------------------------------------- account and cleanup

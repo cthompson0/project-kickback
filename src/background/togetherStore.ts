@@ -69,6 +69,27 @@ export interface PersistedLifecycle {
  */
 export const RESUME_WINDOW_MS = 5 * 60 * 1000
 
+/**
+ * Whether a gap is too long to say what happened inside it.
+ *
+ * The single staleness rule, and it has two callers on purpose. The obvious
+ * one is coming back from storage after a restart. The other is the tick that
+ * runs while a worker is STILL ALIVE - because an OS suspend freezes the
+ * worker without killing it, and a worker that woke up with its state intact
+ * would otherwise have no reason to doubt any of it, and would report the
+ * whole sleep as time spent watching.
+ *
+ * Both callers ask the same question of the same constant, so the answer
+ * cannot differ depending on whether Chrome happened to keep the worker.
+ */
+export function isObservationLost(
+  lastSeenAt: number,
+  now: number,
+  resumeWindowMs: number = RESUME_WINDOW_MS,
+): boolean {
+  return now - lastSeenAt > resumeWindowMs
+}
+
 export type Reconciliation =
   /** The world is as we left it. Continue the interval; emit nothing. */
   | { action: 'resume'; lifecycle: PersistedLifecycle }
@@ -120,7 +141,7 @@ export function reconcileLifecycle(
    * honest description. Saying `left_channel` would claim we knew they left,
    * when all we know is that we were not looking.
    */
-  if (world.now - stored.lastSeenAt > resumeWindowMs) {
+  if (isObservationLost(stored.lastSeenAt, world.now, resumeWindowMs)) {
     return {
       action: 'close',
       lifecycle: stored,

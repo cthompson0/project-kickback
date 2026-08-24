@@ -239,7 +239,7 @@ So every end carries **both** times:
 | | Meaning |
 |---|---|
 | `occurred_at` | When co-viewing actually stopped. This is the event's time and what every duration is measured against. |
-| `detection_delay_ms` | How long after that we worked it out. Zero when immediate; forty minutes in the case above. |
+| `detection_delay_ms` | How long after that we worked it out. Zero when immediate. For an `alone_again` end it is **bounded** at the 2-minute grace plus one 45s heartbeat — roughly 165s — because a longer silence is now read as a gap we cannot vouch for and closes as `observation_lost` instead. |
 | `received_at` | When the row reached the database, as always. |
 
 `analytics_together_v` exposes `effective_ended_at`, `detected_at` and
@@ -261,11 +261,21 @@ only what is open right now.** No history, no list of channels, no events. It is
 deleted the moment the interval closes, so somebody who is not in a shared watch
 has nothing about their viewing stored anywhere.
 
-Coming back, we do not guess:
+The same doubt is applied **on every tick**, not only on the way back from
+storage. An OS suspend freezes a service worker without killing it, so a worker
+can wake up holding an interval it has no business trusting — with its state
+intact and no reason to question it. Before that check existed, the entire
+sleep was reported as time spent watching together, which was the one place in
+the system that could invent viewing time rather than merely lose some.
+
+A frozen worker and a restarted one now reach the same answer, so correctness
+no longer depends on whether Chrome happened to keep the worker.
+
+Coming back — or waking up — we do not guess:
 
 | On restart | What happens |
 |---|---|
-| Same channel, gap under **5 minutes** | Resume. Nothing is emitted — the start was already recorded. |
+| Same channel, gap under **5 minutes** | Resume, or simply carry on. Nothing is emitted — the start was already recorded. |
 | Gap over 5 minutes | **Close** at the last moment we could vouch for, reason `observation_lost`. |
 | Channel changed | **Close** at the last moment we could vouch for, reason `left_channel`; the gap becomes detection lag. |
 | A different account's interval | **Discard silently.** The actor is `auth.uid()` server-side, so emitting it would file one person's viewing under another's name. |
@@ -304,7 +314,7 @@ move, so detection lag is usually seconds rather than however long they stay.
 | Friend returns after the context dissolved | a **new** shared watch starts | ends, reason `rejoined` |
 | User changes channel | ends | ends, reason `left_channel` |
 | Sign-out | ends, reason `session_ended` | ends, reason `session_ended` |
-| Worker evicted, gap over 5 min | ends, reason `observation_lost` | ends, reason `observation_lost` |
+| Worker evicted **or machine slept**, gap over 5 min | ends, reason `observation_lost` | ends, reason `observation_lost` |
 | Co-viewing that no JOIN caused | measured | measured, but with **no attribution** |
 
 That last row matters. The intervals are facts and are recorded either way; the

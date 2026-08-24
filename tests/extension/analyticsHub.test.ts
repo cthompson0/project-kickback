@@ -82,12 +82,20 @@ function harness(options: { enabled?: boolean; environment?: 'private_beta' | 'p
      */
     keepAlive: async (totalMs: number, channel: string | null, otherCount: number) => {
       const beat = 45_000
+      /*
+       * Each beat is awaited before the next.
+       *
+       * noteTogether is queued on the hub's serial chain, so advancing the
+       * clock N times and then draining once would run every queued tick
+       * against the FINAL clock - one big jump wearing the costume of N ticks,
+       * which is precisely the thing the staleness check is meant to catch.
+       */
       for (let elapsed = 0; elapsed < totalMs; elapsed += beat) {
         clock += Math.min(beat, totalMs - elapsed)
         hub.noteTogether({ channel, otherCount })
-      }
-      for (let index = 0; index < 5; index += 1) {
-        await new Promise((resolve) => setTimeout(resolve, 0))
+        for (let turn = 0; turn < 4; turn += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 0))
+        }
       }
       await hub.flush()
       for (let index = 0; index < 5; index += 1) {
@@ -251,27 +259,38 @@ describe('the destination lifecycle reaches the wire intact', () => {
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
       await h.settle()
 
-      // The friend leaves ten minutes in. Nothing notices at the time.
-      h.advance(10 * 60 * 1000)
-      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
-      await h.settle()
+      // Ten minutes of watching together, heartbeat ticking as it does.
+      await h.keepAlive(10 * 60 * 1000, 'summit1g', 1)
       const friendLeftAt = 1_700_000_000_000 + 10 * 60 * 1000
 
-      // Forty minutes of watching alone, then leaving.
-      h.advance(40 * 60 * 1000)
-      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      // The friend leaves. Nothing is emitted yet - the grace is running.
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
       await h.settle()
+      expect(h.named('watching_together_ended')).toHaveLength(0)
+
+      // Three more minutes of ticks. The grace expires on the third.
+      await h.keepAlive(3 * 60 * 1000, 'summit1g', 0)
 
       const [end] = h.named('watching_together_ended')
-      // The whole point: occurred_at is the effective end.
+      // The whole point: occurred_at is the effective end, not the tick that
+      // confirmed it.
       expect(Date.parse(end.occurred_at)).toBe(friendLeftAt)
       expect(end.properties.duration_ms).toBe(10 * 60 * 1000)
       expect(end.properties.end_reason).toBe('alone_again')
-      // And the lag is kept as its own fact rather than being lost.
-      expect(end.properties.detection_delay_ms).toBe(40 * 60 * 1000)
+      /*
+       * The lag is kept as its own fact. It is now BOUNDED at the grace plus
+       * one heartbeat: 120s of deliberate hysteresis, confirmed on the tick at
+       * +135s. Before the staleness recheck this could be arbitrarily large.
+       */
+      expect(end.properties.detection_delay_ms).toBe(135_000)
+
+      // Twenty more minutes alone, then they leave.
+      await h.keepAlive(20 * 60 * 1000, 'summit1g', 0)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
 
       const [post] = h.named('post_social_retention_ended')
-      expect(post.properties.duration_ms).toBe(40 * 60 * 1000)
+      expect(post.properties.duration_ms).toBe(23 * 60 * 1000)
       expect(post.properties.from_join).toBe(true)
       expect(post.destination_channel).toBe('summit1g')
       // The same attribution as the click, so the funnel joins straight up.
@@ -309,11 +328,11 @@ describe('the destination lifecycle reaches the wire intact', () => {
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
       await h.settle()
 
-      h.advance(10 * 60 * 1000)
+      await h.keepAlive(10 * 60 * 1000, 'summit1g', 1)
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
       await h.settle()
 
-      h.advance(10 * 60 * 1000)
+      await h.keepAlive(10 * 60 * 1000, 'summit1g', 0)
       h.hub.noteTogether({ channel: null, otherCount: 0 })
       await h.settle()
 
@@ -758,16 +777,16 @@ describe('surviving a worker restart', () => {
 
       // The friend leaves after ten minutes and the grace expires, so the
       // retention interval is open when the worker dies.
-      h.advance(10 * MINUTE)
+      await h.keepAlive(10 * MINUTE, 'summit1g', 1)
       const friendLeftAt = startedAt + 10 * MINUTE
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
       await h.settle()
-      h.advance(3 * MINUTE)
-      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
-      await h.settle()
+      await h.keepAlive(3 * MINUTE, 'summit1g', 0)
       expect(h.named('watching_together_ended')).toHaveLength(1)
       expect(h.named('post_social_retention_ended')).toHaveLength(0)
 
+      // Chrome throws the worker away, and a moment later it is back.
+      h.advance(3_000)
       h.restartWorker()
 
       // Still watching on alone; the new worker picks the interval back up.
@@ -776,17 +795,19 @@ describe('surviving a worker restart', () => {
       expect(h.named('post_social_retention_ended')).toHaveLength(0)
 
       // Twenty more minutes alone, then they leave.
-      h.advance(20 * MINUTE)
+      await h.keepAlive(20 * MINUTE, 'summit1g', 0)
       h.hub.noteTogether({ channel: null, otherCount: 0 })
       await h.settle()
 
       const post = h.named('post_social_retention_ended')
       expect(post).toHaveLength(1)
-      // Measured from when the friend actually left, across the restart.
-      expect(post[0].properties.duration_ms).toBe(23 * MINUTE)
+      // Measured from when the friend actually left, across the restart:
+      // three minutes of grace ticks, three seconds of worker death, twenty
+      // minutes alone.
+      expect(post[0].properties.duration_ms).toBe(23 * MINUTE + 3_000)
       expect(post[0].properties.end_reason).toBe('left_channel')
       // destination_left_at, and the JOIN that is still responsible for it.
-      expect(Date.parse(post[0].occurred_at)).toBe(friendLeftAt + 23 * MINUTE)
+      expect(Date.parse(post[0].occurred_at)).toBe(friendLeftAt + 23 * MINUTE + 3_000)
       expect(post[0].attribution_id).toBe(attribution)
       expect(post[0].properties.from_join).toBe(true)
     } finally {
@@ -801,7 +822,7 @@ describe('surviving a worker restart', () => {
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
       await h.settle()
 
-      h.advance(10 * MINUTE)
+      await h.keepAlive(10 * MINUTE, 'summit1g', 1)
       // The co-viewer drops off; the two-minute grace starts.
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
       await h.settle()
@@ -815,7 +836,7 @@ describe('surviving a worker restart', () => {
       await h.settle()
       expect(h.named('watching_together_ended')).toHaveLength(0)
 
-      h.advance(10 * MINUTE)
+      await h.keepAlive(10 * MINUTE, 'summit1g', 1)
       h.hub.noteTogether({ channel: null, otherCount: 0 })
       await h.settle()
 
@@ -910,11 +931,16 @@ describe('surviving a worker restart', () => {
       await h.settle()
       const startedAt = 1_700_000_000_000
 
-      // Ten minutes of watching together, and then the laptop lid is shut.
-      h.advance(10 * MINUTE)
-      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
-      await h.settle()
-      const lastSeenAt = startedAt + 10 * MINUTE
+      /*
+       * Nine minutes of watching together, then the laptop lid is shut.
+       *
+       * Nine rather than ten so the run divides evenly into 45s heartbeats.
+       * The storage write is throttled to 30s, so a total that leaves a short
+       * final beat would skip its write and the stored last-seen would trail
+       * the real one - conservative, but not a round number to assert on.
+       */
+      await h.keepAlive(9 * MINUTE, 'summit1g', 2)
+      const lastSeenAt = startedAt + 9 * MINUTE
 
       // Three hours later the machine wakes and the tab is still open.
       h.advance(3 * 60 * MINUTE)
@@ -929,7 +955,7 @@ describe('surviving a worker restart', () => {
        * while nothing was running, so the interval is closed at the last
        * moment we could vouch for and labelled as what it is.
        */
-      expect(ends[0].properties.duration_ms).toBe(10 * MINUTE)
+      expect(ends[0].properties.duration_ms).toBe(9 * MINUTE)
       expect(Date.parse(ends[0].occurred_at)).toBe(lastSeenAt)
       expect(ends[0].properties.end_reason).toBe('observation_lost')
 
@@ -948,9 +974,7 @@ describe('surviving a worker restart', () => {
       await h.settle()
       const startedAt = 1_700_000_000_000
 
-      h.advance(10 * MINUTE)
-      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
-      await h.settle()
+      await h.keepAlive(9 * MINUTE, 'summit1g', 1)
 
       h.advance(MINUTE)
       h.restartWorker()
@@ -962,8 +986,8 @@ describe('surviving a worker restart', () => {
       // They did leave; we simply did not see when, so it ends at the last
       // moment we could vouch for and the gap is reported as detection lag.
       expect(end.properties.end_reason).toBe('left_channel')
-      expect(end.properties.duration_ms).toBe(10 * MINUTE)
-      expect(Date.parse(end.occurred_at)).toBe(startedAt + 10 * MINUTE)
+      expect(end.properties.duration_ms).toBe(9 * MINUTE)
+      expect(Date.parse(end.occurred_at)).toBe(startedAt + 9 * MINUTE)
       expect(end.properties.detection_delay_ms).toBe(MINUTE)
     } finally {
       h.restore()
@@ -1177,6 +1201,228 @@ describe('the stored interval and other accounts', () => {
       h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
       await h.settle()
       expect(h.storage()).toEqual({})
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+/**
+ * Sleep, suspend, and any other gap a LIVING worker can wake up from.
+ *
+ * THE CASE THIS EXISTS FOR
+ *
+ * The restore-from-storage reconciliation runs once per worker life, which is
+ * exactly right for a worker that DIED: it comes back, reads storage, and
+ * decides whether the world still looks the way it left it. But an OS suspend
+ * freezes a worker without killing it. Such a worker wakes with its state
+ * intact and no reason to doubt any of it, so before this the interval simply
+ * carried on and the whole sleep was reported as time spent watching together.
+ *
+ * That was the only place in the system that could INVENT viewing time rather
+ * than merely lose some, which is the wrong direction to be wrong in.
+ *
+ * A frozen worker and a restarted one must now give the same answer, and these
+ * tests run the same scenarios down both paths to prove it.
+ */
+describe('a gap while the worker was alive', () => {
+  const MINUTE = 60 * 1000
+
+  it('closes a shared watch at the last moment it could vouch for', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+      const startedAt = 1_700_000_000_000
+
+      // Nine minutes of real watching, heartbeat ticking.
+      await h.keepAlive(9 * MINUTE, 'summit1g', 2)
+      const lastSeenAt = startedAt + 9 * MINUTE
+
+      /*
+       * The machine sleeps for three hours. No worker restart - this hub
+       * instance survives, so nothing reads storage and nothing reconciles
+       * unless the tick itself doubts what it is holding.
+       */
+      h.advance(3 * 60 * MINUTE)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+
+      const ends = h.named('watching_together_ended')
+      expect(ends).toHaveLength(1)
+      // Nine minutes, not three hours and nine.
+      expect(ends[0].properties.duration_ms).toBe(9 * MINUTE)
+      expect(Date.parse(ends[0].occurred_at)).toBe(lastSeenAt)
+      expect(ends[0].properties.end_reason).toBe('observation_lost')
+      // The sleep is excluded, not redistributed somewhere else.
+      expect(ends[0].properties.detection_delay_ms).toBe(3 * 60 * MINUTE)
+
+      // And the world we woke up to starts a fresh interval of its own.
+      expect(h.named('watching_together_started')).toHaveLength(2)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('gives the same answer whether the worker survived or not', async () => {
+    /*
+     * The whole point of the fix. A three-hour gap must be read identically
+     * whether Chrome happened to keep the worker across the suspend or not -
+     * otherwise correctness depends on unspecified browser behaviour.
+     */
+    const run = async (killWorker: boolean) => {
+      const h = harness()
+      try {
+        h.hub.noteActive()
+        h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+        await h.settle()
+        await h.keepAlive(9 * MINUTE, 'summit1g', 2)
+
+        h.advance(3 * 60 * MINUTE)
+        if (killWorker) h.restartWorker()
+        h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+        await h.settle()
+
+        const [end] = h.named('watching_together_ended')
+        return {
+          duration: end.properties.duration_ms,
+          occurred: end.occurred_at,
+          reason: end.properties.end_reason,
+          starts: h.named('watching_together_started').length,
+        }
+      } finally {
+        h.restore()
+      }
+    }
+
+    expect(await run(false)).toEqual(await run(true))
+  })
+
+  it('does not credit a sleep as post-social retention', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.recordJoin({
+        channel: 'summit1g',
+        source: 'friend_row',
+        socialCount: 1,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      h.hub.noteChannel('summit1g')
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      const startedAt = 1_700_000_000_000
+
+      // The friend leaves at nine minutes; the grace expires over the next few
+      // ticks, so a retention interval is open when the machine sleeps.
+      await h.keepAlive(9 * MINUTE, 'summit1g', 1)
+      const friendLeftAt = startedAt + 9 * MINUTE
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      await h.keepAlive(3 * MINUTE, 'summit1g', 0)
+      expect(h.named('watching_together_ended')).toHaveLength(1)
+
+      // Three hours of sleep, worker intact, then a tick.
+      h.advance(3 * 60 * MINUTE)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+
+      const [post] = h.named('post_social_retention_ended')
+      expect(post).toBeDefined()
+      /*
+       * Three minutes of watching on alone - the ticks between the friend
+       * leaving and the sleep - and not one second of the sleep itself.
+       */
+      expect(post.properties.duration_ms).toBe(3 * MINUTE)
+      expect(post.properties.end_reason).toBe('observation_lost')
+      expect(Date.parse(post.occurred_at)).toBe(friendLeftAt + 3 * MINUTE)
+      // The shared watch it followed is untouched and still attributed.
+      expect(h.named('watching_together_ended')[0].properties.duration_ms).toBe(9 * MINUTE)
+      expect(post.attribution_id).toBe(h.named('join_clicked')[0].attribution_id)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('leaves a short gap alone', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      await h.keepAlive(9 * MINUTE, 'summit1g', 1)
+
+      // Two minutes: inside the resume window, so this is an ordinary quiet
+      // stretch rather than a gap we cannot account for.
+      h.advance(2 * MINUTE)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      expect(h.named('watching_together_ended')).toHaveLength(0)
+      expect(h.named('watching_together_started')).toHaveLength(1)
+
+      await h.keepAlive(MINUTE, 'summit1g', 1)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      // The quiet two minutes still count: the worker was there for them.
+      expect(end.properties.duration_ms).toBe(12 * MINUTE)
+      expect(end.properties.end_reason).toBe('left_channel')
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('emits one end however many ticks follow the gap', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+      await h.settle()
+      await h.keepAlive(9 * MINUTE, 'summit1g', 2)
+
+      h.advance(3 * 60 * MINUTE)
+
+      // Ten ticks in a row after the sleep. The first closes the old interval
+      // and opens a new one; the rest must do nothing at all.
+      for (let tick = 0; tick < 10; tick += 1) {
+        h.advance(45_000)
+        h.hub.noteTogether({ channel: 'summit1g', otherCount: 2 })
+        await h.settle()
+      }
+
+      expect(h.named('watching_together_ended')).toHaveLength(1)
+      expect(h.named('watching_together_started')).toHaveLength(2)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('does not credit a sleep when the user signs out on waking', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+      await h.keepAlive(9 * MINUTE, 'summit1g', 1)
+      const lastSeenAt = 1_700_000_000_000 + 9 * MINUTE
+
+      h.advance(3 * 60 * MINUTE)
+      h.hub.noteSignedOut()
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      // stop() would have closed this at now(). The staleness check runs
+      // first, so signing out after a sleep is no more generous than a tick.
+      expect(end.properties.duration_ms).toBe(9 * MINUTE)
+      expect(Date.parse(end.occurred_at)).toBe(lastSeenAt)
+      expect(end.properties.end_reason).toBe('observation_lost')
+      expect(h.storage().lifecycle ?? null).toBeNull()
     } finally {
       h.restore()
     }
