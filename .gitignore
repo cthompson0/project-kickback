@@ -39,6 +39,9 @@ supabase/.generated
 # Demo build output
 dist-demo
 
+# Test Lab build output. The lab is normally RUN, not built - see docs/TEST_LAB.md.
+dist-testlab
+
 # Screenshots and reports written by scripts/cdp.mjs during manual layout work.
 *.png
 !public/icons/*.png

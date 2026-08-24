@@ -30,6 +30,32 @@ export function joinChannel(channel: string): boolean {
   // the stream they are already watching.
   if (getCurrentChannel()?.toLowerCase() === channel.trim().toLowerCase()) return false
 
-  window.location.assign(channelUrl(channel))
+  navigate(channelUrl(channel))
   return true
+}
+
+type JoinNavigator = (url: string) => void
+
+const REAL_NAVIGATION: JoinNavigator = (url) => window.location.assign(url)
+
+let navigate: JoinNavigator = REAL_NAVIGATION
+
+/**
+ * Replace the final navigation step. Test Lab only.
+ *
+ * The Test Lab needs to click a real JOIN - real guard, real analytics, real
+ * attribution - without the developer being thrown onto twitch.tv. The
+ * alternative was a second joinChannel for the lab, which would mean the thing
+ * under test was not the thing that ships.
+ *
+ * So the seam is here, at the last statement before the browser takes over,
+ * and it is the ONLY part of JOIN that can be substituted. The decision above
+ * it - including whether this click goes anywhere at all - is untouched.
+ *
+ * The body is behind a build-time constant, so in any build that is not the
+ * Test Lab this folds to an immediate return and nothing can reach the slot.
+ */
+export function setJoinNavigator(next: JoinNavigator | null): void {
+  if (import.meta.env.VITE_KICKBACK_MODE !== 'test_lab') return
+  navigate = next ?? REAL_NAVIGATION
 }

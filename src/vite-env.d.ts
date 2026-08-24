@@ -3,7 +3,7 @@
 interface ImportMetaEnv {
   readonly VITE_SUPABASE_URL: string
   readonly VITE_SUPABASE_PUBLISHABLE_KEY: string
-  readonly VITE_KICKBACK_MODE?: 'production' | 'demo'
+  readonly VITE_KICKBACK_MODE?: 'production' | 'demo' | 'test_lab'
   /**
    * Which cohort this build's analytics belong to. Separate from MODE on
    * purpose: a development build and a beta build are both "production mode"

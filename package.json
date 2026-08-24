@@ -22,7 +22,10 @@
     "test:presence": "node scripts/verify-presence-tests.mjs",
     "test:wrap": "node scripts/verify-chat-wrapping.mjs",
     "test:analytics": "node scripts/verify-analytics-tests.mjs",
-    "verify:analytics": "node scripts/verify-analytics.mjs"
+    "verify:analytics": "node scripts/verify-analytics.mjs",
+    "dev:lab": "vite -c vite.testlab.config.ts",
+    "test:lab": "vitest run tests/testlab",
+    "verify:lab": "node scripts/verify-test-lab.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

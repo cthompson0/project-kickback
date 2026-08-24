@@ -29,7 +29,13 @@ export default defineConfig([
     //
     // `.tsx` as well as `.ts`: several suites render components, and matching
     // only `.ts` quietly left them linted by nothing at all.
-    files: ['tests/**/*.{ts,tsx}', 'scripts/**/*.mjs', 'vite.config.ts', 'vitest.config.ts'],
+    files: [
+      'tests/**/*.{ts,tsx}',
+      'scripts/**/*.mjs',
+      'vite.config.ts',
+      'vite.testlab.config.ts',
+      'vitest.config.ts',
+    ],
     extends: [js.configs.recommended, tseslint.configs.recommended],
     languageOptions: {
       globals: globals.node,
@@ -43,7 +49,7 @@ export default defineConfig([
      * evaluated inside a page - so `document` and `window` are real there, and
      * Node's globals are not. Both sets apply.
      */
-    files: ['scripts/verify-chat-wrapping.mjs'],
+    files: ['scripts/verify-chat-wrapping.mjs', 'scripts/verify-test-lab.mjs'],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
     },

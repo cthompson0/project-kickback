@@ -1,0 +1,214 @@
+/*
+ * Chrome for the Test Lab itself.
+ *
+ * Deliberately plain. This is a workbench: the only thing in the window that
+ * should look designed is the panel under test, and lab chrome that competed
+ * with it would make regressions harder to see rather than easier.
+ */
+
+:root {
+  color-scheme: dark;
+  --lab-bg: #0e0e11;
+  --lab-panel: #17171c;
+  --lab-line: #2a2a33;
+  --lab-text: #e7e7ea;
+  --lab-dim: #9a9aa5;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--lab-bg);
+  color: var(--lab-text);
+  font: 13px/1.4 "Inter", system-ui, sans-serif;
+}
+
+.lab {
+  min-height: 100vh;
+}
+
+.lab-controls {
+  position: relative;
+  z-index: 2;
+  width: 520px;
+  max-width: 100%;
+  padding: 16px;
+  border-right: 1px solid var(--lab-line);
+  background: var(--lab-panel);
+  min-height: 100vh;
+}
+
+.lab-head h1 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0.02em;
+}
+
+.lab-sub,
+.lab-note {
+  margin: 6px 0 0;
+  color: var(--lab-dim);
+  font-size: 11.5px;
+}
+
+.lab-controls section {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--lab-line);
+}
+
+.lab-controls h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--lab-dim);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.lab-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 0;
+}
+
+.lab-name {
+  flex: 0 0 84px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-channel {
+  flex: 1 1 90px;
+  min-width: 0;
+}
+
+input,
+select,
+button {
+  font: inherit;
+  color: inherit;
+  background: #101015;
+  border: 1px solid var(--lab-line);
+  border-radius: 6px;
+  padding: 3px 6px;
+}
+
+input:disabled,
+select:disabled {
+  opacity: 0.4;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:hover {
+  background: #1d1d24;
+}
+
+.lab-check {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--lab-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.lab-x {
+  padding: 1px 7px;
+  line-height: 1.2;
+}
+
+.lab-buttons,
+.lab-presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.lab-presets button.on {
+  border-color: #ff8452;
+  color: #ff8452;
+}
+
+.lab-clear {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 7px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.lab-log {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--lab-line);
+  border-radius: 8px;
+}
+
+.lab-log li {
+  display: flex;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--lab-line);
+  font-size: 11.5px;
+}
+
+.lab-log li:last-child {
+  border-bottom: 0;
+}
+
+.lab-log code {
+  color: var(--lab-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lab-log strong {
+  flex: 0 0 auto;
+}
+
+.lab-log-join {
+  border-color: #2ee6a8;
+  margin-bottom: 8px;
+}
+
+.lab-log-join li {
+  color: #2ee6a8;
+}
+
+.lab-notification strong {
+  color: #ffb454;
+}
+
+.lab-blocked strong {
+  color: #ff6b6b;
+}
+
+.lab-empty {
+  color: var(--lab-dim);
+}
+
+/*
+ * The panel's own layer, spanning the viewport exactly as it does on Twitch.
+ * `.kb-root` is pointer-events: none, so it can sit over the controls without
+ * swallowing clicks on them.
+ */
+.lab-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+}
