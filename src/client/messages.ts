@@ -105,6 +105,15 @@ export type ClientMessage =
         state: 'watching_with_you' | 'watching_elsewhere'
       }>
       gatherings: Array<{ channel: string; friendCount: number; rank: number }>
+      /**
+       * Social Gravity destinations, in rank order.
+       *
+       * The opportunity key is deliberately NOT sent. The worker derives it
+       * when it emits, from the channel and the clock, so an impression and
+       * the JOIN that follows it cannot disagree about which opportunity they
+       * were - and so nothing about the cluster's membership has to travel.
+       */
+      gravity: Array<{ channel: string; friendCount: number; rank: number }>
     }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 

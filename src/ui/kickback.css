@@ -1931,3 +1931,115 @@ a.kb-ghost-btn {
 .kb-usercard-channel {
   margin-left: 5px;
 }
+
+/* ---------- social gravity ---------- */
+
+/*
+ * The live social map.
+ *
+ * A destination is a card rather than a heading with rows under it, because
+ * the destination is the subject: the card is the thing you act on, and the
+ * faces inside it are what give it weight. Two friends earns the heavier
+ * treatment - see .kb-gravity-card-strong - and one friend gets the same card
+ * without it, so a single friend on a stream is still visible discovery.
+ */
+
+.kb-gravity {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.kb-gravity-card {
+  padding: 6px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+/*
+ * A gathering, not a stream with somebody on it.
+ *
+ * Same accent the gathering banner used, so the signal people already
+ * recognise moves into the map rather than being replaced by a new one.
+ */
+.kb-gravity-card-strong {
+  background: rgba(255, 132, 82, 0.1);
+  border-color: rgba(255, 132, 82, 0.24);
+}
+
+/* Where you already are. Green, like every other "with you" surface. */
+.kb-gravity-card-here {
+  background: rgba(46, 230, 168, 0.1);
+  border-color: rgba(46, 230, 168, 0.22);
+}
+
+.kb-gravity-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.kb-gravity-flame {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.kb-gravity-channel {
+  font-size: 12.5px;
+  font-weight: 800;
+  /* A long channel name must not push JOIN off the card at 260px. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.kb-gravity-count {
+  flex: none;
+  min-width: 17px;
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  font-size: 10.5px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--kb-text);
+}
+
+.kb-gravity-card-strong .kb-gravity-count {
+  background: rgba(255, 132, 82, 0.26);
+}
+
+.kb-gravity-card-here .kb-gravity-count {
+  background: rgba(46, 230, 168, 0.24);
+}
+
+.kb-gravity-with-you {
+  padding: 3px 2px 0;
+  font-size: 11px;
+  color: var(--kb-here);
+}
+
+/*
+ * The faces.
+ *
+ * Wrapping rather than scrolling: at the narrowest panel a five-friend
+ * gathering becomes two lines, which is readable, where a horizontal scroller
+ * would hide people behind a gesture nobody would think to make.
+ */
+.kb-gravity-people {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 8px;
+  padding-top: 3px;
+}
+
+/* Anchors the user card, exactly as a cluster row does. */
+.kb-gravity-person {
+  position: relative;
+}
+
+.kb-gravity-quiet {
+  padding-top: 2px;
+}

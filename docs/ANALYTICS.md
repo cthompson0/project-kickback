@@ -39,7 +39,7 @@ Every event carries:
 | `occurred_at` | When the thing **happened**, which for a shared watch ending is not when it was noticed. See section 8. |
 | `received_at` | When the row reached the database. Always the server's clock. |
 | `app_version` | e.g. `0.5.0`. So a tester on an old ZIP is identifiable as such. |
-| `source` | Which Kickback surface: `friend_row`, `user_card`, `gathering`, `notification`, `group`; later `social_gravity`. |
+| `source` | Which Kickback surface: `friend_row`, `user_card`, `social_gravity`, `notification`, `group`. `gathering` is retired — see section 6a. |
 | `destination_channel` | A Twitch channel login, for events that are about going somewhere. See section 3. |
 | `attribution_id` | A random id linking one JOIN click to its arrival, shared watch and post-social retention. Held in the browser for minutes, then dropped. |
 | `properties` | A handful of counts, buckets and flags. Each event's allowed keys are listed in the database. |
@@ -109,8 +109,8 @@ In summary:
 `friend_request_accepted`, `friend_removed`, `group_invite_sent`,
 `group_invite_accepted`
 
-**Exposure** — `friend_presence_impression`, `gathering_impression`,
-`gravity_cluster_impression` *(registered, not yet emitted)*
+**Exposure** — `friend_presence_impression`, `gravity_cluster_impression`;
+`gathering_impression` is retired — see section 6a
 
 **JOIN** — `join_clicked`, `join_arrived`
 
@@ -179,6 +179,163 @@ are on, or a gathering's channel. A gathering growing from two friends to six
 is the same gathering and does not re-impress; the count is recorded as a
 property at the moment of the impression. A friend moving channel is a
 different opportunity, and does.
+
+---
+
+## 6a. Social Gravity
+
+The panel's Friends view is a map of destinations rather than a list of people.
+Friends on the same channel become one card; the card is what you act on.
+
+### What is recorded
+
+`gravity_cluster_impression` — a destination was visible in the open panel.
+Properties: `friend_count`, `rank`, `visible_clusters`, `opportunity_key`.
+Source `social_gravity`, `destination_channel` set.
+
+Deduped through the same exposure path as everything else: one per channel per
+30-minute window, re-firing after a 5-minute absence. A presence heartbeat
+re-renders the map and does **not** produce an impression.
+
+**Only joinable destinations are reported.** The channel the viewer is already
+on has no JOIN, so counting it would put rows that can never convert into the
+denominator of impression-to-JOIN conversion.
+
+`join_clicked` from the map carries `source: 'social_gravity'`, `social_count`,
+and the same `opportunity_key`. It does **not** carry `rank` — the impression
+already has it, and the two join on `opportunity_key`, so recording it twice
+would be a second copy of a fact that could disagree with the first.
+
+### The opportunity key
+
+```
+gravity:<channel>:<floor(now / 30 minutes)>
+```
+
+Derived only from what every viewer sees identically — the channel and the
+clock — because amplification counts the viewers who *arrive* at one gathering,
+and they can only be counted together if they all write down the same name for
+it. Nothing about who is in the cluster goes into it.
+
+| Requirement | How |
+|---|---|
+| Same across viewers | Both inputs are public and shared |
+| No friend identities | Channel and time only |
+| Brief flap keeps it | Same window |
+| Re-forms later as new | Next window |
+| Never random | Pure function of (channel, now) |
+
+**Known cost, accepted:** a gathering spanning a window boundary is recorded as
+two opportunities. Anchoring to when the cluster formed would keep it whole but
+give late arrivals a different key from the people already there — and late
+arrivals are exactly who amplification counts. Queries wanting the whole
+gathering group by `destination_channel` over a time range.
+
+Both the impression and the click derive the key in the **service worker** at
+event time, from the same function, so they cannot disagree about which
+opportunity they were.
+
+### What happened to the gathering banner
+
+The in-panel gathering banner said "🔥 N friends watching X" with a JOIN. The
+top card of Social Gravity says the same thing, so keeping both would have
+shown one gathering twice and counted one exposure twice.
+
+| Thing | Status |
+|---|---|
+| Gathering **banner** in the panel | **Removed.** Gravity is the in-panel representation. |
+| Gathering **notification** | **Unchanged.** Same threshold, cooldown and dismiss rules. |
+| `gathering_notification_shown` / `_clicked` | **Unchanged**, still emitted. |
+| `gathering_impression` | **No longer emitted.** It meant "the banner was visible"; there is no banner. |
+| `join_clicked` with `source: 'gathering'` | **No longer emitted** from the panel. The notification path has always used `source: 'notification'`. |
+| `gravity_cluster_impression` | **New**, and a strict superset: it also covers single-friend destinations, which never had a banner. |
+
+This is a **deliberate discontinuity in the time series**, not a silent one. Any
+query spanning the change must union the two events:
+
+```sql
+-- Social exposure across the Gravity boundary.
+select case when event_name = 'gathering_impression' then 'banner' else 'gravity' end as surface,
+       date_trunc('day', occurred_at) as day,
+       count(*)                       as impressions
+from public.analytics_reportable_events_v
+where event_name in ('gathering_impression', 'gravity_cluster_impression')
+group by surface, day
+order by day;
+```
+
+Note the two are not like-for-like: the banner showed **one** gathering of 2+
+friends, the map shows **every** destination including single friends. Compare
+rates within a surface, not counts across the boundary.
+
+### Experiment arms
+
+`resolveArm` in `src/core/experiment.ts` decides which view a user sees. The
+assignment is a **hash of the user id** — stable forever, identical on every
+device, needing no table, no migration and no synchronisation.
+
+| Environment | Arm |
+|---|---|
+| `development` | always `gravity` |
+| `private_beta` | always `gravity` |
+| `production` | deterministic 50/50 by user id |
+
+Beta forces Gravity on purpose: a holdout across a handful of testers measures
+nothing and would cost the feature half the people who are there to test it.
+**Nothing derived from beta usage is a causal claim**, and `isRandomisedArm()`
+returns false there so no query can mistake a constant for an experiment.
+
+The arm is **not yet recorded on `authenticated_session_started`**. In beta it
+would be a constant, and adding a property needs a contract row. When public
+randomisation begins, recording it is one `INSERT` into `analytics_event_names`
+plus one line at the call site — no schema change. **Do not run a public
+experiment without doing that first.**
+
+### The two questions Gravity has to answer
+
+Deliberately not collapsed into one number:
+
+```sql
+-- A. Does the map persuade people to move?
+with shown as (
+  select properties ->> 'opportunity_key' as opportunity, actor_id, occurred_at
+  from public.analytics_reportable_events_v
+  where event_name = 'gravity_cluster_impression'
+), clicked as (
+  select properties ->> 'opportunity_key' as opportunity, actor_id, attribution_id
+  from public.analytics_reportable_events_v
+  where event_name = 'join_clicked' and source = 'social_gravity'
+)
+select count(distinct (s.actor_id, s.opportunity))                     as impressions,
+       count(distinct (c.actor_id, c.opportunity))                     as joins,
+       round(100.0 * count(distinct (c.actor_id, c.opportunity))
+                   / nullif(count(distinct (s.actor_id, s.opportunity)), 0), 1) as pct
+from shown s
+left join clicked c on c.opportunity = s.opportunity and c.actor_id = s.actor_id;
+```
+
+```sql
+-- B. Do those moves become anything?
+select count(*)                                          as gravity_joins,
+       count(together_started_at)                        as became_shared_watching,
+       count(*) filter (where post_social_retained)      as stayed_after,
+       avg(together_duration)                            as avg_shared_watch,
+       avg(post_social_duration)                         as avg_stay_after
+from public.analytics_join_funnel_v
+where source = 'social_gravity';
+```
+
+```sql
+-- Social amplification: viewers one opportunity produced.
+select opportunity_key,
+       destination_channel,
+       count(distinct actor_id)                     as viewers_who_joined,
+       count(distinct actor_id) filter (where arrived_at is not null) as arrived
+from public.analytics_join_funnel_v
+where source = 'social_gravity' and opportunity_key is not null
+group by opportunity_key, destination_channel
+order by viewers_who_joined desc;
+```
 
 ---
 
@@ -762,6 +919,8 @@ interpretation stays in the query, where it can be argued with.
 | Session lifecycle | `src/background/analyticsSession.ts` |
 | JOIN attribution | `src/background/joinAttribution.ts` |
 | Impression dedupe | `src/background/exposure.ts` |
+| Social Gravity clustering and opportunity keys | `src/core/socialGravity.ts` |
+| Experiment arms | `src/core/experiment.ts` |
 | Shared-watch and post-social detection | `src/background/togetherWatch.ts` |
 | Surviving a worker restart | `src/background/togetherStore.ts` |
 | Schema, contract, writer, reset | `supabase/migrations/0013_analytics.sql` |

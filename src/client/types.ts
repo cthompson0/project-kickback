@@ -258,6 +258,7 @@ export interface KickbackClient {
       state: 'watching_with_you' | 'watching_elsewhere'
     }>
     gatherings: Array<{ channel: string; friendCount: number; rank: number }>
+    gravity: Array<{ channel: string; friendCount: number; rank: number }>
   }): void
 }
 

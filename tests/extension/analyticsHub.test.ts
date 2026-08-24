@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createAnalyticsHub } from '../../src/background/analyticsHub'
 import type { AnalyticsEvent } from '../../src/core/analytics'
+import { OPPORTUNITY_WINDOW_MS, opportunityKey } from '../../src/core/socialGravity'
 
 /**
  * The hub, end to end: a JOIN clicked on a gathering, arriving, and turning
@@ -511,6 +512,7 @@ describe('impressions', () => {
       const report = {
         friends: [{ userId: 'nina', channel: 'lirik', state: 'watching_elsewhere' as const }],
         gatherings: [{ channel: 'xqc', friendCount: 4, rank: 1 }],
+        gravity: [],
       }
 
       h.hub.noteExposure(report)
@@ -539,6 +541,7 @@ describe('impressions', () => {
           { userId: 'nina', channel: 'https://twitch.tv/lirik', state: 'watching_elsewhere' },
         ],
         gatherings: [],
+        gravity: [],
       })
       await h.settle()
       expect(h.named('friend_presence_impression')).toHaveLength(0)
@@ -594,6 +597,7 @@ describe('a disabled hub', () => {
       h.hub.noteExposure({
         friends: [{ userId: 'nina', channel: 'lirik', state: 'watching_with_you' }],
         gatherings: [{ channel: 'lirik', friendCount: 2, rank: 1 }],
+        gravity: [],
       })
       await h.settle()
 
@@ -1423,6 +1427,225 @@ describe('a gap while the worker was alive', () => {
       expect(Date.parse(end.occurred_at)).toBe(lastSeenAt)
       expect(end.properties.end_reason).toBe('observation_lost')
       expect(h.storage().lifecycle ?? null).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+/**
+ * Social Gravity on the wire.
+ *
+ * The funnel this has to support is impression -> join_clicked -> join_arrived
+ * -> watching_together_started -> post-social retention, joined up well enough
+ * to answer two separate questions: does the map persuade people to move, and
+ * do those moves become anything. Collapsing them into one number would hide
+ * exactly the case that matters - a JOIN that goes nowhere.
+ */
+describe('social gravity analytics', () => {
+  const gravityReport = (
+    clusters: Array<{ channel: string; friendCount: number; rank: number }>,
+  ) => ({ friends: [], gatherings: [], gravity: clusters })
+
+  it('reports a cluster once per exposure window, not once per render', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      const report = gravityReport([{ channel: 'lirik', friendCount: 3, rank: 1 }])
+
+      // A presence heartbeat re-renders the map. That is one glance.
+      for (let render = 0; render < 20; render += 1) h.hub.noteExposure(report)
+      await h.settle()
+
+      const impressions = h.named('gravity_cluster_impression')
+      expect(impressions).toHaveLength(1)
+      expect(impressions[0].destination_channel).toBe('lirik')
+      expect(impressions[0].source).toBe('social_gravity')
+      expect(impressions[0].properties).toMatchObject({
+        friend_count: 3,
+        rank: 1,
+        visible_clusters: 1,
+      })
+      expect(impressions[0].properties.opportunity_key).toBe(
+        opportunityKey('lirik', 1_700_000_000_000),
+      )
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('reports each visible destination, with its rank', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteExposure(
+        gravityReport([
+          { channel: 'lirik', friendCount: 3, rank: 1 },
+          { channel: 'xqc', friendCount: 1, rank: 2 },
+        ]),
+      )
+      await h.settle()
+
+      const impressions = h.named('gravity_cluster_impression')
+      expect(impressions).toHaveLength(2)
+      expect(impressions.map((event) => event.destination_channel)).toEqual(['lirik', 'xqc'])
+      expect(impressions.map((event) => event.properties.rank)).toEqual([1, 2])
+      // Both know how much competition they had.
+      expect(impressions.every((event) => event.properties.visible_clusters === 2)).toBe(true)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('does not mint a new opportunity for a brief flap', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      const report = gravityReport([{ channel: 'lirik', friendCount: 2, rank: 1 }])
+      h.hub.noteExposure(report)
+      await h.settle()
+
+      // A friend flickers out and comes back inside the absence window.
+      h.hub.noteExposure({ friends: [], gatherings: [], gravity: [] })
+      h.advance(30_000)
+      h.hub.noteExposure(report)
+      await h.settle()
+
+      // One impression, and the opportunity it named is unchanged.
+      expect(h.named('gravity_cluster_impression')).toHaveLength(1)
+      expect(opportunityKey('lirik', 1_700_000_000_000 + 30_000)).toBe(
+        opportunityKey('lirik', 1_700_000_000_000),
+      )
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('treats a gathering that reforms much later as a new opportunity', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      const report = gravityReport([{ channel: 'lirik', friendCount: 2, rank: 1 }])
+      h.hub.noteExposure(report)
+      await h.settle()
+      const first = h.named('gravity_cluster_impression')[0].properties.opportunity_key
+
+      // Gone for the evening, back much later.
+      h.hub.noteExposure({ friends: [], gatherings: [], gravity: [] })
+      h.advance(OPPORTUNITY_WINDOW_MS + 60_000)
+      h.hub.noteExposure(report)
+      await h.settle()
+
+      const impressions = h.named('gravity_cluster_impression')
+      expect(impressions).toHaveLength(2)
+      expect(impressions[1].properties.opportunity_key).not.toBe(first)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('carries the same opportunity from the impression to the JOIN', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteExposure(gravityReport([{ channel: 'lirik', friendCount: 3, rank: 1 }]))
+      await h.settle()
+
+      h.hub.recordJoin({
+        channel: 'lirik',
+        source: 'social_gravity',
+        socialCount: 3,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      await h.settle()
+
+      const [impression] = h.named('gravity_cluster_impression')
+      const [clicked] = h.named('join_clicked')
+
+      // The join to the impression, for conversion by opportunity.
+      expect(clicked.properties.opportunity_key).toBe(impression.properties.opportunity_key)
+      expect(clicked.source).toBe('social_gravity')
+      expect(clicked.properties.social_count).toBe(3)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('keeps the whole funnel on one attribution', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteExposure(gravityReport([{ channel: 'lirik', friendCount: 3, rank: 1 }]))
+      h.hub.recordJoin({
+        channel: 'lirik',
+        source: 'social_gravity',
+        socialCount: 3,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      h.hub.noteChannel('lirik')
+      h.hub.noteTogether({ channel: 'lirik', otherCount: 3 })
+      await h.settle()
+
+      const attribution = h.named('join_clicked')[0].attribution_id
+      expect(attribution).toBeTruthy()
+      expect(h.named('join_arrived')[0].attribution_id).toBe(attribution)
+      // The outcome half of the funnel: did the move become anything.
+      expect(h.named('watching_together_started')[0].attribution_id).toBe(attribution)
+      expect(h.named('watching_together_started')[0].properties.from_join).toBe(true)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('names no friend anywhere on the wire', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteExposure(gravityReport([{ channel: 'lirik', friendCount: 3, rank: 1 }]))
+      h.hub.recordJoin({
+        channel: 'lirik',
+        source: 'social_gravity',
+        socialCount: 3,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      await h.settle()
+
+      /*
+       * The social context gets the credit, never a person. A cluster is a
+       * thing several people act on, and picking one of them to name would be
+       * both wrong and a privacy regression.
+       */
+      const wire = JSON.stringify(h.sent)
+      for (const forbidden of ['jake', 'matt', 'chris', 'user_id', 'friend_id', 'userId']) {
+        expect(wire).not.toContain(forbidden)
+      }
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('gives a friend-row JOIN no opportunity key', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.recordJoin({
+        channel: 'lirik',
+        source: 'friend_row',
+        socialCount: 1,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      await h.settle()
+
+      // One person is not an opportunity several viewers can act on.
+      expect(h.named('join_clicked')[0].properties.opportunity_key).toBeUndefined()
     } finally {
       h.restore()
     }

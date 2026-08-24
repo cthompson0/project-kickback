@@ -913,6 +913,9 @@ chrome.runtime.onConnect.addListener((port) => {
         analytics.noteExposure({
           friends: Array.isArray(raw.friends) ? raw.friends : [],
           gatherings: Array.isArray(raw.gatherings) ? raw.gatherings : [],
+          // Defaulted rather than required: a tab still running a previous
+          // build reports no gravity, and must not break the handler.
+          gravity: Array.isArray(raw.gravity) ? raw.gravity : [],
         })
         break
       case 'rpc':

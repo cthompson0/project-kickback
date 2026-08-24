@@ -6,10 +6,12 @@ import type { KickbackClient } from '../client/types'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
+import { SocialGravity } from './components/SocialGravity'
+import { gravityOpportunities, socialGravity } from '../core/socialGravity'
+import { resolveArm } from '../core/experiment'
 import { FindFriends } from './components/FindFriends'
 import { IncomingRequests } from './components/IncomingRequests'
 import { GroupsTab } from './components/GroupsTab'
-import { JoinButton } from './components/JoinButton'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
 import { usePanelLayout } from './layout/usePanelLayout'
 import { useLayoutHint } from './layout/useLayoutHint'
@@ -114,6 +116,41 @@ export function KickbackPanel({
   }, [collapsed, finding, tab, view.status, view.attention, client])
 
   /*
+   * Which arm this user is in.
+   *
+   * Everything outside production sees Gravity - a holdout across a handful of
+   * beta testers measures nothing and costs the feature half the people who
+   * are there to test it. Production splits deterministically by user id.
+   * See core/experiment.ts; nothing here is a causal claim.
+   */
+  const arm = resolveArm({
+    userId: view.identity?.userId ?? null,
+    environment: import.meta.env.VITE_KICKBACK_ENV ?? 'development',
+  })
+
+  /**
+   * The same map the Friends tab draws, for the exposure report.
+   *
+   * Derived from the same selector rather than re-clustered, so what analytics
+   * calls an impression is exactly what was on screen. Recomputing it a second
+   * way would be a second chance to disagree.
+   */
+  const gravityMap = useMemo(
+    () =>
+      socialGravity(
+        view.friends.map((friend) => ({
+          member: friend,
+          presence: friend.presence,
+          userId: friend.user.id,
+        })),
+        view.localActivity,
+        undefined,
+        view.identity?.userId ?? null,
+      ),
+    [view.friends, view.localActivity, view.identity?.userId],
+  )
+
+  /*
    * What social information is actually on screen.
    *
    * The panel reports the whole visible SET, and the worker decides what
@@ -127,7 +164,7 @@ export function KickbackPanel({
    */
   const visibleSocial = useMemo(() => {
     if (collapsed || view.status !== 'signed_in') {
-      return { friends: [], gatherings: [] }
+      return { friends: [], gatherings: [], gravity: [] }
     }
 
     const viewer = view.channel
@@ -143,14 +180,28 @@ export function KickbackPanel({
         if (!presence.channel) return []
         return [{ userId: friend.user.id, channel: presence.channel, state: presence.kind }]
       }),
-      // Only the gatherings that are drawn. The banner shows one.
-      gatherings: view.gatherings.slice(0, 1).map((gathering, index) => ({
-        channel: gathering.channel,
-        friendCount: gathering.userIds.length,
-        rank: index + 1,
-      })),
+      /*
+       * The gathering banner is gone, so nothing draws a gathering any more
+       * and nothing may report one as shown. Social Gravity is the in-panel
+       * representation now, and gravity_cluster_impression is what records it.
+       */
+      gatherings: [],
+      /*
+       * Every destination the map is actually showing, in rank order. Only
+       * joinable ones: the channel the viewer is already on is not an
+       * opportunity, and counting it would put rows that can never convert
+       * into the conversion denominator.
+       */
+      gravity:
+        arm === 'gravity'
+          ? gravityOpportunities(gravityMap).map((section) => ({
+              channel: section.channel,
+              friendCount: section.count,
+              rank: section.rank,
+            }))
+          : [],
     }
-  }, [collapsed, view.status, view.friends, view.gatherings, view.channel])
+  }, [collapsed, view.status, view.friends, view.channel, arm, gravityMap])
 
   useEffect(() => {
     client.reportExposure(visibleSocial)
@@ -365,21 +416,20 @@ export function KickbackPanel({
             </div>
           )}
 
-          {/* Friends clustered somewhere else - the "everyone is over there"
-              signal from Phase 0, now backed by real presence. */}
-          {view.gatherings.slice(0, 1).map((gathering) => (
-            <div className="kb-gathering kb-gathering-banner" key={gathering.channel}>
-              <span className="kb-gathering-text">
-                🔥 {gathering.userIds.length} friends watching{' '}
-                <ChannelLabel channel={gathering.channel} />
-              </span>
-              <JoinButton
-                channel={gathering.channel}
-                source="gathering"
-                socialCount={gathering.userIds.length}
-              />
-            </div>
-          ))}
+          {/*
+            * The gathering banner used to live here.
+            *
+            * It said "N friends watching X" with a JOIN, which is exactly what
+            * the top card of Social Gravity now says - so keeping both would
+            * have shown one gathering twice and counted one exposure twice.
+            * The map is the in-panel representation now.
+            *
+            * Notifications are untouched: gatherings.ts still decides when a
+            * gathering is worth interrupting somebody for, with the same
+            * threshold and cooldown, and gathering_notification_shown and
+            * _clicked still fire. See docs/ANALYTICS.md for what this means
+            * for gathering_impression.
+            */}
 
           <div className="kb-tabs">
             <button
@@ -459,7 +509,16 @@ export function KickbackPanel({
                       onFindFriends={() => setFinding(true)}
                     />
                   )
+                ) : arm === 'gravity' ? (
+                  <SocialGravity
+                    friends={friends}
+                    localActivity={view.localActivity}
+                    onRemove={removeFriend}
+                    client={client}
+                    cardContext={cardContext}
+                  />
                 ) : (
+                  /* The control arm keeps the flat list it always had. */
                   <FriendsTab
                     friends={friends}
                     localActivity={view.localActivity}

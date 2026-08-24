@@ -20,7 +20,13 @@ import { createAnalyticsSession, sessionDuration } from './analyticsSession'
 import type { SessionStore } from './analyticsSession'
 import { createJoinAttribution } from './joinAttribution'
 import type { AttributionStore } from './joinAttribution'
-import { createExposureTracker, friendPresenceKey, gatheringKey } from './exposure'
+import {
+  createExposureTracker,
+  friendPresenceKey,
+  gatheringKey,
+  gravityClusterKey,
+} from './exposure'
+import { opportunityKey } from '../core/socialGravity'
 import { createTogetherWatch } from './togetherWatch'
 import { isObservationLost, reconcileLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
@@ -48,6 +54,7 @@ export interface ExposureReport {
     state: 'watching_with_you' | 'watching_elsewhere'
   }>
   gatherings: Array<{ channel: string; friendCount: number; rank: number }>
+  gravity: Array<{ channel: string; friendCount: number; rank: number }>
 }
 
 export interface AnalyticsHubDeps {
@@ -498,6 +505,15 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
             already_on_twitch: input.alreadyOnTwitch,
             already_on_destination: input.alreadyOnDestination,
             navigated: input.navigated,
+            /*
+             * Only Gravity has an opportunity to name. A friend row is one
+             * person and needs no key; a cluster is a thing several people act
+             * on separately, and counting how many viewers ONE gathering
+             * produced needs them all to write down the same name for it.
+             */
+            ...(input.source === 'social_gravity'
+              ? { opportunity_key: opportunityKey(channel, now()) }
+              : {}),
           },
           source: input.source,
           channel,
@@ -603,13 +619,38 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
         })
       }
 
+      for (const cluster of report.gravity) {
+        const channel = normalizeChannel(cluster.channel)
+        if (!channel) continue
+        keyed.set(gravityClusterKey(channel), {
+          name: 'gravity_cluster_impression',
+          props: {
+            friend_count: cluster.friendCount,
+            rank: cluster.rank,
+            visible_clusters: report.gravity.length,
+            /*
+             * Derived here rather than sent, so the impression and the JOIN
+             * that may follow it cannot disagree about which opportunity they
+             * were - both call the same function with the same clock.
+             */
+            opportunity_key: opportunityKey(channel, now()),
+          },
+          channel,
+        })
+      }
+
       for (const key of exposure.observe([...keyed.keys()])) {
         const entry = keyed.get(key)
         if (!entry) continue
         record({
           name: entry.name,
           properties: entry.props as never,
-          source: entry.name === 'gathering_impression' ? 'gathering' : 'friend_row',
+            source:
+            entry.name === 'gathering_impression'
+              ? 'gathering'
+              : entry.name === 'gravity_cluster_impression'
+                ? 'social_gravity'
+                : 'friend_row',
           channel: entry.channel,
         })
       }
