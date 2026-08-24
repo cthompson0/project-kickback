@@ -13,6 +13,28 @@ const POLL_INTERVAL_MS = 400
 export type ChannelListener = (channel: string | null) => void
 
 /**
+ * Subscribe to the page title changing, whatever the channel is doing.
+ *
+ * Separate from watchChannel because the two answer different questions, and
+ * conflating them is what hid a real bug: watchChannel deliberately fires only
+ * when the CHANNEL changes, and Twitch sets the URL before it sets the title.
+ * So at the moment we learn we are on a new channel, the title still belongs
+ * to the previous one - and the correction that arrives a beat later looked
+ * like "same channel, nothing to do".
+ *
+ * The display casing of a channel is only ever available from that title, so
+ * missing the correction meant never learning it.
+ */
+export function watchTitle(listener: () => void): () => void {
+  const titleEl = document.querySelector('title')
+  if (!titleEl) return () => {}
+
+  const observer = new MutationObserver(() => listener())
+  observer.observe(titleEl, { childList: true, characterData: true, subtree: true })
+  return () => observer.disconnect()
+}
+
+/**
  * Subscribe to the channel the local user is currently viewing. The listener is
  * invoked immediately with the current value and then on every change.
  */

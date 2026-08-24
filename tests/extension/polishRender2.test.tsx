@@ -121,9 +121,13 @@ describe('a chat sender is clickable', () => {
     // Selecting message text must not be interrupted by the name being a
     // control, so the body is a sibling rather than a child.
     const html = chat()
-    const label = html.match(/<span[^>]*class="kb-msg-who[^"]*"[^>]*>(.*?)<\/span>/)
+    const label = html.match(
+      /<span[^>]*class="kb-msg-who[^"]*"[^>]*>((?:[^<]|<span[^>]*>[^<]*<\/span>)*)<\/span>/,
+    )
     expect(label).not.toBeNull()
-    expect(label?.[1]).toBe('AnoterosTV:')
+    // Tags stripped: the separator is its own element so it can keep the
+    // ordinary chat colour instead of inheriting the sender's.
+    expect(label?.[1].replace(/<[^>]+>/g, '')).toBe('AnoterosTV:')
     expect(html).toContain('hello there')
   })
 

@@ -206,6 +206,50 @@ and the same `opportunity_key`. It does **not** carry `rank` — the impression
 already has it, and the two join on `opportunity_key`, so recording it twice
 would be a second copy of a fact that could disagree with the first.
 
+### Canonical identity versus display casing
+
+A channel has two spellings and they do different jobs.
+
+| | Spelling | Used for |
+|---|---|---|
+| **Canonical** | the lowercase login (`lvndmark`) | clustering, equality, "am I already here", the JOIN target, `destination_channel`, `opportunity_key` |
+| **Display** | whatever casing Twitch chose (`LVNDMARK`) | on-screen text, and nothing else |
+
+`parseChannelFromPath` lowercases at the point a channel enters the system, so
+everything downstream - presence over the wire included - is canonical by
+construction. `LVNDMARK` and `lvndmark` are one cluster, one destination and
+one opportunity, and no analytics row can ever be split by capitalisation.
+
+The display spelling is resolved separately, at render time, by
+`resolveChannelName` in `src/core/channelNames.ts`. It never invents casing: it
+looks the login up and returns the login unchanged if nothing knows better.
+Two sources, neither needing a Twitch API call:
+
+1. **A person Kickback already knows.** A channel is a Twitch user, so a
+   friend's stored display name IS that channel's display name.
+2. **A page this browser has opened.** The content script reads the casing off
+   the `<title>`, which is Twitch telling us directly, and the worker keeps a
+   capped `login -> display` map.
+
+Both are keyed by login and hold one value per channel, so which friend is in a
+cluster - or how many - cannot change the answer. The resolution is a function
+of the channel, not of the people standing on it.
+
+Source 2 needs the content script to report activity **again** once the title
+catches up. Twitch changes the URL first and the title a beat later, so a report
+sent at navigation time carries the *previous* page's title and learns nothing;
+`watchTitle` exists for exactly that correction. Reporting only on channel
+change is what left every destination showing its bare login.
+
+**The slot Twitch metadata fills.** A channel this browser has never opened, and
+that belongs to nobody Kickback knows, has no display spelling and falls back to
+its login. That is correct rather than wrong - the login is a real name Twitch
+canonicalised - but it is plainer than it needs to be. When the Twitch Metadata
+Service arrives, its authoritative `display_name` becomes a third source inside
+`resolveChannelName` and every call site improves at once. Nothing above it
+changes, because no caller has ever been allowed to use display text as
+identity.
+
 ### The opportunity key
 
 ```

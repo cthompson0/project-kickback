@@ -249,8 +249,14 @@ export function GroupChat({
                 >
                   {/* The colon belongs to the sender label, so it lives inside
                       the identity: it copies with the name, and clicking it
-                      does what clicking the name does. */}
-                  {message.displayName}:
+                      does what clicking the name does.
+
+                      It is not part of the NAME, though. The name carries the
+                      sender's colour; the colon is structural punctuation and
+                      takes the ordinary chat foreground, so a coloured name
+                      does not bleed into the separator after it. */}
+                  {message.displayName}
+                  <span className="kb-msg-sep">:</span>
                 </span>
                 <MessageBody body={message.body} />
                 {annotation && <ComboBadge annotation={annotation} />}

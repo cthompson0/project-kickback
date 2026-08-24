@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { GroupChat } from '../../src/ui/components/GroupChat'
@@ -60,9 +61,22 @@ function chat(displayName: string, body: string) {
   )
 }
 
-/** The rendered sender label, colon and all. */
+/** The rendered sender label, colon and all - as text, however it is marked up. */
 function senderLabel(html: string): string {
-  const match = html.match(/<span[^>]*class="kb-msg-who[^"]*"[^>]*>(.*?)<\/span>/)
+  return labelMarkup(html).replace(/<[^>]+>/g, '')
+}
+
+/**
+ * The label's inner markup, one level of nesting allowed.
+ *
+ * The separator is its own element - it is punctuation and must not carry the
+ * sender's colour - so a non-greedy match to the first closing tag would stop
+ * inside the label and quietly drop the colon it is here to check.
+ */
+function labelMarkup(html: string): string {
+  const match = html.match(
+    /<span[^>]*class="kb-msg-who[^"]*"[^>]*>((?:[^<]|<span[^>]*>[^<]*<\/span>)*)<\/span>/,
+  )
   if (!match) throw new Error('no sender label in the rendered chat line')
   return match[1]
 }
@@ -130,6 +144,43 @@ describe('the sender label preserves capitalisation', () => {
     const html = chat('AnoterosTV', 'hi')
     expect(html).toContain('title="About AnoterosTV"')
     expect(html).not.toContain('title="About AnoterosTV:"')
+  })
+})
+
+describe('the separator does not wear the sender colour', () => {
+  const CSS = readFileSync('src/ui/kickback.css', 'utf8')
+  const rule = (selector: string) => {
+    const at = CSS.indexOf(selector)
+    if (at < 0) throw new Error('no rule for ' + selector)
+    return CSS.slice(at, CSS.indexOf('}', at))
+  }
+
+  it('renders the colon as its own element, outside the coloured name', () => {
+    /*
+     * The regression: .kb-msg-who paints the sender's colour over everything
+     * inside it, so a colon sitting in the same text node came out orange - or
+     * green, for yourself. The name keeps the colour; the colon steps out of it.
+     */
+    expect(labelMarkup(chat('AnoterosTV', 'hello there'))).toBe(
+      'AnoterosTV<span class="kb-msg-sep">:</span>',
+    )
+  })
+
+  it('paints it with the ordinary message foreground, not a hardcoded white', () => {
+    // The same token message text uses, so a theme change moves both together.
+    expect(rule('.kb-msg-sep {')).toContain('color: var(--kb-text)')
+    expect(rule('.kb-msg-body {')).toContain('color: var(--kb-text)')
+    expect(rule('.kb-msg-sep {')).not.toMatch(/#[0-9a-fA-F]{3,8}/)
+  })
+
+  it('does not drag the sender weight onto the punctuation', () => {
+    // .kb-msg-who is 800; a bold colon still reads as part of the name.
+    expect(rule('.kb-msg-sep {')).toContain('font-weight: 400')
+  })
+
+  it('still gives the name itself the sender colour', () => {
+    // Fixing the colon must not quietly flatten the thing it separates.
+    expect(rule('.kb-msg-who {')).toContain('color: var(--kb-accent)')
   })
 })
 

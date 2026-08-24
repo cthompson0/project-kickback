@@ -272,3 +272,70 @@ describe('the ordering the panel draws', () => {
     expect(html.indexOf('Around on Twitch')).toBeLessThan(html.indexOf('Offline'))
   })
 })
+
+describe('the casing a destination is drawn in', () => {
+  /*
+   * The identity is the lowercase login and stays that way - see the selector
+   * tests. What reaches the eye is the spelling Twitch chose, resolved from
+   * what this client already knows: a friend's own display name, or a channel
+   * whose page title it has read. The login is the fallback, not the default.
+   */
+
+  it('draws the display casing, not the key it clustered on', () => {
+    const html = renderToStaticMarkup(
+      <ChannelNameProvider people={[]} seen={{ lvndmark: 'LVNDMARK', joshog: 'JoshOG' }}>
+        <SocialGravity
+          friends={[
+            friend('jake', 'Jake', watching('jake', 'LVNDMARK')),
+            friend('matt', 'Matt', watching('matt', 'lvndmark')),
+            friend('sarah', 'Sarah', watching('sarah', 'joshog')),
+          ]}
+          localActivity={IDLE}
+          client={stubClient()}
+          cardContext={{
+            selfId: 'me',
+            viewerActivity: IDLE,
+            friendIds: new Set(['jake', 'matt', 'sarah']),
+            outgoingRequestIds: new Set(),
+          }}
+        />
+      </ChannelNameProvider>,
+    )
+
+    expect(html).toContain('>LVNDMARK<')
+    expect(html).toContain('>JoshOG<')
+    expect(html).not.toContain('>lvndmark<')
+    expect(html).not.toContain('>joshog<')
+
+    // One card for LVNDMARK and lvndmark together, counted as two people.
+    expect(html.match(/class="kb-gravity-card/g) ?? []).toHaveLength(2)
+    expect(html).toMatch(/kb-gravity-count[^>]*>2</)
+  })
+
+  it('shows the display casing on the JOIN without handing it the JOIN', () => {
+    /*
+     * JOIN is a button, so where it goes is a prop rather than an href and no
+     * amount of markup can show it. What CAN be pinned is the coupling that
+     * would break it: the card must give JoinButton the section's canonical
+     * channel and let JoinButton resolve the casing for its own tooltip.
+     *
+     * Passing the resolved name instead would look identical on screen and
+     * quietly send every JOIN, every recorded destination and every
+     * opportunity key through a display string.
+     */
+    const html = render([friend('jake', 'Jake', watching('jake', 'LIRIK'))])
+    expect(html).toContain('Watch LIRIK on Twitch')
+
+    const source = readFileSync('src/ui/components/SocialGravity.tsx', 'utf8')
+    const join = source.slice(source.indexOf('<JoinButton'), source.indexOf('/>', source.indexOf('<JoinButton')))
+    expect(join).toContain('channel={section.channel}')
+    expect(join).not.toContain('channelName')
+  })
+
+  it('falls back to the login when no display spelling is known', () => {
+    // Acceptable, and honest: an invented capitalisation would be worse than
+    // the name Twitch canonicalised.
+    const html = render([friend('jake', 'Jake', watching('jake', 'someonenewentirely'))])
+    expect(html).toContain('someonenewentirely')
+  })
+})

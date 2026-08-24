@@ -1313,6 +1313,21 @@
   color: var(--kb-here);
 }
 
+/*
+ * The separator after a sender's name.
+ *
+ * Punctuation, not identity. It sits inside the clickable label so that it
+ * copies with the name and clicking it does what clicking the name does - but
+ * it takes the ordinary chat foreground rather than inheriting whichever
+ * colour the sender happens to carry, so an orange name does not produce an
+ * orange colon. The token is the same one message text uses; nothing here
+ * hardcodes a white.
+ */
+.kb-msg-sep {
+  color: var(--kb-text);
+  font-weight: 400;
+}
+
 .kb-msg-body {
   color: var(--kb-text);
 }

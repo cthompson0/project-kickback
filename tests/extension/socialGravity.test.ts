@@ -362,3 +362,89 @@ describe('experiment arms', () => {
     )
   })
 })
+
+describe('canonical identity versus display casing', () => {
+  /*
+   * A channel has two spellings and they do different jobs.
+   *
+   * The CANONICAL one - the lowercase login - is the identity: it decides who
+   * clusters with whom, whether the viewer is already there, what the JOIN
+   * navigates to and what analytics calls the destination. Every one of those
+   * would break if LVNDMARK and lvndmark were two different things.
+   *
+   * The DISPLAY one - whatever casing Twitch chose - is text, and belongs only
+   * on screen. It is resolved separately in the UI, so nothing below should
+   * ever see it. These tests exist because the display fix must not be
+   * implemented by loosening the identity.
+   */
+
+  it('keeps the destination key lowercase whatever casing presence carries', () => {
+    const sections = map([
+      person('jake', watching('jake', 'LVNDMARK')),
+      person('matt', watching('matt', 'JoshOG')),
+    ])
+
+    // Sorted, because this is about spelling and not about ranking.
+    expect(sections.map((section) => section.channel).filter(Boolean).sort()).toEqual([
+      'joshog',
+      'lvndmark',
+    ])
+  })
+
+  it('puts LVNDMARK and lvndmark in one cluster, not two', () => {
+    const sections = map([
+      person('jake', watching('jake', 'LVNDMARK')),
+      person('matt', watching('matt', 'lvndmark')),
+      person('chris', watching('chris', 'LvNdMaRk')),
+    ])
+
+    const destinations = sections.filter((section) => section.kind === 'destination')
+    expect(destinations).toHaveLength(1)
+    expect(destinations[0].channel).toBe('lvndmark')
+    expect(destinations[0].count).toBe(3)
+    // And it is a gathering: casing must not cost a cluster its weight.
+    expect(isGravity(destinations[0])).toBe(true)
+  })
+
+  it('recognises the viewer is already there across casing', () => {
+    // The viewer's tab says LVNDMARK; their friends' presence says lvndmark.
+    // If that reads as two channels the panel offers a JOIN to where you are.
+    const sections = map(
+      [person('jake', watching('jake', 'lvndmark')), person('matt', watching('matt', 'lvndmark'))],
+      ON('LVNDMARK'),
+    )
+
+    const here = find(sections, 'lvndmark')
+    expect(here?.kind).toBe('here')
+    expect(here?.canJoin).toBe(false)
+    expect(here?.count).toBe(2)
+    expect(sections.filter((section) => section.kind === 'destination')).toHaveLength(0)
+  })
+
+  it('recognises it in the other direction too', () => {
+    const sections = map([person('jake', watching('jake', 'LVNDMARK'))], ON('lvndmark'))
+    expect(find(sections, 'lvndmark')?.kind).toBe('here')
+  })
+
+  it('gives one gathering one opportunity key however it is spelled', () => {
+    /*
+     * Amplification counts the viewers who arrive at ONE gathering, so two
+     * viewers whose clients happen to have seen different casing must still
+     * write down the same name for it.
+     */
+    expect(opportunityKey('LVNDMARK', NOW)).toBe(opportunityKey('lvndmark', NOW))
+    expect(opportunityKey('LVNDMARK', NOW)).toContain('gravity:lvndmark:')
+  })
+
+  it('hands analytics the canonical destination, never the display spelling', () => {
+    const sections = map([
+      person('jake', watching('jake', 'LVNDMARK')),
+      person('matt', watching('matt', 'LVNDMARK')),
+    ])
+
+    // What the impression and the JOIN are reported against.
+    const [opportunity] = gravityOpportunities(sections)
+    expect(opportunity.channel).toBe('lvndmark')
+    expect(opportunityKey(opportunity.channel, NOW)).toBe(opportunityKey('lvndmark', NOW))
+  })
+})

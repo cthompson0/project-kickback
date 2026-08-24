@@ -103,6 +103,31 @@ describe('reading capitalisation off a Twitch page title', () => {
     expect(channelNameFromTitle('Directory - Twitch', 'lirik')).toBeNull()
     expect(channelNameFromTitle('', 'lirik')).toBeNull()
   })
+
+  it('has nothing to give while the title still names the previous channel', () => {
+    /*
+     * Why casing was never learned.
+     *
+     * Twitch changes the URL before it changes the title, so at the instant a
+     * navigation is detected the title still belongs to where you just were -
+     * and against the NEW channel that title yields nothing. The content
+     * script used to report activity only on channel change, so this null was
+     * the only answer it ever got and every destination stayed a bare login.
+     *
+     * The correction arrives a beat later and is worth listening for; that is
+     * what watchTitle is for.
+     */
+    expect(channelNameFromTitle('JoshOG - Twitch', 'lvndmark')).toBeNull()
+    expect(channelNameFromTitle('LVNDMARK - Twitch', 'lvndmark')).toBe('LVNDMARK')
+  })
+
+  it('will not let a title rename a channel, only respell it', () => {
+    // The learned value is a spelling of the same login and nothing else, so
+    // a hijacked or mis-parsed title cannot point a name at another channel.
+    expect(channelNameFromTitle('LVNDMARK - Twitch', 'joshog')).toBeNull()
+    expect(resolveChannelName('lvndmark', { seen: { lvndmark: 'JoshOG' } })).toBe('lvndmark')
+    expect(resolveChannelName('lvndmark', { seen: { lvndmark: 'LVNDMARK' } })).toBe('LVNDMARK')
+  })
 })
 
 // ------------------------------------------------------------ group presence

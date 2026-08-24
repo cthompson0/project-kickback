@@ -5,7 +5,7 @@ import { createPortClient } from '../client/port'
 import type { KickbackClient } from '../client/types'
 import { watchTopOffset } from '../platforms/twitch/anchor'
 import { measureChatRail } from '../platforms/twitch/chatRail'
-import { watchChannel } from '../platforms/twitch/navigation'
+import { watchChannel, watchTitle } from '../platforms/twitch/navigation'
 import { getCurrentChannel } from '../platforms/twitch/channels'
 import { channelNameFromTitle } from '../core/channelNames'
 import panelStyles from '../ui/kickback.css?inline'
@@ -104,12 +104,18 @@ async function mount(): Promise<void> {
  * rule - this only reports the facts.
  */
 function reportActivity(client: KickbackClient): void {
-  const send = () => {
-    const channel = getCurrentChannel()
+  /** The casing we last managed to report, so a title tick is not a resend. */
+  let reportedName: string | null = null
+
+  const nameFor = (channel: string | null) =>
     // Twitch spells the channel properly in the page title, which is the one
     // place its own casing is available without touching its markup.
-    const name = channel ? channelNameFromTitle(document.title, channel) : null
-    client.reportActivity(channel, !document.hidden, name)
+    channel ? channelNameFromTitle(document.title, channel) : null
+
+  const send = () => {
+    const channel = getCurrentChannel()
+    reportedName = nameFor(channel)
+    client.reportActivity(channel, !document.hidden, reportedName)
   }
 
   // On connect, on navigation, and whenever this tab is shown or hidden.
@@ -117,6 +123,23 @@ function reportActivity(client: KickbackClient): void {
   watchChannel(send)
   document.addEventListener('visibilitychange', send)
   window.addEventListener('pageshow', send)
+
+  /*
+   * And again when the title catches up.
+   *
+   * Twitch changes the URL first and the title a beat later, so the send above
+   * runs while the title still names the PREVIOUS channel - which reads as
+   * "no casing available" and leaves the channel to be displayed as its bare
+   * login forever. This is the only moment the real casing exists.
+   *
+   * Guarded on the resolved name rather than on the title, so an unrelated
+   * title change - a stream renaming itself, an unread badge appearing - costs
+   * nothing.
+   */
+  watchTitle(() => {
+    if (nameFor(getCurrentChannel()) === reportedName) return
+    send()
+  })
 }
 
 /**

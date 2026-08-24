@@ -19,6 +19,18 @@
  *      Twitch display name IS the channel's display name.
  *   2. Channels this browser has actually opened. The content script reads the
  *      casing off the page title, which is Twitch telling us directly.
+ *
+ * Both are keyed by login and hold one value per channel, so the answer cannot
+ * depend on who happens to be watching it - a destination with six friends on
+ * it resolves exactly as it would with one. Sources are tried in the order
+ * above; a person Kickback knows outranks a title it read, because the first
+ * came from Twitch's own record of that user and the second from a string.
+ *
+ * A third source belongs here later: the Twitch Metadata Service's
+ * authoritative `display_name`, which would take precedence over both and give
+ * a spelling to channels this browser has never opened. It drops in as another
+ * lookup in resolveChannelName and improves every call site at once - nothing
+ * upstream has ever been permitted to treat display text as identity.
  */
 
 /** Anything with a Twitch login and the display name that goes with it. */
