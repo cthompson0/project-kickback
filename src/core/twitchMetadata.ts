@@ -209,10 +209,71 @@ export function parseChannelMetadata(value: unknown, now: number): ChannelMetada
     title: live === 'live' ? text(raw.title, MAX_TITLE) : null,
     viewerCount: live === 'live' ? count(raw.viewerCount) : null,
     startedAt: live === 'live' ? startedAt : null,
-    fetchedAt: typeof raw.fetchedAt === 'number' && Number.isFinite(raw.fetchedAt)
-      ? raw.fetchedAt
-      : now,
+    /*
+     * Never in the future.
+     *
+     * The stamp comes from the server's clock and freshness is judged against
+     * this browser's. A server running ahead would otherwise produce records
+     * that look newer than now, and one running behind by more than the stale
+     * tolerance would make every record arrive already expired.
+     */
+    fetchedAt:
+      typeof raw.fetchedAt === 'number' && Number.isFinite(raw.fetchedAt)
+        ? Math.min(raw.fetchedAt, now)
+        : now,
   }
+}
+
+/**
+ * What happened to a metadata request.
+ *
+ * A fixed vocabulary, because this exists to make a SILENT failure loud and a
+ * message with a stack trace in it would be neither fixed nor safe. Nothing
+ * here is derived from a credential, a header, a token or a URL.
+ *
+ * The reason it exists: the first deployed version of this feature failed at
+ * every single request, and the panel degraded so correctly that nothing
+ * looked wrong. "No metadata" and "no friends watching anything" were
+ * indistinguishable from the outside.
+ */
+export type MetadataDiagnostic =
+  /** Channels were asked for, and are already fresh in the cache. */
+  | 'fresh'
+  /** Channels were asked for and a request was scheduled. */
+  | 'requested'
+  /** The backend answered and the records were stored. */
+  | 'stored'
+  /** The backend answered, but nothing in it survived the parser. */
+  | 'rejected'
+  /** The call itself failed - offline, 401, 5xx, or the function is absent. */
+  | 'failed'
+  /** The backend answered, but reported a problem of its own. */
+  | 'backend'
+
+/**
+ * Codes the backend may report about itself.
+ *
+ * Echoed rather than interpreted: the client's job is to make them visible,
+ * not to decide what they mean. Anything unrecognised is dropped, so a future
+ * backend cannot make an old client log something arbitrary.
+ */
+const BACKEND_DIAGNOSTICS = new Set([
+  'budget_unavailable',
+  'budget_error',
+  'rate_limited',
+  'twitch_credentials_missing',
+  'twitch_unavailable',
+  'twitch_error',
+  'cache_unavailable',
+  'cache_hit',
+  'cache_miss',
+])
+
+export function parseDiagnostics(value: unknown): string[] {
+  if (!value || typeof value !== 'object') return []
+  const raw = (value as Record<string, unknown>).diagnostics
+  if (!Array.isArray(raw)) return []
+  return raw.filter((entry): entry is string => typeof entry === 'string' && BACKEND_DIAGNOSTICS.has(entry))
 }
 
 export function parseMetadataResponse(value: unknown, now: number): ChannelMetadata[] {

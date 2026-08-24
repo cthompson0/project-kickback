@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import type { User } from '../../core/types'
+import { avatarTint } from '../avatarTint'
 
 export type AvatarState = 'offline' | 'online' | 'here'
 
@@ -12,24 +13,8 @@ interface AvatarProps {
 }
 
 /** Stable, readable tint for users the platform gave us no colour for. */
-const PALETTE = [
-  '#ff8452',
-  '#54b8ff',
-  '#2ee6a8',
-  '#c98bff',
-  '#ffd45e',
-  '#ff5f8f',
-  '#7de2d1',
-  '#9db4ff',
-]
-
 function colorFor(user: User): string {
-  if (user.accentColor) return user.accentColor
-  let hash = 0
-  for (let i = 0; i < user.id.length; i++) {
-    hash = (hash * 31 + user.id.charCodeAt(i)) >>> 0
-  }
-  return PALETTE[hash % PALETTE.length]
+  return user.accentColor ?? avatarTint(user.id)
 }
 
 /** Tinted initial, upgraded to the real profile image when one is available. */

@@ -155,7 +155,9 @@ describe('the metadata endpoint is not a Twitch proxy', () => {
   })
 
   it('rate limits as the caller, charging what the batch costs', () => {
-    expect(index).toContain('consume_rate_budget_n')
+    // Through the granted wrapper, not the internal helper - see 0018 and
+    // tests/extension/metadataPipeline.test.ts.
+    expect(index).toContain('consume_metadata_budget')
     expect(index).toContain('p_amount: logins.length')
   })
 

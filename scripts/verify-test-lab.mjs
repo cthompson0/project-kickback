@@ -76,6 +76,57 @@ function clickPreset(label) {
   return true
 }
 
+/**
+ * Open the user card from a Social Gravity member and measure it.
+ *
+ * The regression this exists for was invisible to every unit test: the popup
+ * is `position: absolute; left: 6px; right: 6px`, so its width comes from its
+ * containing block, and Gravity anchored it to a flex item the width of one
+ * avatar. Only a layout engine can say what that produced - ~78px, with the
+ * display name ellipsised to "Anot...".
+ */
+function openMemberCard() {
+  const member = document.querySelector('.kb-gravity-person .kb-person-btn')
+  if (!member) throw new Error('no Gravity member to click')
+  member.click()
+  return true
+}
+
+function readUserCard() {
+  const card = document.querySelector('.kb-usercard')
+  if (!card) return null
+
+  const name = card.querySelector('.kb-usercard-name')
+  const panel = document.querySelector('.kb-panel')
+
+  return {
+    width: Math.round(card.getBoundingClientRect().width),
+    panelWidth: Math.round(panel.getBoundingClientRect().width),
+    name: name?.textContent ?? '',
+    /* Ellipsised text is wider than its box. This is how the browser is asked
+       whether "AnoterosTV" actually fits, rather than whether it is present. */
+    nameClipped: name ? name.scrollWidth > name.clientWidth + 1 : true,
+    handle: card.querySelector('.kb-handle')?.textContent ?? '',
+    actions: card.querySelectorAll('.kb-usercard-actions .kb-ghost-btn, .kb-usercard-actions a').length,
+    /*
+     * Controls stacking one-per-line is what "looks broken" actually meant.
+     *
+     * Counted by CLUSTERING tops rather than by distinct values: a <button>
+     * and an <a> on the same visual line sit a pixel apart, so exact
+     * comparison reports three rows for a row of three that fits perfectly
+     * well. The chat wrap gate merges line boxes the same way, for the same
+     * reason.
+     */
+    actionRows: [...card.querySelectorAll('.kb-usercard-actions > *')]
+      .map((el) => el.getBoundingClientRect().top)
+      .sort((a, b) => a - b)
+      .reduce((rows, top) => (rows.length && top - rows[rows.length - 1] < 6 ? rows : [...rows, top]), [])
+      .length,
+    overflowsPanel:
+      card.getBoundingClientRect().right > panel.getBoundingClientRect().right + 1,
+  }
+}
+
 function clickJoin() {
   const join = document.querySelector('.kb-gravity-card .kb-join')
   if (!join) throw new Error('no JOIN button on the top destination')
@@ -259,6 +310,48 @@ async function main() {
     check(narrow.cards[0]?.overflows === false, 'a long title or category overflowed the card')
     check(narrow.cards[0]?.join === true, 'a long title pushed JOIN off the card')
 
+    // --- the user card opened from a Gravity member ----------------------
+
+    await page.evaluate(clickPreset, '5-friend Gravity')
+    await settle(page)
+    await page.evaluate(openMemberCard)
+    await settle(page, 300)
+
+    const card = await page.evaluate(readUserCard)
+    check(card !== null, 'clicking a Gravity member opened no user card')
+    if (card) {
+      check(
+        card.width >= 200,
+        `user card from Gravity was ${card.width}px wide (panel ${card.panelWidth}px)`,
+      )
+      check(!card.nameClipped, `display name was clipped: "${card.name}"`)
+      check(Boolean(card.handle), 'user card showed no @handle')
+      check(card.actions >= 2, `user card showed ${card.actions} controls`)
+      check(card.actionRows <= 2, `user card stacked its controls onto ${card.actionRows} rows`)
+      check(!card.overflowsPanel, 'user card overflowed the panel')
+    }
+
+    /*
+     * And again at the narrowest panel a user can produce, because that is
+     * where a popup sized from its anchor fails worst.
+     */
+    await page.evaluate(() => {
+      document.querySelector('.kb-panel').style.setProperty('--kb-w', '260px')
+    })
+    await settle(page, 300)
+    const narrowCard = await page.evaluate(readUserCard)
+    if (narrowCard) {
+      check(
+        narrowCard.width >= 200,
+        `user card collapsed to ${narrowCard.width}px in a 260px panel`,
+      )
+      check(!narrowCard.overflowsPanel, 'user card overflowed the narrow panel')
+    }
+
+    // Close it again so the JOIN checks below see an ordinary card.
+    await page.evaluate(openMemberCard)
+    await settle(page)
+
     // --- JOIN, up to the navigation boundary -----------------------------
 
     await page.evaluate(clickPreset, '5-friend Gravity')
@@ -299,6 +392,7 @@ async function main() {
 
   console.log('Test Lab boots, renders the real panel, and drives Gravity 1/2/3/5/10.')
   console.log('Metadata states render: live, offline+demoted, unavailable, casing, long text.')
+  console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
 }
 

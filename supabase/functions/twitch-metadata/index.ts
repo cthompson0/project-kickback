@@ -235,46 +235,78 @@ Deno.serve(async (request: Request) => {
   /*
    * Rate limited as the caller, not as the service.
    *
-   * The client is built with the caller's own JWT, so consume_rate_budget_n
-   * charges auth.uid() - there is no actor id in the request for anyone to
-   * put someone else's id into. A caller over budget still gets an answer,
-   * from cache only, because the panel degrading is worse than Twitch being
-   * asked slightly less often.
+   * Through consume_metadata_budget, which is SECURITY DEFINER, granted to
+   * `authenticated`, and hard-codes the bucket, the allowance and the window.
+   * The internal consume_rate_budget_n helper it wraps is deliberately NOT
+   * callable by clients - 0017 called it directly and every request failed
+   * with a permission error. See 0018.
+   *
+   * The actor is auth.uid() inside that function, so there is no id in the
+   * request for anyone to put someone else's into.
    */
+  const diagnostics: string[] = []
   let mayFetch = true
+
   if (SUPABASE_URL) {
     try {
       const caller = createClient(SUPABASE_URL, Deno.env.get('SUPABASE_ANON_KEY') ?? '', {
         auth: { persistSession: false },
         global: { headers: { authorization } },
       })
-      const { data, error } = await caller.rpc('consume_rate_budget_n', {
-        p_bucket: 'twitch_metadata',
+      const { data, error } = await caller.rpc('consume_metadata_budget', {
         p_amount: logins.length,
-        p_limit: 600,
-        p_window: '00:05:00',
       })
-      if (error) return json({ error: 'unauthorized' }, 401)
-      mayFetch = data !== false
+
+      if (error) {
+        /*
+         * A broken rate limiter must not deny the request.
+         *
+         * This is exactly the failure 0017 shipped: an error here became a
+         * 401, so a migration that had not been applied looked identical to
+         * an unauthenticated caller and no metadata ever arrived. Serving from
+         * cache and SAYING SO is the honest behaviour - the caller learns what
+         * went wrong instead of guessing.
+         */
+        diagnostics.push('budget_unavailable')
+        mayFetch = false
+      } else if (data === false) {
+        diagnostics.push('rate_limited')
+        mayFetch = false
+      }
     } catch {
+      diagnostics.push('budget_error')
       mayFetch = false
     }
   }
 
+  if (!CLIENT_ID || !CLIENT_SECRET) diagnostics.push('twitch_credentials_missing')
+  if (!admin) diagnostics.push('cache_unavailable')
+
   const now = Date.now()
   const cached = await readCache(logins, now)
   const missing = logins.filter((login) => !cached.has(login))
+  if (cached.size > 0) diagnostics.push('cache_hit')
+  if (missing.length > 0) diagnostics.push('cache_miss')
 
   let fetched: ChannelMetadata[] = []
   if (missing.length > 0 && mayFetch) {
     try {
       fetched = await fetchFromTwitch(missing, now)
+      if (fetched.length === 0) diagnostics.push('twitch_unavailable')
       await writeCache(fetched)
     } catch {
       // Twitch unreachable. Whatever the cache had still goes back.
+      diagnostics.push('twitch_error')
       fetched = []
     }
   }
 
-  return json({ channels: [...cached.values(), ...fetched] })
+  /*
+   * `diagnostics` is a short list of FIXED codes - never a message, never a
+   * URL, never anything derived from a credential or a header. It exists
+   * because this feature failed silently for a whole checkpoint: the panel
+   * degraded correctly, so nothing was visibly wrong, and there was no way to
+   * tell "not deployed" from "no friends watching anything".
+   */
+  return json({ channels: [...cached.values(), ...fetched], diagnostics })
 })

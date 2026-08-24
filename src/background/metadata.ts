@@ -2,9 +2,10 @@ import {
   LIVE_TTL_MS,
   needsRefresh,
   normalizeLogins,
+  parseDiagnostics,
   parseMetadataResponse,
 } from '../core/twitchMetadata'
-import type { ChannelMetadata } from '../core/twitchMetadata'
+import type { ChannelMetadata, MetadataDiagnostic } from '../core/twitchMetadata'
 
 /**
  * Public Twitch metadata, fetched once for everybody who wants it.
@@ -48,6 +49,17 @@ export interface MetadataServiceDeps {
   now?: () => number
   /** How often a live record is refetched. */
   ttlMs?: number
+  /**
+   * Every step of a request, so a silent failure cannot happen twice.
+   *
+   * Codes and counts only - never a token, never a header, never a message
+   * from an exception. The worker decides whether to print them; see
+   * background/index.ts, where they are gated to non-production builds.
+   */
+  onDiagnostic?: (
+    diagnostic: MetadataDiagnostic,
+    detail: { channels: number; codes?: string[] },
+  ) => void
   onError?: (context: string, error: unknown) => void
 }
 
@@ -106,12 +118,26 @@ export function createMetadataService(deps: MetadataServiceDeps): MetadataServic
 
     try {
       const payload = await deps.fetcher.fetch(logins)
+      const codes = parseDiagnostics(payload)
+      if (codes.length > 0) deps.onDiagnostic?.('backend', { channels: logins.length, codes })
+
       const parsed = parseMetadataResponse(payload, now())
-      if (parsed.length === 0) return
+      if (parsed.length === 0) {
+        /*
+         * The call succeeded and produced nothing usable.
+         *
+         * Distinct from a failed call, and the distinction matters: this is
+         * what a deployed-but-broken backend looks like, and it is exactly the
+         * state that went unnoticed for a whole checkpoint.
+         */
+        deps.onDiagnostic?.('rejected', { channels: logins.length })
+        return
+      }
 
       const next = { ...records }
       for (const record of parsed) next[record.login] = record
       records = next
+      deps.onDiagnostic?.('stored', { channels: parsed.length })
       changed()
     } catch (error) {
       /*
@@ -123,6 +149,7 @@ export function createMetadataService(deps: MetadataServiceDeps): MetadataServic
        * `unknown` on its own. Failure degrades toward "we do not know", never
        * toward a wrong answer.
        */
+      deps.onDiagnostic?.('failed', { channels: logins.length })
       deps.onError?.('metadata.fetch', error)
     } finally {
       for (const login of logins) inFlight.delete(login)
@@ -137,7 +164,12 @@ export function createMetadataService(deps: MetadataServiceDeps): MetadataServic
       const stale = wanted.filter(
         (login) => !inFlight.has(login) && needsRefresh(records[login], now(), ttl),
       )
-      if (stale.length === 0) return
+      if (stale.length === 0) {
+        deps.onDiagnostic?.('fresh', { channels: wanted.length })
+        return
+      }
+
+      deps.onDiagnostic?.('requested', { channels: stale.length })
 
       // Batched, because one request for ten channels is the whole point.
       for (let index = 0; index < stale.length; index += MAX_PER_REQUEST) {

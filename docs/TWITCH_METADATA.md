@@ -61,6 +61,15 @@ Three separate things. **None is done automatically.**
 function, and one additional allowed property on
 `gravity_cluster_impression`.
 
+`supabase/migrations/0018_twitch_metadata_budget.sql` — **required**, and the
+reason nothing worked on the first deploy. 0017's function called
+`consume_rate_budget_n` directly; that is an internal helper which 0013 revokes
+from `authenticated`, so every request failed with a permission error before
+Twitch was ever contacted. 0018 adds `consume_metadata_budget`, a
+SECURITY DEFINER wrapper that hard-codes the bucket, allowance and window and
+IS granted to `authenticated`. It also states the service role's grants on the
+cache table explicitly rather than relying on inherited defaults.
+
 Same flow as every other migration; no CLI and no database password:
 
 ```bash
@@ -243,11 +252,67 @@ for a scale that does not exist.
 
 ---
 
+## Diagnosing it
+
+This feature failed silently for an entire checkpoint: the panel degrades
+correctly by design, so "metadata is broken" and "no friends are watching
+anything" produced the same screen. Three things now make the difference
+visible.
+
+### 1. The worker console
+
+Development and private-beta builds print one line per request. Production
+folds the whole path away.
+
+```
+[kickback:metadata] requested channels=1
+[kickback:metadata] backend channels=1 backend=cache_miss
+[kickback:metadata] stored channels=1
+```
+
+| Line | Meaning |
+|---|---|
+| `requested` | the worker wants channels and has called the backend |
+| `fresh` | everything asked for is already cached; no call was made |
+| `stored` | records came back and are now in state |
+| `rejected` | the backend answered, but nothing survived the parser |
+| `failed` | the call itself failed — offline, 401, 5xx, or not deployed |
+| `backend=...` | codes the function reported about itself |
+
+Backend codes: `budget_unavailable` (0018 not applied), `rate_limited`,
+`twitch_credentials_missing` (secrets not set), `twitch_unavailable`,
+`twitch_error`, `cache_unavailable`, `cache_hit`, `cache_miss`.
+
+Only fixed codes and counts are ever printed — no tokens, no headers, no
+channel names, no user ids.
+
+### 2. Ask the backend directly
+
+From the extension's service-worker console (**chrome://extensions → Kickback →
+"service worker"**), in a development or beta build:
+
+```js
+await kickbackMetadata.check('lvndmark')   // what the deployed function returns
+kickbackMetadata.snapshot()                // what the worker currently believes
+```
+
+It uses the session the worker already holds, so there is no token to paste and
+none to leak; the result is the function's own response. Comparing the two
+answers separates "the backend is broken" from "the panel is not showing what
+the backend sent".
+
+### 3. Supabase logs
+
+**Supabase Dashboard → Edge Functions → `twitch-metadata` → Logs**, and
+**Database → Logs → Postgres** for a permission error on an RPC.
+
 ## Failure behaviour
 
 | Failure | What happens |
 |---|---|
-| Function not deployed | Every fetch rejects. Cards stay plain. |
+| Function not deployed | Every fetch rejects. Cards stay plain. Worker logs `failed`. |
+| 0018 not applied | Budget check errors; the function serves cache only and reports `budget_unavailable`. It does **not** return 401 — that conflation is what hid the original bug. |
+| Secrets not set | `twitch_credentials_missing`; cards stay plain. |
 | Twitch 401 | One forced token refresh, then degrade to cache. |
 | Twitch 429 / 5xx | No retry. Degrade to cache. |
 | Twitch unreachable / timeout | Degrade to cache. |

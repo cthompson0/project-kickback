@@ -232,9 +232,30 @@ describe('the map at the narrowest panel', () => {
     expect(people).toContain('flex-wrap: wrap')
   })
 
-  it('anchors a user card to the person it belongs to', () => {
-    const person = CSS.slice(CSS.indexOf('.kb-gravity-person {'))
-    expect(person).toContain('position: relative')
+  it('anchors a user card to the CARD, not to the person', () => {
+    /*
+     * This test used to assert the opposite, and the opposite was the bug.
+     *
+     * .kb-usercard is `position: absolute; left: 6px; right: 6px`, so its width
+     * comes from the nearest positioned ancestor. Making .kb-gravity-person
+     * that ancestor sized the popup to a flex item about as wide as one avatar
+     * and a name: the card came out ~78px, the display name ellipsised to
+     * "Anot...", and every control wrapped onto its own line.
+     *
+     * The person is still what you click. The card is what the popup is
+     * measured against, because the card spans the panel.
+     */
+    const person = CSS.slice(
+      CSS.indexOf('.kb-gravity-person {'),
+      CSS.indexOf('}', CSS.indexOf('.kb-gravity-person {')),
+    )
+    expect(person).not.toContain('position: relative')
+
+    const card = CSS.slice(
+      CSS.indexOf('.kb-gravity-card {'),
+      CSS.indexOf('}', CSS.indexOf('.kb-gravity-card {')),
+    )
+    expect(card).toContain('position: relative')
   })
 })
 

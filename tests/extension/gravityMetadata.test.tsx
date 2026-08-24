@@ -6,6 +6,7 @@ import { ChannelNameProvider } from '../../src/ui/ChannelNames'
 import { socialGravity } from '../../src/core/socialGravity'
 import { STALE_TOLERANCE_MS } from '../../src/core/twitchMetadata'
 import type { ChannelMetadata } from '../../src/core/twitchMetadata'
+import { avatarTint } from '../../src/ui/avatarTint'
 import type { Friend, KickbackClient } from '../../src/client/types'
 import type { Activity, Presence } from '../../src/core/types'
 
@@ -115,7 +116,11 @@ describe('a live destination', () => {
   })
 
   it('shows the creator avatar from Twitch', () => {
-    expect(html).toMatch(/<img[^>]*class="kb-gravity-avatar"[^>]*src="https:\/\/static-cdn\.jtvnw\.net/)
+    // The slot is always there; with a picture it holds the picture. It reuses
+    // the .kb-avatar box every other avatar in Kickback uses, so the image and
+    // the monogram fallback occupy exactly the same geometry.
+    expect(html).toContain('kb-gravity-avatar')
+    expect(html).toMatch(/<img[^>]*class="kb-avatar-img"[^>]*src="https:\/\/static-cdn\.jtvnw\.net/)
     expect(html).toContain('loading="lazy"')
     // Decorative: the name is right beside it.
     expect(html).toContain('aria-hidden="true"')
@@ -160,19 +165,67 @@ describe('a destination whose stream has ended', () => {
 })
 
 describe('when nothing told us', () => {
-  it('draws exactly the card that shipped before metadata existed', () => {
+  it('is a card in its own right, not a rich card with holes in it', () => {
+    /*
+     * The acceptance standard, and the reason this test changed shape.
+     *
+     * It used to assert that the plain card contained no avatar at all. That
+     * was the wrong invariant: it meant the header had two geometries, so the
+     * name started 28px further left without metadata and jumped sideways the
+     * moment metadata arrived. Absence must reduce INFORMATION, not quality.
+     *
+     * What must still hold is that nothing CLAIMS anything: no badge, no
+     * category, no title, no reserved blank row.
+     */
     const plain = render(THREE_ON_LIRIK)
     const unknown = render(THREE_ON_LIRIK, {})
 
+    // "no record" and "no metadata at all" are the same state.
     expect(plain).toBe(unknown)
-    // No badge, no placeholder, no empty row: silence.
+
+    // Nothing invented.
     expect(plain).not.toContain('LIVE')
     expect(plain).not.toContain('OFFLINE')
     expect(plain).not.toContain('kb-gravity-stream')
-    expect(plain).not.toContain('kb-gravity-avatar')
-    // And everything that mattered before still works.
+    expect(plain).not.toContain('kb-gravity-title')
+    expect(plain).not.toContain('static-cdn.jtvnw.net')
+
+    // But the structure is whole: same avatar slot, same header, same count,
+    // same JOIN, same people.
+    expect(plain).toContain('kb-gravity-avatar')
     expect(plain).toMatch(/kb-gravity-count[^>]*>3</)
     expect(plain).toContain('kb-join')
+    expect(plain).toContain('Jake')
+  })
+
+  it('keeps the header geometry identical when metadata arrives', () => {
+    /*
+     * Progressive enhancement, not reflow.
+     *
+     * Everything metadata adds appears BELOW the head. The head itself must
+     * hold the same boxes in the same order and the same sizes whether or not
+     * a record exists - otherwise the name jumps sideways the moment a request
+     * comes back, which is what the always-present avatar slot exists to
+     * prevent.
+     */
+    const head = (html: string) =>
+      html.slice(html.indexOf('kb-gravity-head'), html.indexOf('</div><div class="kb-gravity'))
+
+    /** The top-level boxes of the head, in order. */
+    const boxes = (html: string) =>
+      [...head(html).matchAll(/<(?:div|span|button)[^>]*class="([^"]+)"/g)].map((m) => m[1])
+
+    const plain = render(THREE_ON_LIRIK)
+    const rich = render(THREE_ON_LIRIK, { lirik: meta('lirik') })
+
+    expect(boxes(rich)).toEqual(boxes(plain))
+
+    // And the avatar box is the same size in both, so the name starts at the
+    // same x whether the box holds a picture or a monogram.
+    const size = (html: string) =>
+      head(html).match(/kb-gravity-avatar"[^>]*style="([^"]*)"/)?.[1]
+    expect(size(plain)).toContain('width:22px')
+    expect(size(rich)).toBe(size(plain))
   })
 
   it('treats a record too old to be evidence the same way', () => {
@@ -363,12 +416,36 @@ describe('the card survives what a creator can put in it', () => {
     expect(avatar).toContain('flex: none')
   })
 
-  it('renders no avatar at all rather than a broken one', () => {
+  it('falls back to a monogram rather than an empty hole', () => {
     const html = render(THREE_ON_LIRIK, { lirik: meta('lirik', { profileImageUrl: null }) })
-    expect(html).not.toContain('kb-gravity-avatar')
-    // And the head is otherwise untouched.
+
+    // The slot is still there and still 22px, so the header does not move.
+    expect(html).toContain('kb-gravity-avatar')
+    // But there is no image, and nothing pretending to be Twitch's.
+    expect(html).not.toContain('kb-avatar-img')
+    expect(html).not.toContain('static-cdn.jtvnw.net')
+    // A tinted initial, the same treatment every other avatar falls back to.
+    expect(html).toMatch(/kb-gravity-avatar[^>]*>L</)
+
     expect(html).toContain('LIRIK')
     expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+  })
+
+  it('tints the destination from the channel, never from a friend', () => {
+    /*
+     * A friend's avatar and the channel's avatar sit inches apart on this
+     * card. Seeding the destination from the login keeps them different
+     * identities: promoting a friend's picture into the streamer slot would be
+     * a lie about who is streaming.
+     */
+    const html = render(THREE_ON_LIRIK, { lirik: meta('lirik', { profileImageUrl: null }) })
+    const destination = html.slice(html.indexOf('kb-gravity-avatar'))
+    const tint = destination.match(/linear-gradient\(140deg, (#[0-9a-f]{6})/)?.[1]
+    const friendTint = html.slice(html.indexOf('kb-person-btn')).match(/linear-gradient\(140deg, (#[0-9a-f]{6})/)?.[1]
+
+    expect(tint).toBeDefined()
+    expect(tint).toBe(avatarTint('lirik'))
+    expect(friendTint).not.toBe(tint)
   })
 
   it('escapes a title rather than rendering it', () => {

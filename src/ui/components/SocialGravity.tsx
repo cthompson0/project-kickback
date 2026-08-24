@@ -7,6 +7,7 @@ import type { Activity } from '../../core/types'
 import type { Friend, KickbackClient } from '../../client/types'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
+import { avatarTint } from '../avatarTint'
 import { JoinButton } from './JoinButton'
 import { PersonRow } from './PersonRow'
 import { UserCard } from './UserCard'
@@ -55,37 +56,71 @@ interface SocialGravityProps {
 }
 
 /**
- * The creator's Twitch avatar.
+ * The destination's avatar, ALWAYS present.
  *
- * Its own component rather than the shared Avatar, which is built around a
- * Kickback User. A channel is not one: it has a login and possibly a picture,
- * and no id to derive a fallback tint from.
+ * WHY IT IS NEVER ABSENT
+ *
+ * It used to render only when Twitch had given us a picture, which meant the
+ * card had two different geometries: with metadata the name started 28px in,
+ * without it the name was flush left. That made the plain card look like a
+ * broken version of the rich one rather than a card in its own right, and it
+ * made metadata ARRIVING shove the whole header sideways.
+ *
+ * So the slot is always there. With a Twitch image it holds the image; without
+ * one it holds a tinted monogram - the same treatment every avatar in Kickback
+ * uses when there is no picture, so it reads as "no picture yet", not as an
+ * error, and it is visibly generated rather than pretending to be Twitch's.
+ *
+ * THIS IS THE CHANNEL, NOT A FRIEND
+ *
+ * The seed is the channel login, so the tint belongs to the destination. A
+ * friend's avatar is never promoted here: they are different identities and
+ * showing one in the other's place would be a lie about who is streaming.
  *
  * The URL is host-checked before it ever reaches state (see
- * core/twitchMetadata.ts), and `onError` covers the rest - a deleted image, a
- * blocked request, a CSP that disagrees. Failure removes the picture and
- * nothing else moves, because the slot is only rendered when there is
- * something to put in it.
+ * core/twitchMetadata.ts) and `onError` covers the rest - a deleted image, a
+ * blocked request, a CSP that disagrees. Failure falls back to the monogram,
+ * so the geometry still does not move.
  */
-function ChannelAvatar({ src, name }: { src: string | null; name: string }) {
+function ChannelAvatar({
+  login,
+  src,
+  name,
+}: {
+  login: string
+  src: string | null
+  name: string
+}) {
   const [failed, setFailed] = useState(false)
-  if (!src || failed) return null
+  const tint = avatarTint(login)
+  const showImage = Boolean(src) && !failed
 
   return (
-    <img
-      className="kb-gravity-avatar"
-      src={src}
-      alt=""
-      // Decorative: the channel name is right beside it, so a screen reader
-      // announcing the picture too would just say everything twice.
-      aria-hidden="true"
-      loading="lazy"
-      decoding="async"
-      width={22}
-      height={22}
+    <div
+      className="kb-avatar kb-gravity-avatar"
+      style={{
+        width: 22,
+        height: 22,
+        fontSize: 9,
+        background: `linear-gradient(140deg, ${tint}, ${tint}b0)`,
+      }}
       title={name}
-      onError={() => setFailed(true)}
-    />
+      aria-hidden="true"
+    >
+      {showImage && (
+        <img
+          className="kb-avatar-img"
+          src={src ?? undefined}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          width={22}
+          height={22}
+          onError={() => setFailed(true)}
+        />
+      )}
+      {!showImage && (name || login).slice(0, 1).toUpperCase()}
+    </div>
   )
 }
 
@@ -177,7 +212,11 @@ function DestinationCard({
   return (
     <div className={className}>
       <div className="kb-gravity-head">
-        <ChannelAvatar src={meta?.profileImageUrl ?? null} name={channelName(section.channel ?? '')} />
+        <ChannelAvatar
+          login={section.channel ?? ''}
+          src={meta?.profileImageUrl ?? null}
+          name={channelName(section.channel ?? '')}
+        />
 
         {/*
          * The flame marks a gathering, not a stream. It appears at two friends

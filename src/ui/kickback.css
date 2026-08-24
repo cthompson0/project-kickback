@@ -1725,11 +1725,31 @@
 
 /* ---------- user card ---------- */
 
+/*
+ * THE POPUP'S WIDTH COMES FROM ITS ANCHOR, WHICH IS THE THING THAT BROKE.
+ *
+ * `left` and `right` are resolved against the nearest POSITIONED ancestor, so
+ * this card is only ever as wide as whatever element opened it. Three of the
+ * four surfaces anchor it to a full-width block - .kb-row, .kb-msg,
+ * .kb-cluster-row - and were always fine. Social Gravity anchored it to
+ * .kb-gravity-person, which is a flex item in a wrapping row and therefore
+ * about as wide as one avatar and a name. The card came out ~78px: the display
+ * name ellipsised to "Anot...", and every control wrapped onto its own line.
+ *
+ * The real fix is that Gravity now anchors to the CARD (see
+ * .kb-gravity-card below). The floor here is the second line of defence, so a
+ * future narrow anchor degrades into something slightly wide rather than
+ * something unreadable.
+ */
 .kb-usercard {
   position: absolute;
   top: calc(100% + 3px);
   left: 6px;
   right: 6px;
+  /* Narrower than this and the name, the handle and the actions stop fitting.
+     Never binds on any current surface; it exists so that if one is ever
+     re-anchored to something small, the failure is visible instead of silent. */
+  min-width: 208px;
   z-index: 5;
   padding: 9px;
   border-radius: 10px;
@@ -1966,7 +1986,10 @@ a.kb-ghost-btn {
 }
 
 .kb-gravity-card {
-  padding: 6px;
+  /* The user card opened from a member inside this card is positioned against
+     this box, which spans the panel - see the note on .kb-usercard. */
+  position: relative;
+  padding: 7px;
   border-radius: 9px;
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -2005,17 +2028,31 @@ a.kb-ghost-btn {
  * with no metadata is exactly the card that shipped before it existed.
  */
 
+/*
+ * Always rendered, with or without a picture.
+ *
+ * Header geometry must not depend on whether metadata arrived: the name starts
+ * in the same place in all four states, so a plain card is a card rather than
+ * a rich card with a hole in it, and metadata landing does not shove the
+ * header sideways. Without a picture the box holds a tinted monogram, which is
+ * the same thing every other avatar in Kickback does.
+ */
 .kb-gravity-avatar {
   flex: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  object-fit: cover;
   /* Twitch avatars are photographs; a hairline keeps light ones off the card
      background without drawing a ring around dark ones. */
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
+/*
+ * The people row.
+ *
+ * Given its own top margin rather than relying on the stream rows above it, so
+ * the spacing under the header is identical whether or not there is anything
+ * between them. Without this the plain card's members sat tight against the
+ * header while the rich card's had room, which is most of what made the plain
+ * one look unfinished.
+ */
 /* One line for category, live state and viewers. */
 .kb-gravity-stream {
   display: flex;
@@ -2157,16 +2194,34 @@ a.kb-ghost-btn {
  * gathering becomes two lines, which is readable, where a horizontal scroller
  * would hide people behind a gesture nobody would think to make.
  */
+/*
+ * The people row.
+ *
+ * Given a fixed margin rather than relying on whatever sits above it, so the
+ * gap under the header is identical whether or not there is a stream line and
+ * a title between them. Without that, the plain card packed its members tight
+ * against the header while the rich card gave them room - which is most of
+ * what made the plain one look unfinished rather than simply quieter.
+ */
 .kb-gravity-people {
   display: flex;
   flex-wrap: wrap;
   gap: 2px 8px;
-  padding-top: 3px;
+  margin-top: 5px;
 }
 
 /* Anchors the user card, exactly as a cluster row does. */
+/*
+ * NOT a positioning context.
+ *
+ * This is a flex item roughly the width of one avatar plus a name. It used to
+ * be `position: relative`, which made it the containing block for the user
+ * card and collapsed the card to its width. The card is anchored to
+ * .kb-gravity-card instead - the person is still where you click, but the
+ * popup is sized by something that spans the panel.
+ */
 .kb-gravity-person {
-  position: relative;
+  position: static;
 }
 
 .kb-gravity-quiet {

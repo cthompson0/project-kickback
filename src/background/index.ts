@@ -324,10 +324,21 @@ const attention = createAttentionService({ storage: storageArea, onError: logErr
  * Nothing here can fail in a way a user sees. A metadata outage means the map
  * renders exactly as it did before this existed.
  */
+/*
+ * Verbose metadata logging, off in production.
+ *
+ * A build-time constant, so a production bundle folds the whole diagnostic
+ * path away rather than merely declining to print it.
+ */
+const METADATA_DIAGNOSTICS =
+  (import.meta.env.VITE_KICKBACK_ENV ?? 'development') !== 'production'
+
 const METADATA_KEY = 'kickback:channelMetadata'
 
+const metadataBackend = createSupabaseMetadataBackend(supabase)
+
 const metadata = createMetadataService({
-  fetcher: createSupabaseMetadataBackend(supabase),
+  fetcher: metadataBackend,
   load: async () => {
     const stored = await storageArea.get(METADATA_KEY)
     const value = stored?.[METADATA_KEY]
@@ -339,6 +350,25 @@ const metadata = createMetadataService({
   // A refreshed record changes what the panel should draw, so the same
   // broadcast every other state change goes through.
   onChange: () => broadcast(),
+  /*
+   * Say what happened - in development and beta only.
+   *
+   * The first deployed version of this feature failed at every single request
+   * and nothing looked wrong, because the panel degrades correctly by design:
+   * "metadata is broken" and "no friends are watching anything" produced the
+   * same screen. Finding that cost a whole checkpoint.
+   *
+   * Codes and counts. No tokens, no headers, no channel names and no user ids
+   * - a worker console is not a place to put anything that identifies anyone.
+   */
+  onDiagnostic: METADATA_DIAGNOSTICS
+    ? (diagnostic, detail) => {
+        const backend = detail.codes?.length ? ' backend=' + detail.codes.join(',') : ''
+        console.info(
+          '[kickback:metadata] ' + diagnostic + ' channels=' + detail.channels + backend,
+        )
+      }
+    : undefined,
   onError: logError,
 })
 
@@ -1018,6 +1048,36 @@ void attention.hydrate()
 // A worker that has just woken should not start from a cold metadata cache;
 // a day-old record is dropped on the way in rather than shown.
 void metadata.hydrate()
+
+/*
+ * A way to ask the deployed backend a direct question, from the worker console.
+ *
+ *     await kickbackMetadata.check('lvndmark')
+ *
+ * Development and beta only, and it exists because the alternative is
+ * inferring backend health from whether some React card looks right. It uses
+ * the session this worker already holds, so there is no token to paste and
+ * none to leak: the answer is the function's own response, which contains
+ * channel metadata and diagnostic CODES and nothing else.
+ *
+ * `snapshot()` shows what the worker currently believes, so "the backend
+ * answered" and "the panel is showing it" can be told apart.
+ */
+if (METADATA_DIAGNOSTICS) {
+  ;(globalThis as unknown as Record<string, unknown>).kickbackMetadata = {
+    async check(...channels: string[]) {
+      const logins = channels.length > 0 ? channels : ['lvndmark']
+      try {
+        return await metadataBackend.fetch(logins.map((channel) => channel.toLowerCase()))
+      } catch (error) {
+        // The message, not the error - a rejected fetch can carry a request
+        // object, and a request object carries headers.
+        return { error: error instanceof Error ? error.message : 'request failed' }
+      }
+    },
+    snapshot: () => metadata.snapshot(),
+  }
+}
 void groups.hydrate()
 void auth.initialize()
 })
