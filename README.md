@@ -111,11 +111,12 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 659 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
+npm test            # 701 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
 npm run test:combos # and for the combo contributor and breaker rules
+npm run test:presence # and for one presence per person across every surface
 npm run verify:groups # asks the hosted database whether the group backend exists
 npm run package:beta  # verified private-beta ZIP into releases/
 npm run db:bundle   # one pasteable .sql for the Supabase SQL editor
@@ -243,6 +244,15 @@ already with you, then channels biggest-cluster-first with JOIN on the cluster,
 then people merely around, then offline. Everyone under one heading is
 literally together. The roster stays complete, so a group is still something
 you can look at rather than a list of whoever happens to be online.
+
+**One presence per person.** Friends and group rosters used to carry separate
+copies, and only the friends copy was kept current - so the same person could
+be watching Lirik in one view and offline in another. There is now a single
+index in the worker, fed by every snapshot and every realtime patch, stamped
+onto both projections. Two surfaces cannot disagree because there is only one
+value. The realtime channel subscribes to friends *and* co-members; it used to
+filter on friend ids, so a non-friend group member's updates never arrived at
+all.
 
 **Clicking a name opens a small card** - their activity, JOIN, View on Twitch,
 and Add or Remove friend. It exists mostly for one case: group members who are

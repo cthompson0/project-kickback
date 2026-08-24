@@ -5,6 +5,8 @@ import type { ActiveCombo, ComboAnnotation } from '../../core/combos'
 import type { ChatMessage, KickbackClient } from '../../client/types'
 import { EmoteImage } from './EmoteImage'
 import { EmotePicker } from './EmotePicker'
+import { UserCard } from './UserCard'
+import type { GroupMember } from '../../client/types'
 
 /**
  * Group chat.
@@ -16,6 +18,9 @@ import { EmotePicker } from './EmotePicker'
  */
 
 const MAX_LENGTH = 500
+
+/** Stable identity, so an omitted roster does not invalidate memos each render. */
+const NO_MEMBERS: GroupMember[] = []
 
 function MessageBody({ body }: { body: string }) {
   const segments = useMemo(() => parseMessage(body), [body])
@@ -76,16 +81,32 @@ export function GroupChat({
   messages,
   selfId,
   client,
+  members = NO_MEMBERS,
+  friendIds,
+  outgoingRequestIds,
 }: {
   groupId: string
   messages: ChatMessage[]
   selfId: string | null
   client: KickbackClient
+  /** The roster, so a sender's card shows the same presence as everywhere. */
+  members?: GroupMember[]
+  friendIds?: ReadonlySet<string>
+  outgoingRequestIds?: ReadonlySet<string>
 }) {
   const [draft, setDraft] = useState('')
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pickerOpen, setPickerOpen] = useState(false)
+  /** Which message's sender card is open, keyed by message so it anchors. */
+  const [openCardFor, setOpenCardFor] = useState<string | null>(null)
+
+  // The sender's card must show the same presence the cluster and the member
+  // list show, so it reads the same roster rather than anything chat-local.
+  const byUserId = useMemo(
+    () => new Map(members.map((member) => [member.user.id, member])),
+    [members],
+  )
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -136,14 +157,45 @@ export function GroupChat({
           return (
             <div key={message.id} className="kb-msg">
               <div className="kb-msg-head">
-                <span
-                  className={`kb-msg-who${message.userId === selfId ? ' kb-msg-who-self' : ''}`}
+                <button
+                  type="button"
+                  // Inline so it stays part of the sentence: the name is a
+                  // word in the line, not a control beside it.
+                  className={`kb-msg-who kb-msg-who-btn${
+                    message.userId === selfId ? ' kb-msg-who-self' : ''
+                  }`}
+                  title={`About ${message.displayName}`}
+                  onClick={() =>
+                    setOpenCardFor((open) => (open === message.id ? null : message.id))
+                  }
                 >
                   {message.displayName}
-                </span>
+                </button>
                 <MessageBody body={message.body} />
                 {annotation && <ComboBadge annotation={annotation} />}
               </div>
+
+              {openCardFor === message.id && (
+                <UserCard
+                  user={
+                    byUserId.get(message.userId)?.user ?? {
+                      id: message.userId,
+                      // A sender who has since left the group is still a real
+                      // person with a real message; we just know less.
+                      username: message.displayName,
+                      displayName: message.displayName,
+                      avatarUrl: message.avatarUrl,
+                      accentColor: '#ff8452',
+                    }
+                  }
+                  presence={byUserId.get(message.userId)?.presence ?? null}
+                  client={client}
+                  isFriend={friendIds?.has(message.userId) ?? false}
+                  requestPending={outgoingRequestIds?.has(message.userId) ?? false}
+                  isSelf={message.userId === selfId}
+                  onClose={() => setOpenCardFor(null)}
+                />
+              )}
 
               {annotation?.brokeCombo && (
                 <div className="kb-combo-broken">

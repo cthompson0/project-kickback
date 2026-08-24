@@ -1761,3 +1761,115 @@ a.kb-ghost-btn {
   align-items: center;
   text-decoration: none;
 }
+
+/* ---------- compact group activity summary ---------- */
+
+.kb-summary {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 5px 2px 2px;
+}
+
+.kb-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.045);
+  font-size: 11.5px;
+}
+
+.kb-summary-row-here {
+  background: rgba(46, 230, 168, 0.13);
+}
+
+.kb-summary-row-here .kb-summary-where {
+  color: var(--kb-here);
+}
+
+.kb-summary-where {
+  flex: none;
+  max-width: 40%;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-summary-count {
+  flex: none;
+  min-width: 15px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.09);
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--kb-dim);
+  text-align: center;
+}
+
+/* Names give way first: the destination and the JOIN matter more. */
+.kb-summary-who {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--kb-dim);
+}
+
+/* ---------- relationship state ---------- */
+
+/* Not a button, because there is nothing to press. */
+.kb-relation {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--kb-faint);
+}
+
+.kb-relation-member {
+  color: var(--kb-online);
+}
+
+.kb-relation-pending {
+  color: var(--kb-accent);
+}
+
+/* ---------- clickable chat sender ---------- */
+
+/*
+ * A button that is still a word in the sentence. Inline, no padding and no
+ * background, so it takes part in the line's inline formatting exactly as the
+ * span it replaced did - otherwise it would reintroduce the wrapping bug.
+ */
+.kb-msg-who-btn {
+  display: inline;
+  padding: 0;
+  font: inherit;
+  font-weight: 800;
+  color: var(--kb-accent);
+  cursor: pointer;
+  /* Selecting message text should not be interrupted by the name. */
+  user-select: text;
+}
+
+.kb-msg-who-btn.kb-msg-who-self {
+  color: var(--kb-here);
+}
+
+.kb-msg-who-btn:hover {
+  text-decoration: underline;
+}
+
+/* The card anchors to the message row. */
+.kb-msg {
+  position: relative;
+}

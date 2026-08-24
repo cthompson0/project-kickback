@@ -18,7 +18,8 @@
     "test:layout": "node scripts/verify-layout-tests.mjs",
     "test:combos": "node scripts/verify-combo-tests.mjs",
     "verify:groups": "node scripts/verify-group-schema.mjs",
-    "package:beta": "node scripts/package-beta.mjs"
+    "package:beta": "node scripts/package-beta.mjs",
+    "test:presence": "node scripts/verify-presence-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

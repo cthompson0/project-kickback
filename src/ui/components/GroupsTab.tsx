@@ -4,6 +4,7 @@ import { effectiveStatus, findGatherings, isHere } from '../../core/presence'
 import { useChannelName } from '../ChannelNames'
 import { GroupPresence } from './GroupPresence'
 import { GroupIcon, GroupIconPicker } from './GroupIcon'
+import { GroupActivitySummary } from './GroupActivitySummary'
 import type { Friend, GroupMember, KickbackClient, KickbackState } from '../../client/types'
 import { Avatar } from './Avatar'
 import { BackIcon } from './Icons'
@@ -16,6 +17,9 @@ import { GroupChat } from './GroupChat'
  * The list leads with activity rather than administration - a group should
  * read as somewhere alive before it reads as a thing you manage.
  */
+
+/** Stable empty roster; see the note where it is used. */
+const NO_MEMBERS: GroupMember[] = []
 
 interface GroupsTabProps {
   view: KickbackState & { localActivity: Activity }
@@ -147,10 +151,14 @@ function GroupDetail({
   onBack: () => void
 }) {
   const group = view.groups.find((entry) => entry.groupId === groupId)
-  const members = view.groupMembers[groupId] ?? []
+  // Stable identity when the group has no roster yet, so the memos below are
+  // not invalidated by a fresh [] on every render.
+  const members = view.groupMembers[groupId] ?? NO_MEMBERS
   const messages = view.groupMessages[groupId] ?? []
   const muted = view.mutedGroupIds.includes(groupId)
   const [managing, setManaging] = useState(false)
+  /** Which invite is in flight, so the button cannot be double-fired. */
+  const [inviting, setInviting] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -163,6 +171,11 @@ function GroupDetail({
   // applies to, and never to someone already connected. Computed above the
   // early return below, because hook order cannot depend on a branch.
   const friendIds = useMemo(() => new Set(friends.map((friend) => friend.user.id)), [friends])
+  const memberIds = useMemo(() => new Set(members.map((member) => member.user.id)), [members])
+  const pendingIds = useMemo(
+    () => new Set(view.groupSentInvites[groupId] ?? []),
+    [view.groupSentInvites, groupId],
+  )
   const outgoingRequestIds = useMemo(
     () => new Set(view.outgoingRequests.map((request) => request.user.id)),
     [view.outgoingRequests],
@@ -179,9 +192,22 @@ function GroupDetail({
     )
   }
 
-  const invitable = friends.filter(
-    (friend) => !members.some((member) => member.user.id === friend.user.id),
-  )
+  /**
+   * Every friend, with where they stand relative to this group.
+   *
+   * Members used to be filtered out entirely, so "why isn't Matt in this
+   * list" had no answer on screen. Showing them as MEMBER says it plainly,
+   * and the state comes from the server rather than from remembering a click,
+   * so it survives a reload.
+   */
+  const inviteRows = friends.map((friend) => ({
+    friend,
+    state: memberIds.has(friend.user.id)
+      ? ('member' as const)
+      : pendingIds.has(friend.user.id)
+        ? ('pending' as const)
+        : ('none' as const),
+  }))
   /** Owners can remove anyone but themselves. */
   const removable = members.filter((member) => member.role !== 'owner')
 
@@ -250,22 +276,37 @@ function GroupDetail({
             </>
           )}
 
-          {group.isOwner && invitable.length > 0 && (
+          {group.isOwner && inviteRows.length > 0 && (
             <>
               <div className="kb-section-label">Invite a friend</div>
-              {invitable.map((friend) => (
+              {inviteRows.map(({ friend, state }) => (
                 <div className="kb-row" key={friend.user.id}>
                   <Avatar user={friend.user} showDot={false} />
                   <div className="kb-row-main">
                     <div className="kb-row-name">{friend.user.displayName}</div>
                   </div>
-                  <button
-                    type="button"
-                    className="kb-join"
-                    onClick={() => void act(() => client.inviteToGroup(groupId, friend.user.id))}
-                  >
-                    INVITE
-                  </button>
+                  {state === 'none' ? (
+                    <button
+                      type="button"
+                      className="kb-join"
+                      disabled={inviting === friend.user.id}
+                      onClick={() => {
+                        setInviting(friend.user.id)
+                        void act(
+                          () => client.inviteToGroup(groupId, friend.user.id),
+                          () => setInviting(null),
+                        )
+                      }}
+                    >
+                      {inviting === friend.user.id ? '…' : 'INVITE'}
+                    </button>
+                  ) : (
+                    // Not a button: there is nothing to do, and something that
+                    // looks pressable but is not is worse than a label.
+                    <span className={`kb-relation kb-relation-${state}`}>
+                      {state === 'member' ? 'MEMBER' : 'PENDING'}
+                    </span>
+                  )}
                 </div>
               ))}
             </>
@@ -331,22 +372,31 @@ function GroupDetail({
           )}
         </>
       ) : (
-        <GroupChat
-          groupId={groupId}
-          messages={messages}
-          selfId={view.identity?.userId ?? null}
-          client={client}
-        />
+        <>
+          {/* Where the group is, above chat, without the whole roster. */}
+          <GroupActivitySummary members={members} localActivity={view.localActivity} />
+          <GroupChat
+            groupId={groupId}
+            messages={messages}
+            selfId={view.identity?.userId ?? null}
+            client={client}
+            members={members}
+            friendIds={friendIds}
+            outgoingRequestIds={outgoingRequestIds}
+          />
+        </>
       )}
     </>
   )
 
-  async function act(run: () => Promise<unknown>) {
+  async function act(run: () => Promise<unknown>, always?: () => void) {
     setError(null)
     try {
       await run()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'That did not work.')
+    } finally {
+      always?.()
     }
   }
 }

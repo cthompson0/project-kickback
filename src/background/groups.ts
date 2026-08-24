@@ -26,6 +26,8 @@ export interface GroupsBackend {
   listGroups(): Promise<BackendResult<GroupSummary[]>>
   listInvites(): Promise<BackendResult<GroupInvite[]>>
   listMembers(groupId: string): Promise<BackendResult<GroupMember[]>>
+  /** User ids with an outstanding invitation. Owner-only; others get []. */
+  listSentInvites(groupId: string): Promise<BackendResult<string[]>>
   listMessages(groupId: string, limit: number): Promise<BackendResult<ChatMessage[]>>
   createGroup(name: string, icon: string | null): Promise<BackendResult<string>>
   setGroupIcon(groupId: string, icon: string | null): Promise<BackendResult<string>>
@@ -42,6 +44,8 @@ export interface GroupsState {
   groups: GroupSummary[]
   invites: GroupInvite[]
   members: Record<string, GroupMember[]>
+  /** groupId -> user ids we have invited and who have not answered. */
+  sentInvites: Record<string, string[]>
   messages: Record<string, ChatMessage[]>
   /** Per group, messages newer than the last one seen, excluding our own. */
   groupUnread: Record<string, number>
@@ -54,6 +58,7 @@ export const EMPTY_GROUPS_STATE: GroupsState = {
   groups: [],
   invites: [],
   members: {},
+  sentInvites: {},
   messages: {},
   groupUnread: {},
   mutedGroupIds: [],
@@ -182,17 +187,23 @@ export function createGroupsService(deps: GroupsDeps): GroupsService {
 
     const list = groups.value ?? []
     const members: Record<string, GroupMember[]> = {}
+    const sentInvites: Record<string, string[]> = {}
     const messages: Record<string, ChatMessage[]> = { ...state.messages }
 
     // Beta scale: a handful of groups, so loading each is fine. If groups ever
     // grow past that, this becomes one batched call rather than a loop.
     for (const group of list) {
-      const [memberResult, messageResult] = await Promise.all([
+      const [memberResult, messageResult, inviteResult] = await Promise.all([
         deps.backend.listMembers(group.groupId),
         deps.backend.listMessages(group.groupId, MESSAGE_WINDOW),
+        // Only owners can invite, so only owners have anything to read here.
+        group.isOwner
+          ? deps.backend.listSentInvites(group.groupId)
+          : Promise.resolve({ value: [] as string[], error: null }),
       ])
       if (memberResult.value) members[group.groupId] = memberResult.value
       if (messageResult.value) messages[group.groupId] = messageResult.value
+      sentInvites[group.groupId] = inviteResult.value ?? []
     }
 
     // Drop anything for groups we are no longer in - leaving must not leave
@@ -207,6 +218,7 @@ export function createGroupsService(deps: GroupsDeps): GroupsService {
       groups: list,
       invites: invites.value ?? [],
       members,
+      sentInvites,
       messages,
       groupsLoading: false,
       groupsError: null,

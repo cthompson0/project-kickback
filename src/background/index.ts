@@ -2,6 +2,16 @@ import { createAuthService } from './auth'
 import { createFriendsService } from './friends'
 import { createSocialSync } from './socialSync'
 import { createPresenceSync } from './presenceSync'
+import {
+  clearPresence as clearIndexed,
+  forgetPresence,
+  mergePresence,
+  setPresence,
+  stampFriends,
+  stampMembers,
+  watchedUserIds,
+} from './presenceIndex'
+import type { PresenceIndex } from './presenceIndex'
 import { createPresenceReporter } from './presence'
 import { createActivityRegistry } from './activity'
 import { createGatheringWatcher } from './gatherings'
@@ -118,15 +128,43 @@ const socialSync = createSocialSync({
 })
 
 /**
- * Friends' presence. Payloads are applied straight to state - see
+ * The one presence per person that every surface reads.
+ *
+ * See presenceIndex.ts: friends and group members used to keep separate
+ * copies, and only the friends copy was ever updated, so the same person could
+ * be "watching Lirik" in one view and "offline" in another.
+ */
+let presenceIndex: PresenceIndex = {}
+
+function indexPresence(next: PresenceIndex): void {
+  if (next === presenceIndex) return
+  presenceIndex = next
+  broadcast()
+}
+
+/**
+ * Everyone's presence. Payloads are applied straight to state - see
  * presenceSync.ts for why that is safe here but not for the social graph.
  */
 const presenceSync = createPresenceSync({
   channel: createSupabasePresenceChannel(supabase),
-  onPresence: (presence) => friends.applyPresence(presence),
-  onPresenceGone: (userId) => friends.clearPresence(userId),
+  onPresence: (presence) => {
+    // Both: the friends service owns the Friends tab's own bookkeeping, and
+    // the index is what every other surface reads.
+    friends.applyPresence(presence)
+    indexPresence(setPresence(presenceIndex, presence))
+  },
+  onPresenceGone: (userId) => {
+    friends.clearPresence(userId)
+    indexPresence(clearIndexed(presenceIndex, userId, Date.now()))
+  },
   // A reconnect may have missed changes; re-read once rather than assume.
-  onResync: () => void friends.refresh(),
+  onResync: () => {
+    void friends.refresh()
+    // Group rosters carry presence too, and a reconnect may have missed
+    // changes to people we only know through a group.
+    void groups.refresh()
+  },
   onStatusChange: (status) => console.info('[Kickback] presence sync', status),
   onError: logError,
 })
@@ -358,12 +396,16 @@ function currentState(): KickbackState {
     ...INITIAL_STATE,
     ...authState,
     ...friendsState,
+    // One presence per person, stamped onto every projection of it. Two
+    // surfaces cannot disagree because there is only one value.
+    friends: stampFriends(friendsState.friends, presenceIndex),
     attention: attentionState.items,
     unread: attentionState.unread,
     preferences: preferences.get(),
     groups: groupsState.groups,
     groupInvites: groupsState.invites,
-    groupMembers: groupsState.members,
+    groupSentInvites: groupsState.sentInvites,
+    groupMembers: stampMembers(groupsState.members, presenceIndex),
     groupMessages: groupsState.messages,
     groupUnread: groupsState.groupUnread,
     mutedGroupIds: groupsState.mutedGroupIds,
@@ -417,6 +459,13 @@ auth.subscribe((next) => {
 
 groups.subscribe((next) => {
   groupsState = next
+  // A roster snapshot carries presence for people we may know only through
+  // this group - fold it in before anything renders.
+  presenceIndex = mergePresence(
+    presenceIndex,
+    Object.values(next.members).flatMap((roster) => roster.map((member) => member.presence)),
+  )
+  watchPresence()
   if (authState.status === 'signed_in' && authState.identity) {
     groupSync.setGroups(
       authState.identity.userId,
@@ -429,14 +478,41 @@ groups.subscribe((next) => {
 
 friends.subscribe((next) => {
   friendsState = next
+  presenceIndex = mergePresence(
+    presenceIndex,
+    next.friends.map((friend) => friend.presence),
+  )
   if (authState.status === 'signed_in') refreshAttention()
-  // Subscribe to exactly the current friends: a removed friend stops being
-  // watched, and a new one starts. Idempotent when the set is unchanged.
-  if (authState.status === 'signed_in') {
-    presenceSync.setFriends(next.friends.map((friend) => friend.user.id))
-  }
+  watchPresence()
   broadcast()
 })
+
+/**
+ * Subscribe to exactly the people we can currently see: friends, plus anyone
+ * we share a group with.
+ *
+ * The group half is the part that was missing. The channel filtered on friend
+ * ids, so a non-friend group member's updates never arrived at all - no amount
+ * of fixing the client-side plumbing would have helped while the server was
+ * never asked for them.
+ */
+function watchPresence(): void {
+  if (authState.status !== 'signed_in') return
+  const watched = watchedUserIds(
+    friendsState.friends,
+    groupsState.members,
+    authState.identity?.userId ?? null,
+  )
+  // People we can no longer see stop being tracked, so a removed group member
+  // does not leave a frozen presence behind.
+  presenceIndex = forgetPresence(
+    presenceIndex,
+    Object.keys(presenceIndex).filter(
+      (userId) => userId !== authState.identity?.userId && !watched.includes(userId),
+    ),
+  )
+  presenceSync.setFriends(watched)
+}
 
 attention.subscribe(() => broadcast())
 preferences.subscribe(() => broadcast())

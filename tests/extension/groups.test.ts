@@ -85,6 +85,12 @@ class FakeGroupsBackend implements GroupsBackend {
     this.calls.push(`createGroup:${name}:${icon ?? '-'}`)
     return this.ok('g-new')
   }
+  /** Owner-only on the server; the fake mirrors that with a plain list. */
+  sentInvites: Record<string, string[]> = {}
+  async listSentInvites(groupId: string) {
+    this.calls.push(`listSentInvites:${groupId}`)
+    return this.ok(this.sentInvites[groupId] ?? [])
+  }
   async setGroupIcon(groupId: string, icon: string | null) {
     this.calls.push(`setIcon:${groupId}:${icon ?? '-'}`)
     return this.ok(groupId)

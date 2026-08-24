@@ -495,6 +495,13 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
           })),
       ),
 
+    listSentInvites: (groupId) =>
+      call<{ to_user: string }, string[]>(
+        'list_group_sent_invites',
+        { p_group: groupId },
+        (rows) => rows.map((row) => row.to_user),
+      ),
+
     listMessages: (groupId, limit) =>
       call<MessageRow, ChatMessage[]>(
         'list_group_messages',

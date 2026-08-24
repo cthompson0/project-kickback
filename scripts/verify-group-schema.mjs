@@ -53,6 +53,8 @@ const FUNCTIONS = [
   // 0009. Group icons need the new RPC and the two-argument create_group.
   ['set_group_icon', { p_group: NIL, p_icon: 'x' }],
   ['create_group', { p_name: 'x', p_icon: 'x' }],
+  // 0010. The invite button reads its state from this.
+  ['list_group_sent_invites', { p_group: NIL }],
 ]
 
 function readEnv() {
@@ -97,7 +99,7 @@ export async function verifyGroupSchema({ quiet = false } = {}) {
   const missing = []
 
   log('project      :', url)
-  log('checking     : migrations 0006 - 0009 against the hosted database\n')
+  log('checking     : migrations 0006 - 0010 against the hosted database\n')
 
   for (const table of TABLES) {
     let code

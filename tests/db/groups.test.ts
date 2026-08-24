@@ -475,6 +475,90 @@ describe('group administration', () => {
     ).toMatch(/only the group owner/i)
   })
 
+  it('lets the owner see the invitations they have sent', async () => {
+    const group = await makeGroup(alice)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+
+    const rows = await db.as<{ to_user: string }>(
+      alice,
+      'select * from public.list_group_sent_invites($1)',
+      [group],
+    )
+    expect(rows.map((row) => row.to_user)).toEqual([bob.id])
+  })
+
+  it('stops listing an invitation once it has been accepted', async () => {
+    // The button must go from PENDING to MEMBER on its own, which means
+    // "pending" has to stop being true the moment they join.
+    const group = await makeGroup(alice)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+    const [invite] = await db.as<{ invite_id: string }>(
+      bob,
+      'select * from public.list_group_invites()',
+    )
+    await db.as(bob, 'select public.respond_to_group_invite($1, true)', [invite.invite_id])
+
+    const rows = await db.as(alice, 'select * from public.list_group_sent_invites($1)', [group])
+    expect(rows).toEqual([])
+  })
+
+  it('stops listing an invitation once it has been declined', async () => {
+    // Declining frees the person to be invited again - existing backend
+    // semantics, now visible in the button.
+    const group = await makeGroup(alice)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+    const [invite] = await db.as<{ invite_id: string }>(
+      bob,
+      'select * from public.list_group_invites()',
+    )
+    await db.as(bob, 'select public.respond_to_group_invite($1, false)', [invite.invite_id])
+
+    expect(await db.as(alice, 'select * from public.list_group_sent_invites($1)', [group])).toEqual(
+      [],
+    )
+  })
+
+  it('refuses to show sent invitations to a member or a stranger', async () => {
+    // Who the owner has approached is the owner's business.
+    const group = await makeGroup(alice)
+    await addToGroup(alice, group, bob)
+
+    expect(
+      await refusal(() => db.as(bob, 'select * from public.list_group_sent_invites($1)', [group])),
+    ).toMatch(/not found/i)
+    expect(
+      await refusal(() =>
+        db.as(mallory, 'select * from public.list_group_sent_invites($1)', [group]),
+      ),
+    ).toMatch(/not found/i)
+  })
+
+  it('refuses a duplicate invitation', async () => {
+    const group = await makeGroup(alice)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+    const [again] = await db.as<{ invite_to_group: string }>(
+      alice,
+      'select public.invite_to_group($1, $2)',
+      [group, bob.id],
+    )
+    expect(again.invite_to_group).toBe('already_invited')
+
+    // And still only one outstanding.
+    const rows = await db.as(alice, 'select * from public.list_group_sent_invites($1)', [group])
+    expect(rows).toHaveLength(1)
+  })
+
+  it('reports an existing member rather than inviting them again', async () => {
+    const group = await makeGroup(alice)
+    await addToGroup(alice, group, bob)
+    const [result] = await db.as<{ invite_to_group: string }>(
+      alice,
+      'select public.invite_to_group($1, $2)',
+      [group, bob.id],
+    )
+    expect(result.invite_to_group).toBe('already_member')
+  })
+
   it('lets the owner set and clear a group icon', async () => {
     const group = await makeGroup(alice)
 

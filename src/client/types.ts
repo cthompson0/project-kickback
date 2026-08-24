@@ -104,6 +104,13 @@ export interface KickbackState {
 
   groups: GroupSummary[]
   groupInvites: GroupInvite[]
+  /**
+   * groupId -> user ids with an invitation outstanding.
+   *
+   * Authoritative, read from the server rather than remembered from a click,
+   * so the button still says the right thing after a reload.
+   */
+  groupSentInvites: Record<string, string[]>
   groupMembers: Record<string, GroupMember[]>
   groupMessages: Record<string, ChatMessage[]>
   groupUnread: Record<string, number>
@@ -136,6 +143,7 @@ export const INITIAL_STATE: KickbackState = {
   preferences: { gatheringNotifications: true },
   groups: [],
   groupInvites: [],
+  groupSentInvites: {},
   groupMembers: {},
   groupMessages: {},
   groupUnread: {},
