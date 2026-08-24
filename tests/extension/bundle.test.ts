@@ -308,3 +308,50 @@ describe('emote providers are reached only from the worker', () => {
     }
   })
 })
+
+/**
+ * Analytics is compiled out of the demo build.
+ *
+ * Not merely configured off. The demo client's track/recordJoin/reportExposure
+ * do nothing, the demo build never runs the service worker at all, and the
+ * environment constant folds so the recorder is never constructed. This
+ * inspects the artifact rather than trusting any of that.
+ */
+describe('the demo build sends no analytics', () => {
+  const DEMO_DIST = join(process.cwd(), 'dist-demo')
+
+  it('has no analytics RPC in the demo bundle', () => {
+    if (!existsSync(join(DEMO_DIST, 'kickback-content.js'))) {
+      throw new Error('dist-demo/ is missing or stale - run `npm run build:demo`')
+    }
+    const demoContent = readFileSync(join(DEMO_DIST, 'kickback-content.js'), 'utf8')
+    // The content script is the whole of the demo build's Kickback: the worker
+    // is never connected to, so nothing can reach the network from here.
+    expect(demoContent).not.toContain('analytics_track')
+  })
+
+  it('names the analytics RPC exactly once in production, in the worker', () => {
+    // The content script must never call it directly: the worker owns the
+    // session, and a tab that could write analytics could write them as
+    // whatever it liked.
+    expect(content).not.toContain('analytics_track')
+    expect(background).toContain('analytics_track')
+  })
+})
+
+describe('the production bundle collects nothing it should not', () => {
+  it('sends no property key outside the contract', () => {
+    // The keys that would be a privacy failure if they ever appeared in an
+    // analytics payload. `body` and `email` are common enough words that this
+    // checks the analytics property vocabulary specifically.
+    const forbidden = ['message_body', 'chat_body', 'access_token', 'refresh_token', 'friend_code']
+    for (const key of forbidden) {
+      expect(background).not.toContain(`"${key}"`)
+    }
+  })
+
+  it('carries the version, so a tester on an old ZIP is identifiable', () => {
+    const version = String((manifest as { version: string }).version)
+    expect(background).toContain(version)
+  })
+})

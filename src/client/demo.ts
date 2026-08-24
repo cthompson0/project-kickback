@@ -175,6 +175,19 @@ export function createDemoClient(): KickbackClient {
         listeners.delete(listener)
       }
     },
+    /*
+     * Analytics does not exist in demo mode.
+     *
+     * Not "is configured off" - there is no recorder, no queue and no session
+     * here at all, and these three are the only way to reach one. The demo
+     * build is also compiled without the worker's analytics code entirely,
+     * because it never runs the worker; tests/extension/bundle.test.ts checks
+     * that nothing analytics-shaped reaches the demo bundle.
+     */
+    track: () => {},
+    recordJoin: () => {},
+    reportExposure: () => {},
+
     signIn: () => setState({ status: 'signed_in', identity: DEMO_IDENTITY }),
     signOut: () => setState({ status: 'signed_out', identity: null, friends: [] }),
     retry: () => {},

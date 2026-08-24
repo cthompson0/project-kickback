@@ -118,7 +118,8 @@ export function PersonRow({
       </div>
 
       {here && <span className="kb-badge-here">HERE</span>}
-      {channel && <JoinButton channel={channel} />}
+      {/* One friend, from their row. The default source is friend_row. */}
+      {channel && <JoinButton channel={channel} socialCount={1} />}
 
       {cardOpen && client && cardContext && (
         <UserCard

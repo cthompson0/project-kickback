@@ -158,7 +158,9 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
             card needs no separate guard: describeSelf never reports anywhere
             to go, and there is a mutation proving that. */}
         {state.canJoin && state.channel && (
-          <JoinButton channel={state.channel} source="group" />
+          // One person, from the card - not "group", which was simply the value
+          // the card inherited when it only ever appeared inside one.
+          <JoinButton channel={state.channel} source="user_card" socialCount={1} />
         )}
 
         <a

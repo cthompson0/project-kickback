@@ -139,6 +139,44 @@ describe('the generated bundle', () => {
     await db.close()
   })
 
+  it('applies on top of a database that predates analytics', async () => {
+    /*
+     * The state the hosted project is in right now: everything through 0012,
+     * nothing after. This is the exact upgrade path 0013 and 0014 will be run
+     * along, so it is worth its own case rather than being covered by
+     * implication.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0012')
+    await expect(applyBundle(db)).resolves.not.toThrow()
+
+    const [{ count }] = (
+      await db.query<{ count: string }>('select count(*)::text as count from public.analytics_event_names')
+    ).rows
+    expect(Number(count)).toBeGreaterThan(15)
+    await db.close()
+  })
+
+  it('re-running updates an event contract rather than leaving it stale', async () => {
+    // 0013 seeds analytics_event_names with ON CONFLICT DO UPDATE, so an event
+    // that gains a property on a later pass is brought up to date. Without it,
+    // the database would go on silently stripping the new key.
+    const db = await freshDb()
+    await applyBundle(db)
+    await db.exec(
+      "update public.analytics_event_names set allowed_properties = '{}' where name = 'join_clicked'",
+    )
+    await applyBundle(db)
+
+    const [{ properties }] = (
+      await db.query<{ properties: string[] }>(
+        "select allowed_properties as properties from public.analytics_event_names where name = 'join_clicked'",
+      )
+    ).rows
+    expect(properties).toContain('social_count')
+    await db.close()
+  })
+
   it('leaves list_groups with the icon column however it got there', async () => {
     const expected = ['group_id', 'name', 'icon', 'owner_id', 'is_owner', 'member_count', 'created_at']
 

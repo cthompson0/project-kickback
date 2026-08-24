@@ -89,7 +89,11 @@ export function GroupActivitySummary({
           {/* No JOIN on the HERE row: you are already there. */}
           {cluster.kind === 'channel' && cluster.channel && (
             <span onClick={(event) => event.stopPropagation()}>
-              <JoinButton channel={cluster.channel} source="group" />
+              <JoinButton
+                channel={cluster.channel}
+                source="group"
+                socialCount={cluster.members.length}
+              />
             </span>
           )}
         </div>

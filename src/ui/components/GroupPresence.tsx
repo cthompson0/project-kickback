@@ -50,7 +50,7 @@ function ClusterHeading({
         <span className="kb-header-spacer" />
         {/* JOIN belongs on the cluster, not on each person: you are going to
             the channel, and everyone under this heading is already there. */}
-        <JoinButton channel={cluster.channel} source="group" />
+        <JoinButton channel={cluster.channel} source="group" socialCount={count} />
       </div>
     )
   }

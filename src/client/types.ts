@@ -8,6 +8,11 @@
 
 import type { Presence, User } from '../core/types'
 import type { Emote } from '../core/emotes'
+import type {
+  AnalyticsEventMap,
+  AnalyticsEventName,
+  AnalyticsSurface,
+} from '../core/analytics'
 
 export interface EmoteSection {
   title: string
@@ -204,8 +209,6 @@ export interface KickbackClient {
   inviteToGroup(groupId: string, userId: string): Promise<string>
   /** Withdraws an invitation that has not been answered yet. */
   cancelGroupInvite(groupId: string, userId: string): Promise<void>
-  /** Withdraws an invitation that has not been answered yet. */
-  cancelGroupInvite(groupId: string, userId: string): Promise<void>
   respondToGroupInvite(inviteId: string, accept: boolean): Promise<string>
   leaveGroup(groupId: string): Promise<void>
   removeGroupMember(groupId: string, userId: string): Promise<void>
@@ -218,6 +221,44 @@ export interface KickbackClient {
    * never holds - or renders - a whole 1,000-emote channel set.
    */
   searchEmotes(query: string): Promise<EmoteSection[]>
+
+  // --- analytics -----------------------------------------------------------
+  //
+  // All three return void, by design. Analytics is best-effort: there is
+  // deliberately nothing here for a product action to await, nothing that can
+  // reject, and nothing that can fail in a way a user would notice. In the
+  // demo build every one of them does nothing at all.
+
+  /** Record that something happened. Fire-and-forget. */
+  track<N extends AnalyticsEventName>(
+    name: N,
+    properties?: Partial<AnalyticsEventMap[N]>,
+    options?: { source?: AnalyticsSurface; channel?: string | null },
+  ): void
+
+  /**
+   * Record a JOIN click. Called by JoinButton immediately before navigating,
+   * so the worker holds the attribution before this page is torn down.
+   */
+  recordJoin(input: {
+    channel: string
+    source: AnalyticsSurface
+    socialCount: number
+    navigated: boolean
+  }): void
+
+  /**
+   * Report what social information is visible right now. Safe to call on every
+   * render: the worker decides what counts as a new impression.
+   */
+  reportExposure(report: {
+    friends: Array<{
+      userId: string
+      channel: string
+      state: 'watching_with_you' | 'watching_elsewhere'
+    }>
+    gatherings: Array<{ channel: string; friendCount: number; rank: number }>
+  }): void
 }
 
 export type PresenceVisibility = 'visible' | 'hide_activity' | 'invisible'

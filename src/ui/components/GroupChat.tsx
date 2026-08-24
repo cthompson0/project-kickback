@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EMOTES, isEmoteOnly, parseMessage } from '../../core/emotes'
 import { scanCombos } from '../../core/combos'
+import { emoteKey } from '../../core/emotes'
+import { useAnalytics } from '../Analytics'
 import type { ActiveCombo, ComboAnnotation } from '../../core/combos'
 import type { ChatMessage, KickbackClient } from '../../client/types'
 import { EmoteImage } from './EmoteImage'
@@ -106,6 +108,7 @@ export function GroupChat({
   const [pickerOpen, setPickerOpen] = useState(false)
   /** Which message's sender card is open, keyed by message so it anchors. */
   const [openCardFor, setOpenCardFor] = useState<string | null>(null)
+  const analytics = useAnalytics()
 
   // The sender's card must show the same presence the cluster and the member
   // list show, so it reads the same roster rather than anything chat-local.
@@ -133,6 +136,56 @@ export function GroupChat({
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' })
   }, [messages.length])
+
+  /*
+   * Combos, recorded once each.
+   *
+   * Combos are DERIVED from the message list on every render, which is what
+   * makes every client agree about them - and what makes them easy to
+   * over-report. The counter growing from two to five is one combo, not four,
+   * and opening a group with an hour of history in it is not a combo forming
+   * now. So both of these are transitions, not states.
+   *
+   * The emote alone identifies the run: a combo of a different emote is a
+   * different combo, and the same emote combo'd twice is separated by the null
+   * in between, which resets the marker.
+   */
+  const activeKey = active ? emoteKey(active.emote) : null
+  const activeCount = active?.count ?? 0
+  const reportedComboRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!activeKey) {
+      reportedComboRef.current = null
+      return
+    }
+    if (reportedComboRef.current === activeKey) return
+    reportedComboRef.current = activeKey
+    analytics.track('combo_formed', { count: activeCount }, { source: 'group' })
+  }, [activeKey, activeCount, analytics])
+
+  /**
+   * Breaks already on screen when this opened are history, not news.
+   *
+   * Seeded on the first pass without emitting, so scrolling back through an
+   * old conversation does not replay a month of combos as if they were
+   * happening now.
+   */
+  const seenBreaksRef = useRef<Set<string> | null>(null)
+
+  useEffect(() => {
+    const first = seenBreaksRef.current === null
+    const seen = seenBreaksRef.current ?? new Set<string>()
+    seenBreaksRef.current = seen
+
+    for (const [messageId, annotation] of annotations) {
+      if (!annotation.brokeCombo) continue
+      if (seen.has(messageId)) continue
+      seen.add(messageId)
+      if (first) continue
+      analytics.track('combo_broken', { count: annotation.brokeCombo.count }, { source: 'group' })
+    }
+  }, [annotations, analytics])
 
   async function send() {
     const body = draft.trim()

@@ -1,4 +1,5 @@
 import type { KickbackState } from './types'
+import type { AnalyticsEventName, AnalyticsSurface, AnalyticsValue } from '../core/analytics'
 
 /**
  * Message protocol between a Twitch tab and the extension service worker.
@@ -60,6 +61,51 @@ export type ClientMessage =
     }
   /** The user is reading this group; clear its unread. */
   | { type: 'groupRead'; groupId: string }
+  /*
+   * ------------------------------------------------------------- analytics
+   *
+   * Three messages, and all three are one-way. Analytics never uses the RPC
+   * path, because an RPC has a reply the caller can wait on, and nothing about
+   * measurement may ever be something a product action waits for.
+   */
+  /** A product event the panel observed. The worker fills in session and build. */
+  | {
+      type: 'analytics'
+      name: AnalyticsEventName
+      properties?: Record<string, AnalyticsValue>
+      source?: AnalyticsSurface
+      channel?: string | null
+    }
+  /**
+   * A JOIN was clicked. Separate from 'analytics' because the worker mints the
+   * attribution that arrival is matched against, and because facts like "were
+   * they already on Twitch" are the worker's to know, not the tab's.
+   */
+  | {
+      type: 'join'
+      channel: string
+      source: AnalyticsSurface
+      /** How many people the surface was showing on that channel. */
+      socialCount: number
+      /** False when the click was a no-op because it is the current channel. */
+      navigated: boolean
+    }
+  /**
+   * Everything socially meaningful currently VISIBLE in the open panel.
+   *
+   * Sent as a whole set rather than as individual impressions, as often as the
+   * panel likes. Turning that into events - once each, not once per render -
+   * is exposure.ts's job, in the worker, where there is one copy of the rule.
+   */
+  | {
+      type: 'exposure'
+      friends: Array<{
+        userId: string
+        channel: string
+        state: 'watching_with_you' | 'watching_elsewhere'
+      }>
+      gatherings: Array<{ channel: string; friendCount: number; rank: number }>
+    }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 
 /** Worker -> tab. */

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ChannelLabel, ChannelNameProvider } from './ChannelNames'
+import { AnalyticsProvider } from './Analytics'
+import { describePresence } from '../core/personPresence'
 import type { KickbackClient } from '../client/types'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
@@ -111,6 +113,49 @@ export function KickbackPanel({
     client.markKindSeen('group_invite')
   }, [collapsed, finding, tab, view.status, view.attention, client])
 
+  /*
+   * What social information is actually on screen.
+   *
+   * The panel reports the whole visible SET, and the worker decides what
+   * counts as a new impression - see exposure.ts. Doing it that way is what
+   * makes the number mean something: a realtime presence update re-renders
+   * this list, and an impression per render would report fifty exposures for
+   * one glance.
+   *
+   * Nothing is reported while the panel is collapsed. A launcher badge is a
+   * notification, not an exposure: the user has not been shown who is where.
+   */
+  const visibleSocial = useMemo(() => {
+    if (collapsed || view.status !== 'signed_in') {
+      return { friends: [], gatherings: [] }
+    }
+
+    const viewer = view.channel
+      ? ({ type: 'watching', platform: 'twitch', channel: view.channel } as const)
+      : ({ type: 'browsing', platform: 'twitch' } as const)
+
+    return {
+      friends: view.friends.flatMap((friend) => {
+        const presence = describePresence(friend.presence, viewer)
+        if (presence.kind !== 'watching_with_you' && presence.kind !== 'watching_elsewhere') {
+          return []
+        }
+        if (!presence.channel) return []
+        return [{ userId: friend.user.id, channel: presence.channel, state: presence.kind }]
+      }),
+      // Only the gatherings that are drawn. The banner shows one.
+      gatherings: view.gatherings.slice(0, 1).map((gathering, index) => ({
+        channel: gathering.channel,
+        friendCount: gathering.userIds.length,
+        rank: index + 1,
+      })),
+    }
+  }, [collapsed, view.status, view.friends, view.gatherings, view.channel])
+
+  useEffect(() => {
+    client.reportExposure(visibleSocial)
+  }, [client, visibleSocial])
+
   // Invitations plus conversations with something new in them.
   const groupAttentionCount =
     view.groupInvites.length +
@@ -203,6 +248,7 @@ export function KickbackPanel({
     // One resolver for the whole panel, so a channel is spelled the same way
     // in the activity line, a friend row and a group cluster.
     <ChannelNameProvider people={knownPeople} seen={view.channelNames}>
+    <AnalyticsProvider client={client}>
     <div
       // A height the user chose is what the panel is, not a ceiling: otherwise
       // the panel springs back to content height the moment they let go, and
@@ -327,7 +373,11 @@ export function KickbackPanel({
                 🔥 {gathering.userIds.length} friends watching{' '}
                 <ChannelLabel channel={gathering.channel} />
               </span>
-              <JoinButton channel={gathering.channel} source="gathering" />
+              <JoinButton
+                channel={gathering.channel}
+                source="gathering"
+                socialCount={gathering.userIds.length}
+              />
             </div>
           ))}
 
@@ -453,6 +503,7 @@ export function KickbackPanel({
       <div className="kb-resize kb-resize-s" onPointerDown={beginResize('s')} />
       <div className="kb-resize kb-resize-se" onPointerDown={beginResize('se')} />
     </div>
+    </AnalyticsProvider>
     </ChannelNameProvider>
   )
 }

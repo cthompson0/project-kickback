@@ -155,8 +155,12 @@ function step(label) {
   console.log(`\n== ${label}`)
 }
 
-function run(command, args) {
-  execFileSync(command, args, { stdio: 'inherit', shell: process.platform === 'win32' })
+function run(command, args, env) {
+  execFileSync(command, args, {
+    stdio: 'inherit',
+    shell: process.platform === 'win32',
+    env: env ? { ...process.env, ...env } : process.env,
+  })
 }
 
 /** Extension IDs are the first 128 bits of SHA-256 over the DER public key. */
@@ -220,7 +224,15 @@ async function main() {
   step('Building the production bundles')
   // A fresh build, so the archive can never contain yesterday's output.
   rmSync(DIST, { recursive: true, force: true })
-  run('npm', ['run', 'build'])
+  /*
+   * The beta ZIP is built as private_beta, here rather than in .env.local.
+   *
+   * Whoever is packaging is also developing, and their .env.local says
+   * development - which is right for them and wrong for the archive. Setting
+   * it at the build call means the ZIP cannot inherit a local mistake, and a
+   * tester's numbers are never mixed into a public cohort by accident.
+   */
+  run('npm', ['run', 'build'], { VITE_KICKBACK_ENV: 'private_beta' })
 
   step('Inspecting the build')
   const manifest = JSON.parse(readFileSync(join(DIST, 'manifest.json'), 'utf8'))
@@ -242,6 +254,20 @@ async function main() {
   for (const file of RUNTIME_FILES) {
     if (!existsSync(join(DIST, file))) fail(`build is missing ${file}`)
   }
+
+  /*
+   * The archive must say private_beta, and must not say production.
+   *
+   * Analytics from testers exist to prove the pipeline works; they must be
+   * removable before launch, and that only works if every event they produce
+   * is labelled. Checking the artifact rather than the intent, because the
+   * environment is a build-time constant and this is what actually shipped.
+   */
+  const worker = readFileSync(join(DIST, 'kickback-background.js'), 'utf8')
+  if (!worker.includes('private_beta')) {
+    fail('the worker was not built with VITE_KICKBACK_ENV=private_beta')
+  }
+  console.log('  analytics env  : private_beta')
 
   // The demo build writes to dist-demo/, but check anyway: a demo-mode build
   // written into dist/ would look identical from the outside.

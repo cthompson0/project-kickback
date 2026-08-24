@@ -31,6 +31,14 @@ export interface NotifierDeps {
   onButtonClicked(handler: (id: string, buttonIndex: number) => void): void
   /** Opens a Twitch tab. Separated so tests can assert the destination. */
   openUrl(url: string): void
+  /**
+   * A gathering notification was acted on, with the channel it pointed at.
+   *
+   * Separate from openUrl so the caller does not have to parse a URL back into
+   * a channel to know what happened - and so the notifier stays the only place
+   * that decides what a notification id means.
+   */
+  onOpen?(channel: string): void
   iconUrl: string
 }
 
@@ -74,6 +82,7 @@ export function createNotifier(deps: NotifierDeps): Notifier {
     const channel = channelFromNotificationId(id)
     if (!channel) return
     deps.openUrl(channelUrl(channel))
+    deps.onOpen?.(channel)
     deps.clear?.(id)
   }
 

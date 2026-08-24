@@ -11,6 +11,7 @@ import { Avatar } from './Avatar'
 import { BackIcon } from './Icons'
 import { JoinButton } from './JoinButton'
 import { GroupChat } from './GroupChat'
+import { useAnalytics } from '../Analytics'
 
 /**
  * Groups: what your people are doing, and a place to talk about it.
@@ -94,7 +95,12 @@ function GroupActivityLine({
           🔥 {biggest.userIds.length} watching {channelName(biggest.channel)}
         </span>
         <span onClick={(event) => event.stopPropagation()}>
-          <JoinButton channel={biggest.channel} source="group" label="JOIN THEM" />
+          <JoinButton
+            channel={biggest.channel}
+            source="group"
+            label="JOIN THEM"
+            socialCount={biggest.userIds.length}
+          />
         </span>
       </div>
     )
@@ -185,10 +191,12 @@ function GroupDetail({
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
+
   // Looking at a group is what marks it read.
   useEffect(() => {
     client.markGroupRead(groupId)
   }, [client, groupId, messages.length])
+
 
   // Invite state only. Card context comes from the panel, so it is not
   // rebuilt here - one place assembles it, every surface reads it. Computed
@@ -466,6 +474,7 @@ export function GroupsTab({
 }: GroupsTabProps) {
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const analytics = useAnalytics()
 
   if (openGroupId) {
     return (
@@ -543,17 +552,33 @@ export function GroupsTab({
               {view.groups.map((group) => {
                 const unread = view.groupUnread[group.groupId] ?? 0
                 const muted = view.mutedGroupIds.includes(group.groupId)
+                /*
+                 * Recorded here rather than in an effect inside the open group.
+                 *
+                 * Opening is something the user DID, and this is where they did
+                 * it. An effect over there would re-run on every arriving
+                 * message, turning one busy conversation into a stream of
+                 * "opened" events - and the roster size it wants is right here.
+                 */
+                const open = () => {
+                  analytics.track(
+                    'group_opened',
+                    { member_count: group.memberCount },
+                    { source: 'group' },
+                  )
+                  onOpenGroup(group.groupId)
+                }
                 return (
                   <div
                     className="kb-group-card"
                     role="button"
                     tabIndex={0}
                     key={group.groupId}
-                    onClick={() => onOpenGroup(group.groupId)}
+                    onClick={open}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault()
-                        onOpenGroup(group.groupId)
+                        open()
                       }
                     }}
                   >

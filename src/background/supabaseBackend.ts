@@ -4,6 +4,8 @@ import type { AuthBackend, BackendResult, SessionLike } from './auth'
 import type { FriendsBackend } from './friends'
 import type { PresenceBackend } from './presence'
 import type { GroupsBackend } from './groups'
+import type { AnalyticsBackend } from './analytics'
+import type { AnalyticsEvent } from '../core/analytics'
 import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
 import type {
@@ -550,5 +552,26 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
         { p_group: groupId, p_body: body },
         (rows) => rows[0] ?? '',
       ),
+  }
+}
+
+// ---------------------------------------------------------------- analytics
+//
+// One RPC, one batch. Like every other write here it takes no actor: the
+// database uses auth.uid(), so a modified extension cannot record events
+// against somebody else's account.
+//
+// This one REJECTS on failure rather than returning a BackendResult, because
+// the recorder's whole design is retry-with-backoff and it needs to know the
+// difference between "stored" and "did not store". Nothing above the recorder
+// ever sees that rejection.
+
+export function createSupabaseAnalyticsBackend(supabase: SupabaseClient): AnalyticsBackend {
+  return {
+    async send(events: AnalyticsEvent[]): Promise<number> {
+      const { data, error } = await supabase.rpc('analytics_track', { p_events: events })
+      if (error) throw new Error(describe(error))
+      return typeof data === 'number' ? data : 0
+    },
   }
 }

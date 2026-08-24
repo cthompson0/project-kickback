@@ -28,8 +28,17 @@ import { createGroupSync } from './groupSync'
 import { createEmoteCatalog } from './emoteCatalog'
 import { createSevenTvClient } from './sevenTv'
 import { createPreferences } from './preferences'
+import { createAnalyticsHub } from './analyticsHub'
+import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
+import type { SessionRecord } from './analyticsSession'
+import type { JoinAttribution } from './joinAttribution'
+import { describePresence } from '../core/personPresence'
+import type { AnalyticsEnvironment } from '../core/analytics'
+import { isAnalyticsEventName } from '../core/analytics'
 import { createNotifier } from './notifier'
 import { findGatherings } from '../core/presence'
+import { parseMessage } from '../core/emotes'
+import { lengthBucket } from '../core/analytics'
 import type { Activity } from '../core/types'
 import {
   createSupabaseGroupChannel,
@@ -37,6 +46,7 @@ import {
   createSupabaseSocialChannel,
 } from './supabaseRealtime'
 import {
+  createSupabaseAnalyticsBackend,
   createSupabaseBackend,
   createSupabaseClient,
   createSupabaseFriendsBackend,
@@ -139,6 +149,10 @@ let presenceIndex: PresenceIndex = {}
 function indexPresence(next: PresenceIndex): void {
   if (next === presenceIndex) return
   presenceIndex = next
+  // Somebody arriving on or leaving the channel this user is watching is
+  // exactly what starts and ends a shared watch, so it is re-evaluated here
+  // rather than only when the local user navigates.
+  updateTogether()
   broadcast()
 }
 
@@ -195,6 +209,39 @@ const storageArea = {
 
 const preferences = createPreferences(storageArea, logError)
 
+// ---------------------------------------------------------------- analytics
+//
+// Which cohort this build's numbers belong to. A build-time constant, so the
+// demo bundle folds `ANALYTICS_ENABLED` to false and drops the whole path.
+//
+// The demo build never sends: it has no backend, no session and no signed-in
+// user, and saying so here rather than relying on any of those means there is
+// one obvious place to read the answer off.
+const ANALYTICS_ENVIRONMENT: AnalyticsEnvironment =
+  import.meta.env.VITE_KICKBACK_ENV ?? 'development'
+const ANALYTICS_ENABLED = import.meta.env.VITE_KICKBACK_MODE !== 'demo'
+
+const analytics = createAnalyticsHub({
+  backend: createSupabaseAnalyticsBackend(supabase),
+  environment: ANALYTICS_ENVIRONMENT,
+  appVersion: __KICKBACK_VERSION__,
+  enabled: ANALYTICS_ENABLED,
+  sessionStore: createStoredValue<SessionRecord>(
+    storageArea,
+    'kickback:analytics:session',
+    isSessionRecord,
+  ),
+  attributionStore: createStoredValue<JoinAttribution>(
+    storageArea,
+    'kickback:analytics:join',
+    isJoinAttribution,
+  ),
+  // No actor, no events sent. They queue rather than being thrown away, so a
+  // session that starts before auth resolves is not lost.
+  canSend: () => authState.status === 'signed_in',
+  onError: logError,
+})
+
 const groups = createGroupsService({
   backend: createSupabaseGroupsBackend(supabase),
   storage: storageArea,
@@ -241,8 +288,33 @@ const notifier = createNotifier({
   onClicked: (handler) => chrome.notifications.onClicked.addListener(handler),
   onButtonClicked: (handler) => chrome.notifications.onButtonClicked.addListener(handler),
   openUrl: (url) => void chrome.tabs.create({ url }),
+  // Clicking a gathering notification IS a JOIN, from the notification
+  // surface - so it goes through the same path a JOIN button does rather than
+  // becoming a second, parallel notion of joining.
+  onOpen: (channel) => {
+    analytics.track('gathering_notification_clicked', {
+      friend_count: gatheringSizes.get(channel) ?? 0,
+    }, { source: 'notification', channel })
+    analytics.recordJoin({
+      channel,
+      source: 'notification',
+      socialCount: gatheringSizes.get(channel) ?? 0,
+      navigated: true,
+      alreadyOnTwitch: tabActivity.hasTabs(),
+      alreadyOnDestination: currentChannel() === channel,
+    })
+  },
   iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
 })
+
+/**
+ * How big each live gathering is, so a notification event can say so.
+ *
+ * Kept here rather than passed through the notifier: the notifier's job is to
+ * decide what to show, and it has no business carrying analytics payloads
+ * around for something that happens minutes later.
+ */
+const gatheringSizes = new Map<string, number>()
 
 /**
  * Decides when a gathering deserves an interruption. All the anti-spam rules
@@ -257,6 +329,11 @@ const gatheringWatcher = createGatheringWatcher({
       .map((friend) => friend.user.displayName)
     // Friends are the best source of a channel's real casing: a channel is a
     // Twitch user, so if one of them IS this channel, their name is its name.
+    analytics.track(
+      'gathering_notification_shown',
+      { friend_count: friendIds.length },
+      { source: 'notification', channel },
+    )
     notifier.notifyGathering({
       channel,
       names,
@@ -310,6 +387,11 @@ function refreshAttention(): void {
       count: gathering.userIds.length,
     })),
   ])
+
+  gatheringSizes.clear()
+  for (const gathering of gatherings) {
+    gatheringSizes.set(gathering.channel, gathering.userIds.length)
+  }
 
   gatheringWatcher.update(
     gatherings.map((gathering) => ({
@@ -371,10 +453,47 @@ function pushActivity(): void {
   // The emote catalog follows the channel even when signed out - it costs
   // nothing and means the picker is warm by the time chat is opened.
   emoteCatalog.setChannel(currentChannel())
+
+  /*
+   * A tab reporting activity is the definition of the Kickback session being
+   * alive, so this is where it is kept alive - before the signed-in check,
+   * because a session that starts while auth is still resolving is still that
+   * session. Events queue until there is an actor to attribute them to.
+   */
+  if (tabActivity.hasTabs()) analytics.noteActive()
+  analytics.noteChannel(currentChannel())
+
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
   // Moving channels changes what counts as "somewhere else".
   refreshAttention()
+  updateTogether()
+}
+
+/**
+ * How many people visible to this user are on the same channel they are.
+ *
+ * Read from the one presence index every surface reads, through the same
+ * selector the UI uses - so "Watching with you" on screen and
+ * watching_together in analytics can never mean two different things.
+ */
+function coWatcherCount(): number {
+  const channel = currentChannel()
+  if (!channel) return 0
+  const viewer: Activity = { type: 'watching', platform: 'twitch', channel }
+  const selfId = authState.identity?.userId ?? null
+
+  let count = 0
+  for (const [userId, presence] of Object.entries(presenceIndex)) {
+    if (userId === selfId) continue
+    if (describePresence(presence, viewer).kind === 'watching_with_you') count += 1
+  }
+  return count
+}
+
+function updateTogether(): void {
+  if (authState.status !== 'signed_in') return
+  analytics.noteTogether({ channel: currentChannel(), otherCount: coWatcherCount() })
 }
 
 // ------------------------------------------------------------------- state
@@ -439,6 +558,11 @@ auth.subscribe((next) => {
       // Whatever tabs are already open should start counting immediately -
       // this is what makes a worker restart recover without a page reload.
       pushActivity()
+      // Counts are read once the lists arrive; refresh() is already running.
+      analytics.noteSignedIn({
+        friendCount: friendsState.friends.length,
+        groupCount: groupsState.groups.length,
+      })
     }
     // start() is idempotent for the same user and swaps cleanly for a new one.
     socialSync.start(next.identity.userId)
@@ -451,6 +575,9 @@ auth.subscribe((next) => {
     groupSync.stop()
     attention.clear()
     gatheringWatcher.reset()
+    // Only on the transition: a repeated signed_out update must not emit a
+    // session end for a session that was already closed.
+    if (lastStatus === 'signed_in') analytics.noteSignedOut()
   }
 
   lastStatus = next.status
@@ -472,6 +599,7 @@ groups.subscribe((next) => {
       next.groups.map((group) => group.groupId),
     )
     refreshAttention()
+    updateTogether()
   }
   broadcast()
 })
@@ -482,7 +610,10 @@ friends.subscribe((next) => {
     presenceIndex,
     next.friends.map((friend) => friend.presence),
   )
-  if (authState.status === 'signed_in') refreshAttention()
+  if (authState.status === 'signed_in') {
+    refreshAttention()
+    updateTogether()
+  }
   watchPresence()
   broadcast()
 })
@@ -520,32 +651,94 @@ preferences.subscribe(() => broadcast())
 // --------------------------------------------------------------------- rpc
 
 const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
-  searchUsers: ([query]) => friends.search(String(query ?? '')),
-  sendFriendRequest: ([userId]) => friends.sendRequest(String(userId)),
-  respondToFriendRequest: ([requestId, accept]) =>
-    friends.respond(String(requestId), accept === true),
-  acceptFriendRequestFrom: ([userId]) => friends.acceptFrom(String(userId)),
+  searchUsers: async ([query]) => {
+    const results = await friends.search(String(query ?? ''))
+    // The query itself is never recorded - only whether it found anybody, and
+    // by which of the two ways of finding someone.
+    analytics.track('friend_search', {
+      result_count: results.length,
+      matched_by: results[0]?.matchedBy ?? 'none',
+    })
+    return results
+  },
+  sendFriendRequest: async ([userId]) => {
+    const outcome = await friends.sendRequest(String(userId))
+    analytics.track('friend_request_sent', { outcome })
+    return outcome
+  },
+  respondToFriendRequest: async ([requestId, accept]) => {
+    const outcome = await friends.respond(String(requestId), accept === true)
+    if (outcome === 'accepted') {
+      analytics.track('friend_request_accepted', { direction: 'incoming' })
+    }
+    return outcome
+  },
+  acceptFriendRequestFrom: async ([userId]) => {
+    const outcome = await friends.acceptFrom(String(userId))
+    analytics.track('friend_request_accepted', { direction: 'incoming' })
+    return outcome
+  },
   cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
-  removeFriend: ([userId]) => friends.remove(String(userId)),
+  removeFriend: async ([userId]) => {
+    await friends.remove(String(userId))
+    analytics.track('friend_removed')
+  },
   refreshFriends: () => friends.refresh(),
-  createGroup: ([name, icon]) =>
-    groups.createGroup(String(name), typeof icon === 'string' ? icon : null),
+  createGroup: async ([name, icon]) => {
+    const groupId = await groups.createGroup(String(name), typeof icon === 'string' ? icon : null)
+    analytics.track('group_created')
+    return groupId
+  },
   setGroupIcon: ([groupId, icon]) =>
     groups.setGroupIcon(String(groupId), typeof icon === 'string' ? icon : null),
   renameGroup: ([groupId, name]) => groups.renameGroup(String(groupId), String(name)),
   deleteGroup: ([groupId]) => groups.deleteGroup(String(groupId)),
-  inviteToGroup: ([groupId, userId]) => groups.invite(String(groupId), String(userId)),
+  inviteToGroup: async ([groupId, userId]) => {
+    const result = await groups.invite(String(groupId), String(userId))
+    analytics.track(
+      'group_invite_sent',
+      { member_count: groupsState.members[String(groupId)]?.length ?? 0 },
+      { source: 'group' },
+    )
+    return result
+  },
   cancelGroupInvite: ([groupId, userId]) =>
     groups.cancelInvite(String(groupId), String(userId)),
-  respondToGroupInvite: ([inviteId, accept]) =>
-    groups.respondToInvite(String(inviteId), accept === true),
+  respondToGroupInvite: async ([inviteId, accept]) => {
+    const groupId = await groups.respondToInvite(String(inviteId), accept === true)
+    if (accept === true) {
+      analytics.track(
+        'group_invite_accepted',
+        { member_count: groupsState.members[groupId]?.length ?? 0 },
+        { source: 'group' },
+      )
+    }
+    return groupId
+  },
   leaveGroup: ([groupId]) => groups.leaveGroup(String(groupId)),
   removeGroupMember: ([groupId, userId]) =>
     groups.removeMember(String(groupId), String(userId)),
-  sendGroupMessage: ([groupId, body]) =>
+  sendGroupMessage: async ([groupId, body]) => {
     // Bare emote names become stable provider+id tokens here, once, so the
     // message records exactly which emote was meant.
-    groups.sendMessage(String(groupId), emoteCatalog.resolveOutgoing(String(body))),
+    const resolved = emoteCatalog.resolveOutgoing(String(body))
+    await groups.sendMessage(String(groupId), resolved)
+    /*
+     * Shape, never content. The bucket and the flag are computed here and the
+     * message itself is discarded - there is no property key a body could go
+     * in, and nothing downstream ever sees one.
+     */
+    analytics.track(
+      'group_message_sent',
+      {
+        length_bucket: lengthBucket(resolved.length),
+        // Whether there was an emote, never which one - asked through the same
+        // parser chat renders with, so the two cannot disagree.
+        has_emote: parseMessage(resolved).some((segment) => segment.type === 'emote'),
+      },
+      { source: 'group' },
+    )
+  },
   searchEmotes: ([query]) => Promise.resolve(emoteCatalog.search(String(query ?? ''))),
   setGroupMuted: ([groupId, muted]) => groups.setMuted(String(groupId), muted === true),
   setPreferences: async ([patch]) =>
@@ -649,6 +842,49 @@ chrome.runtime.onConnect.addListener((port) => {
           groups.markGroupRead(raw.groupId)
           attention.markSeen([groupUnreadKey(raw.groupId)])
         }
+        break
+      /*
+       * ------------------------------------------------------- analytics
+       *
+       * All three are one-way and none of them replies. A tab that reports an
+       * impression or a JOIN is telling the worker something, not asking for
+       * anything, and nothing it does may depend on the answer.
+       */
+      case 'analytics':
+        if (isAnalyticsEventName(raw.name)) {
+          analytics.track(raw.name, raw.properties as never, {
+            source: raw.source,
+            channel: raw.channel ?? null,
+          })
+        }
+        break
+      case 'join':
+        if (typeof raw.channel === 'string') {
+          analytics.recordJoin({
+            channel: raw.channel,
+            source: raw.source,
+            socialCount: Number.isFinite(raw.socialCount) ? raw.socialCount : 0,
+            navigated: raw.navigated === true,
+            /*
+             * Both of these are the WORKER'S to know, not the tab's.
+             *
+             * "Was this person already on Twitch" is a fact about every tab
+             * they have open, which no single content script can see - and it
+             * is one of the facts the incremental-session question later
+             * depends on, so it must not be a guess made by the surface that
+             * benefits from the answer.
+             */
+            alreadyOnTwitch: tabActivity.hasTabs(),
+            alreadyOnDestination:
+              currentChannel()?.toLowerCase() === raw.channel.trim().toLowerCase(),
+          })
+        }
+        break
+      case 'exposure':
+        analytics.noteExposure({
+          friends: Array.isArray(raw.friends) ? raw.friends : [],
+          gatherings: Array.isArray(raw.gatherings) ? raw.gatherings : [],
+        })
         break
       case 'rpc':
         void handleRpc(port, raw)

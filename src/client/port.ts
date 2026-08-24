@@ -200,6 +200,19 @@ export function createPortClient(): KickbackClient {
       await rpc('sendGroupMessage', groupId, body)
     },
     markGroupRead: (groupId) => send({ type: 'groupRead', groupId }),
+
+    // Analytics. One-way, never awaited, and `send` already swallows a dead
+    // port - so a worker being restarted costs an event, never an error.
+    track: (name, properties, options) =>
+      send({
+        type: 'analytics',
+        name,
+        properties: properties as Record<string, never> | undefined,
+        source: options?.source,
+        channel: options?.channel ?? null,
+      }),
+    recordJoin: (input) => send({ type: 'join', ...input }),
+    reportExposure: (report) => send({ type: 'exposure', ...report }),
     setGroupMuted: async (groupId, muted) => {
       await rpc('setGroupMuted', groupId, muted)
     },
