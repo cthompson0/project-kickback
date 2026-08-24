@@ -30,6 +30,8 @@ import { createSevenTvClient } from './sevenTv'
 import { createPreferences } from './preferences'
 import { createAnalyticsHub } from './analyticsHub'
 import { createMetadataService } from './metadata'
+import { createTogetherReactions } from './togetherReactions'
+import { isReaction } from '../core/together'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
 import { isPersistedLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
@@ -47,10 +49,12 @@ import {
   createSupabaseGroupChannel,
   createSupabasePresenceChannel,
   createSupabaseSocialChannel,
+  createSupabaseTogetherChannel,
 } from './supabaseRealtime'
 import {
   createSupabaseAnalyticsBackend,
   createSupabaseMetadataBackend,
+  createSupabaseTogetherBackend,
   createSupabaseBackend,
   createSupabaseClient,
   createSupabaseFriendsBackend,
@@ -311,6 +315,83 @@ const groupSync = createGroupSync({
   onStatusChange: (status) => console.info('[Kickback] group sync', status),
   onError: logError,
 })
+/**
+ * Automatic Together: reactions for whoever the viewer is watching with.
+ *
+ * No room, no membership, no lifecycle. Who is here is derived from presence
+ * by the panel, from the same `here` cluster Social Gravity already draws;
+ * this only carries the one thing presence cannot.
+ *
+ * Deliberately not persisted across worker restarts. A reaction is eight
+ * seconds of "did you see that" - restoring a stale one after a wake-up would
+ * show somebody laughing at a moment that has passed.
+ */
+const together = createTogetherReactions({
+  channel: createSupabaseTogetherChannel(supabase),
+  backend: createSupabaseTogetherBackend(supabase),
+  onChange: () => broadcast(),
+  onReceived: (reaction) => {
+    // Only what somebody else sent: a viewer's own reaction comes back through
+    // the same realtime path, and counting it as received would double every
+    // interaction.
+    if (reaction.userId === authState.identity?.userId) return
+    analytics.track(
+      'together_reaction_received',
+      { participant_count: togetherCount() },
+      { source: 'together', channel: reaction.channel },
+    )
+  },
+  onError: logError,
+})
+
+/**
+ * How many friends the viewer is watching with, right now.
+ *
+ * findGatherings with no exclusion, restricted to the viewer's own channel -
+ * the same interpretation the panel's `here` cluster uses, rather than a
+ * second count that could disagree with the one on screen.
+ */
+function togetherCount(): number {
+  const here = currentChannel()
+  if (!here) return 0
+  return friendsState.friends.filter((friend) => {
+    const activity = friend.presence?.activity
+    return activity?.type === 'watching' && activity.channel.toLowerCase() === here
+  }).length
+}
+
+/**
+ * The channel a Together has already been reported for.
+ *
+ * One event per gathering, not one per presence tick. Recorded on the
+ * TRANSITION into being with somebody - which is the moment the question
+ * "does JOIN lead to Together" is actually about - and cleared when the
+ * viewer leaves or ends up alone, so returning later counts again.
+ *
+ * Deliberately not a lifecycle. watching_together_started / _ended already
+ * measure the interval, and measuring it twice would be two chances to
+ * disagree; this only says the surface appeared.
+ */
+let togetherShownFor: string | null = null
+
+function noteTogetherSurface(): void {
+  const here = currentChannel()
+  const count = togetherCount()
+
+  if (!here || count === 0) {
+    togetherShownFor = null
+    return
+  }
+  if (togetherShownFor === here) return
+
+  togetherShownFor = here
+  analytics.track(
+    'together_surface_shown',
+    { participant_count: count },
+    { source: 'together', channel: here },
+  )
+}
+
 const attention = createAttentionService({ storage: storageArea, onError: logError })
 
 /**
@@ -470,6 +551,9 @@ function wantMetadata(): void {
 
 function refreshAttention(): void {
   wantMetadata()
+  // Runs wherever presence, friends or the current tab changed - which is
+  // exactly when a Together can form or dissolve.
+  noteTogetherSurface()
 
   const gatherings = findGatherings(
     friendsState.friends.flatMap((friend) => (friend.presence ? [friend.presence] : [])),
@@ -579,6 +663,16 @@ function pushActivity(): void {
   if (tabActivity.hasTabs()) analytics.noteActive()
   analytics.noteChannel(currentChannel())
 
+  /*
+   * Follow the viewer, and only the viewer.
+   *
+   * One subscription, for the channel they are actually on, closed the moment
+   * they leave. Driven from the same effective activity presence reports, so
+   * multi-tab behaviour is inherited rather than re-derived: two tabs on one
+   * channel are one subscription, and a background tab does not open a second.
+   */
+  together.setChannel(authState.status === 'signed_in' ? currentChannel() : null)
+
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
   // Moving channels changes what counts as "somewhere else".
@@ -648,6 +742,7 @@ function currentState(): KickbackState {
     groupsError: groupsState.groupsError,
     channelNames: { ...channelNames },
     channelMetadata: { ...metadata.snapshot() },
+    togetherReactions: together.snapshot(),
   }
 }
 
@@ -692,6 +787,7 @@ auth.subscribe((next) => {
     groupSync.stop()
     attention.clear()
     gatheringWatcher.reset()
+    together.reset()
     /*
      * Public data, but still dropped on sign-out.
      *
@@ -958,6 +1054,23 @@ chrome.runtime.onConnect.addListener((port) => {
         }
         pushActivity()
       }
+        break
+      case 'reaction':
+        /*
+         * Validated here as well as in SQL.
+         *
+         * The database is the authority - it checks against the same fixed
+         * list - but a tab is not a trusted caller, and there is no reason to
+         * spend a round trip discovering that.
+         */
+        if (isReaction(raw.reaction)) {
+          together.send(raw.reaction)
+          analytics.track(
+            'together_reaction_sent',
+            { participant_count: togetherCount() },
+            { source: 'together', channel: currentChannel() },
+          )
+        }
         break
       case 'seen':
         if (Array.isArray(raw.keys)) attention.markSeen(raw.keys)

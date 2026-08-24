@@ -23,6 +23,8 @@ import { findGatherings } from '../core/presence'
 import { resolveChannelName } from '../core/channelNames'
 import type { AnalyticsEvent } from '../core/analytics'
 import type { Presence, User } from '../core/types'
+import { isReaction, pruneReactions, withReaction } from '../core/together'
+import type { Reaction, TogetherReaction } from '../core/together'
 import {
   canonicalChannel,
   channelMetadata,
@@ -72,6 +74,15 @@ export interface LabRecord {
 
 export interface TestLabHandle {
   client: KickbackClient
+  /**
+   * Make a simulated person react, as if it had arrived over realtime.
+   *
+   * The lab's only Together control. It does NOT reimplement the reaction
+   * service - there is no subscription, no row policy, no rate limit and no
+   * sweep here, because those belong to the service and a copy of them would
+   * prove nothing about the original.
+   */
+  react(userId: string, reaction: Reaction, at?: number): void
   /** Replace the simulated world. The panel re-renders from production state. */
   setWorld(next: SimWorld): void
   getWorld(): SimWorld
@@ -230,6 +241,32 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
 
   const attention = createAttentionService({ storage })
 
+  // --- together reactions --------------------------------------------------
+
+  /*
+   * A local ephemeral buffer, fed at exactly the boundary production reads
+   * from: KickbackState.togetherReactions. The panel cannot tell a simulated
+   * reaction from one that came over realtime.
+   */
+  let reactions: TogetherReaction[] = []
+  let reactionSeq = 0
+
+  function react(userId: string, reaction: Reaction, at = Date.now()): void {
+    const here = observerChannel()
+    // Reactions only exist on the channel the viewer is on - the same rule
+    // production follows, because that is the only channel it subscribes to.
+    if (!here) return
+
+    reactions = withReaction(pruneReactions(reactions, Date.now()), {
+      id: `lab-${reactionSeq++}`,
+      userId,
+      channel: here,
+      reaction,
+      at,
+    })
+    publish()
+  }
+
   // --- deriving state from the world --------------------------------------
 
   function observerChannel(): string | null {
@@ -288,6 +325,7 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       // Handed over at the boundary production reads it from, so the panel
       // cannot tell a simulated record from a fetched one.
       channelMetadata: channelMetadata(world, now),
+      togetherReactions: pruneReactions(reactions, now),
       attention: attention.getState().items,
       unread: attention.getState().unread,
     }
@@ -426,6 +464,18 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     },
 
     reportActivity: () => {},
+
+    sendReaction(reaction) {
+      /*
+       * Into the same buffer a friend's reaction lands in.
+       *
+       * Production never draws the sender's own reaction optimistically - it
+       * comes back through realtime like everyone else's - so the lab does the
+       * same. One path, and no way for the lab to show something production
+       * would not.
+       */
+      if (isReaction(reaction)) react(world.observer.id, reaction)
+    },
     async setPresenceVisibility(mode: PresenceVisibility) {
       mutate({ ...world, observer: { ...world.observer, visibility: mode } })
     },
@@ -473,6 +523,7 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
 
   return {
     client,
+    react,
     setWorld(next) {
       world = next
       publish()

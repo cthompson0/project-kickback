@@ -137,6 +137,21 @@ avatar slot untested. A `data:` URI is not a request, so the seal is untouched.
 The real host check lives in `core/twitchMetadata.ts` and is tested there
 against actual URLs.
 
+### Together
+
+Per-friend reaction buttons for whoever is on the observer's channel, plus
+"Combo 😂 (all)" and "Burst 🔥 (one person ×5)" - the two cases that must look
+different, because a combo is several people agreeing and not one person
+pressing a button repeatedly.
+
+Fed at , the same field production reads.
+The lab holds **no subscription, no row policy, no rate limit and no sweep**:
+those belong to the service, and a copy of them here would prove nothing about
+the original. A test asserts no lab source mentions any of them.
+
+Reactions persist across a preset change because the *channel* did not change -
+which mirrors production, where the buffer clears only when the viewer moves.
+
 ### Presets
 
 Empty · 1 friend watching · 2/3/5-friend Gravity · 10-friend stress · Two
@@ -237,6 +252,7 @@ browser, a real extension and a real account:
 | Emote fetching from 7TV | No network |
 | The metadata service itself — token, Helix, cache, batching | The lab supplies records; it does not fetch them |
 | Groups and group chat | Not simulated yet |
+| The reaction transport - realtime delivery, RLS, rate limits, sweep | The lab supplies reactions; it does not deliver them |
 
 Everything else — clustering, ranking, HERE, privacy combinations, large
 clusters, split and re-form, casing, staleness, UserCards, opportunity

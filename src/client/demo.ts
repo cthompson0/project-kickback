@@ -185,6 +185,8 @@ export function createDemoClient(): KickbackClient {
      * that nothing analytics-shaped reaches the demo bundle.
      */
     track: () => {},
+    // The demo build has no backend and no friends to react with.
+    sendReaction: () => {},
     recordJoin: () => {},
     reportExposure: () => {},
 

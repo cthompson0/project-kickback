@@ -2045,6 +2045,139 @@ a.kb-ghost-btn {
 }
 
 /*
+ * ---------- automatic together ----------
+ *
+ * Two lines inside the card the viewer is already standing in. It must not
+ * become a room: no header, no name, no member list of its own, no unread
+ * badge. The card above it already says who is here.
+ *
+ * The whole surface is one row that never changes height, so a reaction
+ * landing cannot push the friends or the JOIN around - which matters because
+ * they arrive while somebody is watching a stream, not looking at the panel.
+ */
+.kb-together {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kb-together-bar {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 24px;
+}
+
+/*
+ * The buttons.
+ *
+ * Fixed size and `flex: none`, so five of them fit at the 260px minimum with
+ * room left for whatever is landing beside them. Big enough to hit without
+ * looking away from the stream, which is the entire interaction.
+ */
+.kb-together-react {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+
+.kb-together-react:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-together-react:active {
+  transform: scale(0.88);
+}
+
+/*
+ * What just happened, beside the buttons.
+ *
+ * Right-aligned and allowed to shrink: the buttons are the fixed half. It
+ * scrolls rather than wraps, because a second line would change the card's
+ * height every time somebody reacted.
+ */
+.kb-together-live {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  overflow: hidden;
+}
+
+/*
+ * One reaction, or one burst of them.
+ *
+ * Fades on its own over the display window rather than being removed abruptly,
+ * so the surface empties quietly instead of blinking. `forwards` holds the
+ * faded state for the moment between the animation ending and the heartbeat
+ * pruning it.
+ */
+.kb-together-burst {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 13px;
+  line-height: 1;
+  animation: kb-together-fade linear forwards;
+}
+
+@keyframes kb-together-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(4px) scale(0.8);
+  }
+  8% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  75% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+/* Two or more people agreeing. The count, not the emoji, is the news. */
+.kb-together-combo {
+  font-size: 14px;
+}
+
+.kb-together-count {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--kb-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * People who would rather things did not move.
+ *
+ * The reaction still appears and still counts; it simply arrives and leaves
+ * without animating.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .kb-together-burst {
+    animation: none;
+  }
+
+  .kb-together-react:active {
+    transform: none;
+  }
+}
+
+/*
  * The people row.
  *
  * Given its own top margin rather than relying on the stream rows above it, so

@@ -6,6 +6,8 @@ import type { PresenceBackend } from './presence'
 import type { GroupsBackend } from './groups'
 import type { AnalyticsBackend } from './analytics'
 import type { MetadataFetcher } from './metadata'
+import type { ReactionBackend } from './togetherReactions'
+import type { Reaction } from '../core/together'
 import type { AnalyticsEvent } from '../core/analytics'
 import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
@@ -566,6 +568,26 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
 // the recorder's whole design is retry-with-backoff and it needs to know the
 // difference between "stored" and "did not store". Nothing above the recorder
 // ever sees that rejection.
+
+/**
+ * Send one Automatic Together reaction.
+ *
+ * The RPC takes a channel and a reaction and nothing else: the sender is
+ * `auth.uid()` inside the function, so there is no parameter to put somebody
+ * else's id into, and the reaction is checked against a fixed list rather than
+ * sanitised.
+ */
+export function createSupabaseTogetherBackend(supabase: SupabaseClient): ReactionBackend {
+  return {
+    async send(channel: string, reaction: Reaction): Promise<void> {
+      const { error } = await supabase.rpc('send_together_reaction', {
+        p_channel: channel,
+        p_reaction: reaction,
+      })
+      if (error) throw new Error(describe(error))
+    },
+  }
+}
 
 /**
  * Kickback's Twitch metadata endpoint.

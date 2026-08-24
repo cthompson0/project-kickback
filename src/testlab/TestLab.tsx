@@ -4,6 +4,7 @@ import { setJoinNavigator } from '../platforms/twitch/join'
 import { createTestLabClient } from './client'
 import type { LabRecord } from './client'
 import { CHANNELS, PRESETS, person, preset } from './presets'
+import { REACTIONS } from '../core/together'
 import { advance, canonicalChannel, updateUser } from './world'
 import type { SimChannelMeta, SimUser, SimWorld } from './world'
 
@@ -107,6 +108,17 @@ export function TestLab() {
         .map((user) => canonicalChannel(user.channel)),
     ),
   ].sort()
+
+  /** Friends on the observer's channel: exactly who a Together is with. */
+  const together = world.observer.channel
+    ? world.users.filter(
+        (user) =>
+          user.relationship === 'friend' &&
+          user.activity === 'watching' &&
+          user.visibility === 'visible' &&
+          canonicalChannel(user.channel) === canonicalChannel(world.observer.channel ?? ''),
+      )
+    : []
 
   const setMeta = (login: string, changes: Partial<SimChannelMeta>) =>
     setWorld({
@@ -296,6 +308,70 @@ export function TestLab() {
             channel nobody has asked about all reach the panel the same way, and all three must
             draw the plain card.
           </p>
+        </section>
+
+        <section>
+          <h2>Together</h2>
+          {!world.observer.channel && (
+            <p className="lab-note">
+              Put the observer on a channel - Together only exists where you are.
+            </p>
+          )}
+          {world.observer.channel && (
+            <>
+              <div className="lab-users">
+                {together.length === 0 && (
+                  <p className="lab-note">
+                    No friends on {canonicalChannel(world.observer.channel)} yet.
+                  </p>
+                )}
+                {together.map((user) => (
+                  <div className="lab-row" key={user.id}>
+                    <span className="lab-name">{user.displayName}</span>
+                    {REACTIONS.map((reaction) => (
+                      <button
+                        key={reaction}
+                        type="button"
+                        className="lab-x"
+                        title={`${user.displayName} reacts ${reaction}`}
+                        onClick={() => handle.react(user.id, reaction)}
+                      >
+                        {reaction}
+                      </button>
+                    ))}
+                  </div>
+                ))}
+              </div>
+
+              <div className="lab-buttons">
+                <button
+                  type="button"
+                  disabled={together.length < 2}
+                  onClick={() => {
+                    // Everyone at once: the combo case, which needs distinct
+                    // people rather than one person pressing repeatedly.
+                    for (const user of together) handle.react(user.id, '😂')
+                  }}
+                >
+                  Combo 😂 (all)
+                </button>
+                <button
+                  type="button"
+                  disabled={together.length === 0}
+                  onClick={() => {
+                    // A burst from ONE person, which must NOT become a combo.
+                    for (let i = 0; i < 5; i += 1) handle.react(together[0].id, '🔥')
+                  }}
+                >
+                  Burst 🔥 (one person ×5)
+                </button>
+              </div>
+              <p className="lab-note">
+                Reactions land in the same state field production reads from. The lab holds no
+                subscription, no rate limit and no row policy - those belong to the service.
+              </p>
+            </>
+          )}
         </section>
 
         <section>

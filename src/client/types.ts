@@ -9,6 +9,7 @@
 import type { Presence, User } from '../core/types'
 import type { LiveState } from '../core/twitchMetadata'
 import type { ChannelMetadata } from '../core/twitchMetadata'
+import type { Reaction, TogetherReaction } from '../core/together'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -144,6 +145,23 @@ export interface KickbackState {
    * Keyed by login, like everything else. Nothing in here is identity.
    */
   channelMetadata: Record<string, ChannelMetadata>
+
+  // --- automatic together --------------------------------------------------
+
+  /**
+   * Reactions from friends on the channel the viewer is currently watching.
+   *
+   * Ephemeral: the worker holds a bounded, self-expiring buffer and there is
+   * no history behind it. Empty whenever the viewer is not on a channel, when
+   * nobody has reacted, or when realtime is unavailable - and the Together
+   * surface is perfectly usable in all three cases, because who is here comes
+   * from presence, not from this.
+   *
+   * Participants are deliberately NOT here. They are derived from the same
+   * `here` cluster the panel already draws; a second list would be a second
+   * answer to a question presence has answered.
+   */
+  togetherReactions: TogetherReaction[]
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -171,6 +189,7 @@ export const INITIAL_STATE: KickbackState = {
   groupsError: null,
   channelNames: {},
   channelMetadata: {},
+  togetherReactions: [],
 }
 
 export interface KickbackClient {
@@ -204,6 +223,15 @@ export interface KickbackClient {
 
   /** Report what this Twitch tab is showing. Fire-and-forget. */
   reportActivity(channel: string | null, visible: boolean, channelName?: string | null): void
+
+  /**
+   * React on the channel the viewer is watching. Fire-and-forget.
+   *
+   * No channel argument: the worker already knows where the viewer is, and
+   * letting the panel name a destination would be a way to react somewhere
+   * you are not.
+   */
+  sendReaction(reaction: Reaction): void
   /** Change who can see what. Enforced server-side, not here. */
   setPresenceVisibility(mode: PresenceVisibility): Promise<void>
 

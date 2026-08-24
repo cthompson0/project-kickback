@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { SocialChannel, SocialChannelHandlers } from './socialSync'
 import type { PresenceChannel, PresenceChannelHandlers } from './presenceSync'
 import { toPresence } from './supabaseBackend'
+import type { ReactionChannel, ReactionChannelHandlers } from './togetherReactions'
 import type { MessageRow } from './supabaseBackend'
 import type { GroupChannel, GroupChannelHandlers } from './groupSync'
 
@@ -24,6 +25,7 @@ import type { GroupChannel, GroupChannelHandlers } from './groupSync'
 const CHANNEL_PREFIX = 'kickback-social'
 const PRESENCE_PREFIX = 'kickback-presence'
 const GROUP_PREFIX = 'kickback-groups'
+const TOGETHER_PREFIX = 'kickback-together'
 
 export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialChannel {
   return {
@@ -149,6 +151,66 @@ export function createSupabasePresenceChannel(supabase: SupabaseClient): Presenc
  * Membership and invite changes are invalidation only - they carry no payload
  * we act on, they just mean "re-read the group list".
  */
+/**
+ * Automatic Together reactions, for the one channel the viewer is on.
+ *
+ * Filtered by CHANNEL here and by FRIENDSHIP by the server: 0019's row policy
+ * is re-checked per subscriber, so two of my friends who are not friends with
+ * each other never see one another, and a stranger on the same stream receives
+ * nothing. The filter below is context; the policy is authorization. Doing it
+ * the other way round - a broadcast channel named after the stream - would
+ * deliver forty thousand strangers' reactions and then ask the client to be
+ * discreet about them.
+ *
+ * Inserts only. There is no history to load and no update to apply; a
+ * reaction happens once and is gone in eight seconds.
+ */
+export function createSupabaseTogetherChannel(supabase: SupabaseClient): ReactionChannel {
+  return {
+    async open(channel: string, handlers: ReactionChannelHandlers): Promise<() => void> {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (accessToken) {
+        await supabase.realtime.setAuth(accessToken)
+      }
+
+      const topic = `${TOGETHER_PREFIX}:${channel}`
+      const subscription = supabase.channel(topic)
+
+      subscription.on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'together_reactions',
+          filter: `channel=eq.${channel}`,
+        },
+        (payload: { new?: unknown }) => {
+          if (payload.new) handlers.onReaction(payload.new)
+        },
+      )
+
+      subscription.subscribe((status) => {
+        switch (status) {
+          case 'SUBSCRIBED':
+            handlers.onStatus('connected')
+            break
+          case 'CHANNEL_ERROR':
+          case 'TIMED_OUT':
+            handlers.onStatus('error')
+            break
+          default:
+            break
+        }
+      })
+
+      return () => {
+        void supabase.removeChannel(subscription)
+      }
+    },
+  }
+}
+
 export function createSupabaseGroupChannel(supabase: SupabaseClient): GroupChannel {
   return {
     async open(groupIds: string[], userId: string, handlers: GroupChannelHandlers) {

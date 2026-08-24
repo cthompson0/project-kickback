@@ -539,6 +539,7 @@ export function KickbackPanel({
                     client={client}
                     cardContext={cardContext}
                     metadata={view.channelMetadata}
+                    reactions={view.togetherReactions}
                   />
                 ) : (
                   /* The control arm keeps the flat list it always had. */

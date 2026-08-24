@@ -62,6 +62,15 @@ export type ClientMessage =
     }
   /** The user is reading this group; clear its unread. */
   | { type: 'groupRead'; groupId: string }
+  /**
+   * A Together reaction, on whatever channel the worker knows this user is on.
+   *
+   * Fire-and-forget like activity rather than an RPC: there is no answer worth
+   * waiting for, and nothing is drawn optimistically - the sender sees their
+   * own reaction arrive back through the same realtime path everyone else
+   * does, so there is exactly one way for one to appear.
+   */
+  | { type: 'reaction'; reaction: string }
   /*
    * ------------------------------------------------------------- analytics
    *

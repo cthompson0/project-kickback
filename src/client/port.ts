@@ -168,6 +168,7 @@ export function createPortClient(): KickbackClient {
 
     reportActivity: (channel, visible, channelName) =>
       send({ type: 'activity', channel, visible, channelName: channelName ?? null }),
+    sendReaction: (reaction) => send({ type: 'reaction', reaction }),
     markSeen: (keys) => send({ type: 'seen', keys }),
     markKindSeen: (kind) => send({ type: 'seen', kind }),
     setPreferences: async (patch) => {

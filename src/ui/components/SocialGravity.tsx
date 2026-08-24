@@ -5,8 +5,10 @@ import { formatViewers } from '../../core/twitchMetadata'
 import type { ChannelMetadata } from '../../core/twitchMetadata'
 import type { Activity } from '../../core/types'
 import type { Friend, KickbackClient } from '../../client/types'
+import type { TogetherReaction } from '../../core/together'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
+import { Together } from './Together'
 import { avatarTint } from '../avatarTint'
 import { JoinButton } from './JoinButton'
 import { PersonRow } from './PersonRow'
@@ -53,6 +55,13 @@ interface SocialGravityProps {
   cardContext: UserCardContext
   /** login -> public Twitch metadata. Absent is normal and always safe. */
   metadata?: Readonly<Record<string, ChannelMetadata>>
+  /**
+   * Live reactions on the channel the viewer is on.
+   *
+   * Absent, empty, or stale-and-pruned are all the same thing: the Together
+   * surface still shows who is here, because that comes from presence.
+   */
+  reactions?: readonly TogetherReaction[]
 }
 
 /**
@@ -172,6 +181,7 @@ function GravityPerson({
 function DestinationCard({
   section,
   meta,
+  reactions,
   client,
   cardContext,
   openCardId,
@@ -179,6 +189,7 @@ function DestinationCard({
 }: {
   section: GravitySection<Friend>
   meta?: ChannelMetadata
+  reactions?: readonly TogetherReaction[]
   client: KickbackClient
   cardContext: UserCardContext
   openCardId: string | null
@@ -312,10 +323,27 @@ function DestinationCard({
         </div>
       )}
 
+      {/*
+       * The Gravity card the viewer is standing in IS the Together surface.
+       *
+       * "N friends watching with you" was already the right sentence; all it
+       * lacked was something to do about it. Nothing new is created when
+       * somebody arrives - the card was always here, and it grows a reaction
+       * row the moment there is anybody to react with.
+       */}
       {here && (
         <div className="kb-gravity-with-you">
           {section.count === 1 ? '1 friend watching with you' : `${section.count} friends watching with you`}
         </div>
+      )}
+
+      {here && section.channel && section.count > 0 && (
+        <Together
+          channel={section.channel}
+          participantCount={section.count}
+          reactions={reactions ?? []}
+          onReact={(reaction) => client.sendReaction(reaction)}
+        />
       )}
 
       <div className="kb-gravity-people">
@@ -341,6 +369,7 @@ export function SocialGravity({
   client,
   cardContext,
   metadata,
+  reactions,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
 
@@ -380,6 +409,7 @@ export function SocialGravity({
               key={key}
               section={section}
               meta={section.channel ? metadata?.[section.channel] : undefined}
+              reactions={section.kind === 'here' ? reactions : undefined}
               client={client}
               cardContext={cardContext}
               openCardId={openCardId}

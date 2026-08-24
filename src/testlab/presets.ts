@@ -277,6 +277,87 @@ export const PRESETS: Preset[] = [
       world(crowd(3, 'LIRIK'), 'LIRIK', { lirik: { live: 'offline', displayName: 'LIRIK' } }),
   },
 
+  // ---------------------------------------------------- automatic together
+  {
+    id: 'together-1',
+    label: 'Together · 1 friend',
+    hint: 'You and one friend on LIRIK. The smallest Together there is.',
+    build: () => world(crowd(1, 'LIRIK'), 'LIRIK'),
+  },
+  {
+    id: 'together-2',
+    label: 'Together · 2 friends',
+    hint: 'You and two. Enough for a reaction to become a combo.',
+    build: () => world(crowd(2, 'LIRIK'), 'LIRIK'),
+  },
+  {
+    id: 'together-5',
+    label: 'Together · 5 friends',
+    hint: 'Where the people row wraps and the reaction bar must still fit.',
+    build: () => world(crowd(5, 'LIRIK'), 'LIRIK'),
+  },
+  {
+    id: 'together-10',
+    label: 'Together · 10 friends',
+    hint: 'Every simulated person, with you. Watch the narrow panel.',
+    build: () => world(crowd(10, 'LIRIK'), 'LIRIK'),
+  },
+  {
+    id: 'together-live',
+    label: 'Together · live metadata',
+    hint: 'The full card: avatar, category, LIVE, viewers, people, reactions.',
+    build: () => world(crowd(3, 'LIRIK'), 'LIRIK', { lirik: LIVE }),
+  },
+  {
+    id: 'together-alone',
+    label: 'Together · nobody yet',
+    hint: 'You are on LIRIK; your friends are elsewhere. No Together at all.',
+    build: () => world([...crowd(2, 'xQc'), ...crowd(1, 'shroud', 2)], 'LIRIK'),
+  },
+  {
+    id: 'together-graphs',
+    label: 'Together · competing graphs',
+    hint: 'Two of your friends are on LIRIK; the strangers there are invisible.',
+    build: () =>
+      world(
+        [
+          ...crowd(2, 'LIRIK'),
+          // Not your friends. Same channel, different social graph - they must
+          // not appear, and their reactions must never arrive.
+          person(2, { activity: 'watching', channel: 'LIRIK', relationship: 'stranger' }),
+          person(3, { activity: 'watching', channel: 'LIRIK', relationship: 'stranger' }),
+        ],
+        'LIRIK',
+      ),
+  },
+  {
+    id: 'together-privacy',
+    label: 'Together · privacy mix',
+    hint: 'One visible, one hiding, one invisible - all on your channel.',
+    build: () =>
+      world(
+        [
+          person(0, { activity: 'watching', channel: 'LIRIK' }),
+          person(1, { activity: 'watching', channel: 'LIRIK', visibility: 'hide_activity' }),
+          person(2, { activity: 'watching', channel: 'LIRIK', visibility: 'invisible' }),
+        ],
+        'LIRIK',
+      ),
+  },
+  {
+    id: 'together-stale',
+    label: 'Together · stale friend',
+    hint: 'One friend went quiet two minutes ago. Advance time to lose them.',
+    build: () =>
+      world(
+        [
+          person(0, { activity: 'watching', channel: 'LIRIK' }),
+          person(1, { activity: 'watching', channel: 'LIRIK', staleForMs: 120_000 }),
+        ],
+        'LIRIK',
+      ),
+  },
+
   {
     id: 'requests',
     label: 'Requests + strangers',

@@ -42,9 +42,17 @@ export type AnalyticsSurface =
   | 'gathering'
   | 'notification'
   | 'group'
-  /** Reserved. Nothing emits these yet; see the Social Gravity checkpoint. */
   | 'social_gravity'
-  | 'stream_room'
+  /*
+   * Automatic Together.
+   *
+   * This slot was reserved as 'stream_room' and is renamed rather than joined
+   * by a second name: the product turned out not to be a room at all - nothing
+   * is created, owned or joined - and carrying both would mean two words for
+   * one surface in every query. It had never been emitted, so nothing
+   * recorded changes meaning.
+   */
+  | 'together'
 
 /** A property value is a small fact. Never a document, never content. */
 export type AnalyticsValue = string | number | boolean | null
@@ -95,6 +103,28 @@ export interface AnalyticsEventMap {
      * else about the stream is recorded.
      */
     destination_live?: boolean
+  }
+
+  // ----------------------------------------------------------- together
+  //
+  // Four events, and deliberately no lifecycle: watching_together_started /
+  // _ended and post_social_retention_ended already measure the shared watch
+  // itself, and measuring it twice would be two chances to disagree.
+  //
+  // No reaction CONTENT anywhere. Which of five emoji somebody pressed
+  // answers no question we have, and "what did this person react to" is a
+  // surveillance-shaped fact rather than a product one.
+  together_surface_shown: {
+    participant_count: number
+    /** Whether a JOIN brought them here, rather than arriving organically. */
+    from_join?: boolean
+  }
+  together_reaction_sent: { participant_count: number }
+  together_reaction_received: { participant_count: number }
+  together_combo_formed: {
+    /** Distinct people who reacted the same way at the same moment. */
+    combo_size: number
+    participant_count: number
   }
 
   // --------------------------------------------------------------------- join
@@ -217,6 +247,11 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'opportunity_key',
     'destination_live',
   ],
+
+  together_surface_shown: ['participant_count', 'from_join'],
+  together_reaction_sent: ['participant_count'],
+  together_reaction_received: ['participant_count'],
+  together_combo_formed: ['combo_size', 'participant_count'],
 
   join_clicked: [
     'social_count',
