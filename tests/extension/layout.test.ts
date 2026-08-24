@@ -249,7 +249,26 @@ describe('default placement', () => {
 describe('reading a saved layout', () => {
   it('round-trips a layout', () => {
     const saved = layout()
-    expect(parseStoredLayout(serializeLayout(saved))).toEqual(saved)
+    expect(parseStoredLayout(serializeLayout(saved, true))).toEqual({
+      layout: saved,
+      sized: true,
+    })
+  })
+
+  it('remembers whether the user resized, in both directions', () => {
+    // This flag decides whether the height is a commitment or a ceiling, so it
+    // has to survive a round trip rather than being re-guessed on load.
+    const saved = layout()
+    expect(parseStoredLayout(serializeLayout(saved, false))?.sized).toBe(false)
+    expect(parseStoredLayout(serializeLayout(saved, true))?.sized).toBe(true)
+  })
+
+  it('treats a layout saved before the flag existed as deliberate', () => {
+    // Anything already in storage was put there by someone moving or resizing
+    // the panel, so their geometry is honoured rather than quietly downgraded.
+    const legacy = '{"v":1,"x":100,"y":50,"width":320,"height":600}'
+    expect(parseStoredLayout(legacy)?.sized).toBe(true)
+    expect(parseStoredLayout(legacy)?.layout).toEqual({ x: 100, y: 50, width: 320, height: 600 })
   })
 
   it('discards anything that is not a layout', () => {

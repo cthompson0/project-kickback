@@ -79,6 +79,11 @@ const DEMO_MESSAGES: ChatMessage[] = [
   chat(10, 'u_nina', 'Nina', ':lol: :lol: :lol:'),
   chat(11, 'u_matt', 'Matt', 'what channel is he on after this'),
   chat(12, 'u_dave', 'Dave', 'said he was raiding someone'),
+  // Ends mid-chant, so the anchored active-combo indicator has something to
+  // show. Alternating users, because one person cannot build a combo alone.
+  chat(13, 'u_jake', 'Jake', ':fire:'),
+  chat(14, 'u_sarah', 'Sarah', ':fire:'),
+  chat(15, 'u_jake', 'Jake', ':fire:'),
 ]
 
 const offlinePresence = (userId: string): Presence => ({

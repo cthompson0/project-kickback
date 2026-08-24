@@ -111,10 +111,11 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 537 tests: authorization, auth, presence, groups, emotes, layout, bundle
+npm test            # 598 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
+npm run test:combos # and for the combo contributor and breaker rules
 npm run db:bundle   # one pasteable .sql for the Supabase SQL editor
 npm run verify:config # asks Supabase whether your .env.local key actually works
 npm run build:demo  # mock-data build into dist-demo/ (never load this as your real extension)
@@ -182,15 +183,42 @@ a matching version stamp is discarded in favour of the default. That is what
 stops a hand-edited or stale value from putting the panel somewhere it cannot
 be grabbed.
 
-Height is a *budget*, not a fixed size. Friend and group lists stay their
+Height is a *budget* until you resize it, and a *commitment* afterwards. Friend and group lists stay their
 natural height inside it; an open conversation claims the whole thing, so extra
-height goes almost entirely to the message log. `MIN_HEIGHT` is measured
-rather than chosen - it is the point below which the composer would be pushed
-out through the bottom of the panel.
+height goes almost entirely to the message log. Once you drag a grip, the
+height you chose is what the panel *is*, whatever it happens to be showing -
+including a sign-in card or an error. Before that fix a resize sprang back to
+content height the moment you let go, which looked like a connection problem
+because it was only obvious while signed out. `MIN_HEIGHT` is measured rather
+than chosen - it is the point below which the composer would be pushed out
+through the bottom of the panel.
 
 Kickback still never modifies Twitch. It appends one host element to `<body>`
 and renders inside its shadow root; the host covers the viewport but ignores
 pointer events, so every click that is not on the panel reaches the page.
+
+## Combos (Phase 2C.1)
+
+A combo is a claim about *people*, so one person cannot make one alone.
+
+- A qualifying message extends the run only when it comes from **someone other
+  than the last contributor**. `A A` is not a combo; `A B` is ×2; `A B A` is
+  ×3; `A B A B` is ×4.
+- Contributors are not required to be globally unique - two people alternating
+  forever is fine. The only rule is that you cannot follow yourself.
+- A self-repeat is **ignored**, not treated as a break: `A A B` is ×2.
+  Spamming your own emote neither builds a combo nor destroys one.
+- The running combo gets its own indicator pinned above the composer, because a
+  chant is happening *now* and you should not have to scroll to see how it is
+  going.
+- A different emote starts a new combo and earns **no** breaker credit - joining
+  in differently is participation, not interruption. Only ordinary text breaks
+  a combo, and only from someone who is not the last contributor, so nobody can
+  build a combo and then break it themselves for the credit.
+
+All of it is derived from the ordered messages, so a reconnect, a history
+replay and a late joiner all compute the same number with no server-side combo
+state to drift.
 
 ## Emotes (Phase 2B.1)
 

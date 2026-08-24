@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EMOTES, isEmoteOnly, parseMessage } from '../../core/emotes'
-import { annotateCombos } from '../../core/combos'
-import type { ComboAnnotation } from '../../core/combos'
+import { scanCombos } from '../../core/combos'
+import type { ActiveCombo, ComboAnnotation } from '../../core/combos'
 import type { ChatMessage, KickbackClient } from '../../client/types'
 import { EmoteImage } from './EmoteImage'
 import { EmotePicker } from './EmotePicker'
@@ -35,6 +35,31 @@ function MessageBody({ body }: { body: string }) {
   )
 }
 
+/**
+ * The combo that is running right now, anchored just above the composer.
+ *
+ * It sits outside the scrolling log deliberately: a chant is a thing happening
+ * *now*, and having to scroll to find out how it is going defeats the point.
+ * Nothing here is stored - it is the run left open at the end of the ordered
+ * messages, so every member of the group sees the same number without a
+ * counter that could drift.
+ */
+function ActiveComboBar({ combo }: { combo: ActiveCombo }) {
+  return (
+    <div
+      className="kb-combo-active"
+      // The count changes in place rather than the row being replaced, so it
+      // reads as one thing growing.
+      key={`${combo.emote.provider}:${combo.emote.id}`}
+      aria-live="polite"
+    >
+      <EmoteImage emote={combo.emote} size={20} />
+      <span className="kb-combo-active-name">{combo.emote.name}</span>
+      <span className="kb-combo-active-count">×{combo.count}</span>
+    </div>
+  )
+}
+
 function ComboBadge({ annotation }: { annotation: ComboAnnotation }) {
   if (annotation.comboCount && annotation.comboEmote) {
     return (
@@ -64,9 +89,9 @@ export function GroupChat({
   const endRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const annotations = useMemo(
+  const { annotations, active } = useMemo(
     () =>
-      annotateCombos(
+      scanCombos(
         messages.map((message) => ({
           id: message.id,
           userId: message.userId,
@@ -130,6 +155,8 @@ export function GroupChat({
         })}
         <div ref={endRef} />
       </div>
+
+      {active && <ActiveComboBar combo={active} />}
 
       {error && <div className="kb-inline-note">{error}</div>}
 

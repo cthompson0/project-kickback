@@ -139,10 +139,14 @@ describe('combo formation', () => {
     expect(annotateCombos(messages).get(messages[3].id)?.comboCount).toBe(4)
   })
 
-  it('lets one person carry the combo alone', () => {
-    // A documented beta decision: self-repeats count.
+  it('refuses to let one person carry a combo alone', () => {
+    // Reversed in 2C.1. A combo is meant to show people joining in, so no
+    // amount of spamming your own emote manufactures one.
     const messages = [say('Jake', ':lol:'), say('Jake', ':lol:'), say('Jake', ':lol:')]
-    expect(annotateCombos(messages).get(messages[2].id)?.comboCount).toBe(3)
+    const annotations = annotateCombos(messages)
+    for (const message of messages) {
+      expect(annotations.get(message.id)?.comboCount).toBeUndefined()
+    }
   })
 
   it('names the emote being chanted', () => {
@@ -243,14 +247,16 @@ describe('the combo breaker', () => {
     expect(annotateCombos(messages).get(messages[3].id)?.brokeCombo).toBeUndefined()
   })
 
-  it('lets the person who started it break it', () => {
+  it('refuses to let the last contributor break their own combo', () => {
+    // Reversed in 2C.1. Otherwise the cheapest way to be credited with a
+    // COMBO BROKEN BY is to build the combo yourself and then stop.
     const messages = [
       say('Jake', ':lol:'),
-      say('Jake', ':lol:'),
+      say('Matt', ':lol:'),
       say('Jake', ':lol:'),
       say('Jake', 'ok im done'),
     ]
-    expect(annotateCombos(messages).get(messages[3].id)?.brokeCombo?.by).toBe('Jake')
+    expect(annotateCombos(messages).get(messages[3].id)?.brokeCombo).toBeUndefined()
   })
 })
 

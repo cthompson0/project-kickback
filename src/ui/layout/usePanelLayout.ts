@@ -10,7 +10,7 @@ import {
   resizeTo,
   serializeLayout,
 } from './layout'
-import type { PanelLayout, Point, ResizeEdge, Viewport } from './layout'
+import type { PanelLayout, Point, ResizeEdge, StoredLayoutRecord, Viewport } from './layout'
 
 /**
  * The panel's position and size, wired to the browser.
@@ -30,6 +30,14 @@ export interface PanelLayoutApi {
   layout: PanelLayout
   /** True while a drag or resize gesture is in progress. */
   gesturing: boolean
+  /**
+   * True once the user has resized the panel themselves.
+   *
+   * When set, the chosen height is what the panel *is* rather than a ceiling
+   * it may grow to. Without it the panel silently returns to content height
+   * the moment the gesture ends, which reads as the resize not sticking.
+   */
+  sized: boolean
   /** Attach to the drag handle. */
   onDragStart: (event: React.PointerEvent) => void
   /** Attach to a resize grip. */
@@ -42,7 +50,7 @@ function readViewport(): Viewport {
   if (typeof window === 'undefined') return { width: 1280, height: 800 }
   return { width: window.innerWidth, height: window.innerHeight }
 }
-function readStored(): PanelLayout | null {
+function readStored(): StoredLayoutRecord | null {
   try {
     return parseStoredLayout(window.localStorage?.getItem(LAYOUT_KEY) ?? null)
   } catch {
@@ -50,9 +58,9 @@ function readStored(): PanelLayout | null {
     return null
   }
 }
-function writeStored(layout: PanelLayout): void {
+function writeStored(layout: PanelLayout, sized: boolean): void {
   try {
-    window.localStorage.setItem(LAYOUT_KEY, serializeLayout(layout))
+    window.localStorage.setItem(LAYOUT_KEY, serializeLayout(layout, sized))
   } catch {
     // Nothing to do; the position simply will not be remembered.
   }
@@ -88,9 +96,12 @@ export function usePanelLayout({
     // A stored layout came from some other window size, so fit it rather than
     // merely clamping it.
     return stored
-      ? fitIntoViewport(stored, viewport)
+      ? fitIntoViewport(stored.layout, viewport)
       : defaultLayout(viewport, { topOffset, reservedRight })
   })
+
+  /** Set by a resize gesture, and remembered. */
+  const [sized, setSized] = useState<boolean>(() => readStored()?.sized ?? false)
   // Tracked in state rather than read during render, so rendering stays pure.
   const [viewport, setViewport] = useState<Viewport>(readViewport)
   const [gesturing, setGesturing] = useState(false)
@@ -131,8 +142,8 @@ export function usePanelLayout({
   // choice, but it is harmless to store - the value is re-clamped on read.
   useEffect(() => {
     if (!placed.current) return
-    writeStored(layout)
-  }, [layout])
+    writeStored(layout, sized)
+  }, [layout, sized])
   const begin = useCallback(
     (kind: Gesture['kind'], edge: ResizeEdge, event: React.PointerEvent) => {
       if (event.button !== 0) return
@@ -154,6 +165,9 @@ export function usePanelLayout({
         return current
       })
       placed.current = true
+      // Only a resize commits to a height. Dragging moves the panel without
+      // saying anything about how big it should be.
+      if (kind === 'resize') setSized(true)
       setGesturing(true)
     },
     [collapsed],
@@ -201,6 +215,7 @@ export function usePanelLayout({
   const reset = useCallback(() => {
     clearStored()
     placed.current = false
+    setSized(false)
     setLayout(defaultLayout(readViewport(), { topOffset, reservedRight }))
   }, [topOffset, reservedRight])
   const onDragStart = useCallback(
@@ -211,5 +226,5 @@ export function usePanelLayout({
     () => (edge: ResizeEdge) => (event: React.PointerEvent) => begin('resize', edge, event),
     [begin],
   )
-  return { layout: rendered, gesturing, onDragStart, onResizeStart, reset }
+  return { layout: rendered, gesturing, sized, onDragStart, onResizeStart, reset }
 }

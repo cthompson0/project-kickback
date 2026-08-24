@@ -211,6 +211,22 @@ const STORAGE_VERSION = 1
 
 interface StoredLayout extends PanelLayout {
   v: number
+  sized?: boolean
+}
+
+/**
+ * A layout as it comes back out of storage.
+ *
+ * `sized` records whether the user has ever resized the panel themselves, and
+ * it matters because it decides whether the height is a *budget* or a
+ * *commitment*. Before anyone resizes, the panel is content-height up to the
+ * default, so a short friends list is not a tall empty box. Once someone drags
+ * a grip, the height they chose is what the panel is, whatever it is showing -
+ * including a sign-in card or an error.
+ */
+export interface StoredLayoutRecord {
+  layout: PanelLayout
+  sized: boolean
 }
 
 /**
@@ -221,7 +237,7 @@ interface StoredLayout extends PanelLayout {
  * numbers is discarded in favour of the default, because a half-valid layout
  * is how a panel ends up somewhere it cannot be grabbed.
  */
-export function parseStoredLayout(raw: string | null): PanelLayout | null {
+export function parseStoredLayout(raw: string | null): StoredLayoutRecord | null {
   if (!raw) return null
 
   let value: unknown
@@ -241,11 +257,16 @@ export function parseStoredLayout(raw: string | null): PanelLayout | null {
   if (x === null || y === null || width === null || height === null) return null
   if (width <= 0 || height <= 0) return null
 
-  return { x, y, width, height }
+  return {
+    layout: { x, y, width, height },
+    // A layout written before this field existed came from a user who moved or
+    // resized the panel, so treat their geometry as deliberate.
+    sized: candidate.sized !== false,
+  }
 }
 
-export function serializeLayout(layout: PanelLayout): string {
-  return JSON.stringify({ v: STORAGE_VERSION, ...layout } satisfies StoredLayout)
+export function serializeLayout(layout: PanelLayout, sized: boolean): string {
+  return JSON.stringify({ v: STORAGE_VERSION, ...layout, sized } satisfies StoredLayout)
 }
 
 // -------------------------------------------------------------- gestures

@@ -10,6 +10,7 @@ import { GroupsTab } from './components/GroupsTab'
 import { JoinButton } from './components/JoinButton'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
 import { usePanelLayout } from './layout/usePanelLayout'
+import { useLayoutHint } from './layout/useLayoutHint'
 import {
   AccountCard,
   EmptyFriends,
@@ -62,11 +63,23 @@ export function KickbackPanel({
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const { layout, gesturing, onDragStart, onResizeStart, reset } = usePanelLayout({
+  const { layout, gesturing, sized, onDragStart, onResizeStart, reset } = usePanelLayout({
     collapsed,
     topOffset,
     reservedRight,
   })
+
+  const hint = useLayoutHint()
+
+  // Starting a gesture retires the hint: they have found it.
+  const beginDrag = (event: React.PointerEvent) => {
+    hint.dismiss()
+    onDragStart(event)
+  }
+  const beginResize = (edge: Parameters<typeof onResizeStart>[0]) => (event: React.PointerEvent) => {
+    hint.dismiss()
+    onResizeStart(edge)(event)
+  }
 
   // A conversation is the one view worth filling the whole height budget with.
   const chatOpen = tab === 'groups' && openGroupId !== null && !finding
@@ -143,10 +156,14 @@ export function KickbackPanel({
 
   return (
     <div
-      className={`kb-panel${chatOpen || gesturing ? ' kb-panel-filled' : ''}`}
+      // A height the user chose is what the panel is, not a ceiling: otherwise
+      // the panel springs back to content height the moment they let go, and
+      // the resize looks like it did not take. Before anyone resizes it stays
+      // content-sized so a short friends list is not a tall empty box.
+      className={`kb-panel${sized || chatOpen || gesturing ? ' kb-panel-filled' : ''}`}
       style={position}
     >
-      <div className="kb-header" onPointerDown={onDragStart}>
+      <div className="kb-header" onPointerDown={beginDrag}>
         <KickbackMark />
         <span className="kb-wordmark">kickback</span>
         {view.demo && <span className="kb-demo-badge">DEMO</span>}
@@ -356,17 +373,32 @@ export function KickbackPanel({
         </>
       )}
 
-      <div className="kb-footer">
-        <span>Kickback</span>
-        <span className="kb-footer-dot" />
-        <span>{view.demo ? 'demo mode — mock data' : 'Phase 1'}</span>
-      </div>
+      {hint.visible ? (
+        <div className="kb-footer kb-hint">
+          <span className="kb-hint-text">Drag header · Resize corners</span>
+          <button
+            type="button"
+            className="kb-hint-close"
+            title="Got it"
+            aria-label="Dismiss hint"
+            onClick={hint.dismiss}
+          >
+            ×
+          </button>
+        </div>
+      ) : (
+        <div className="kb-footer">
+          <span>Kickback</span>
+          <span className="kb-footer-dot" />
+          <span>{view.demo ? 'demo mode — mock data' : 'Phase 1'}</span>
+        </div>
+      )}
 
       {/* Grips on both bottom corners, because the panel can be parked on
           either side of the window and only one of them is natural there. */}
-      <div className="kb-resize kb-resize-sw" onPointerDown={onResizeStart('sw')} />
-      <div className="kb-resize kb-resize-s" onPointerDown={onResizeStart('s')} />
-      <div className="kb-resize kb-resize-se" onPointerDown={onResizeStart('se')} />
+      <div className="kb-resize kb-resize-sw" onPointerDown={beginResize('sw')} />
+      <div className="kb-resize kb-resize-s" onPointerDown={beginResize('s')} />
+      <div className="kb-resize kb-resize-se" onPointerDown={beginResize('se')} />
     </div>
   )
 }
