@@ -110,6 +110,14 @@ export interface KickbackState {
   mutedGroupIds: string[]
   groupsLoading: boolean
   groupsError: string | null
+
+  // --- channel names -------------------------------------------------------
+
+  /**
+   * Twitch login -> the casing Twitch itself uses, learned from pages this
+   * browser has opened. Presentation only; every lookup is by login.
+   */
+  channelNames: Record<string, string>
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -134,6 +142,7 @@ export const INITIAL_STATE: KickbackState = {
   mutedGroupIds: [],
   groupsLoading: false,
   groupsError: null,
+  channelNames: {},
 }
 
 export interface KickbackClient {
@@ -166,7 +175,7 @@ export interface KickbackClient {
   // --- presence ------------------------------------------------------------
 
   /** Report what this Twitch tab is showing. Fire-and-forget. */
-  reportActivity(channel: string | null, visible: boolean): void
+  reportActivity(channel: string | null, visible: boolean, channelName?: string | null): void
   /** Change who can see what. Enforced server-side, not here. */
   setPresenceVisibility(mode: PresenceVisibility): Promise<void>
 
@@ -180,8 +189,9 @@ export interface KickbackClient {
 
   // --- groups --------------------------------------------------------------
 
-  createGroup(name: string): Promise<string>
+  createGroup(name: string, icon?: string | null): Promise<string>
   renameGroup(groupId: string, name: string): Promise<void>
+  setGroupIcon(groupId: string, icon: string | null): Promise<void>
   deleteGroup(groupId: string): Promise<void>
   inviteToGroup(groupId: string, userId: string): Promise<string>
   respondToGroupInvite(inviteId: string, accept: boolean): Promise<string>
@@ -207,6 +217,8 @@ export type AttentionKind = 'friend_request' | 'gathering' | 'group_invite' | 'g
 export interface GroupSummary {
   groupId: string
   name: string
+  /** One emoji, or null when the group has not chosen one. */
+  icon: string | null
   ownerId: string
   isOwner: boolean
   memberCount: number

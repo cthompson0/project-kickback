@@ -34,6 +34,7 @@ export type RpcMethod =
   | 'removeGroupMember'
   | 'sendGroupMessage'
   | 'setGroupMuted'
+  | 'setGroupIcon'
   | 'searchEmotes'
 
 /** Tab -> worker. */
@@ -43,7 +44,13 @@ export type ClientMessage =
   | { type: 'signOut' }
   | { type: 'retry' }
   /** What this tab is looking at. Sent on connect and on every change. */
-  | { type: 'activity'; channel: string | null; visible: boolean }
+  | {
+      type: 'activity'
+      channel: string | null
+      visible: boolean
+      /** Twitch's own capitalisation, read off the page title. */
+      channelName?: string | null
+    }
   /** The user has looked at these things; clear their unread state. */
   | {
       type: 'seen'

@@ -41,20 +41,6 @@ const RESERVED_PATHS = new Set([
   'signup',
 ])
 
-/** Display names for the mock channels we ship, so casing looks right. */
-const KNOWN_DISPLAY_NAMES: Record<string, string> = {
-  lirik: 'LIRIK',
-  shroud: 'shroud',
-  xqc: 'xQc',
-  summit1g: 'summit1g',
-  pokimane: 'pokimane',
-  hasanabi: 'HasanAbi',
-  caedrel: 'Caedrel',
-  jerma985: 'Jerma985',
-  northernlion: 'Northernlion',
-  gmhikaru: 'GMHikaru',
-}
-
 const CHANNEL_PATTERN = /^[a-zA-Z0-9_]{3,25}$/
 
 /** Parse the channel out of a Twitch pathname, or null if it isn't a channel page. */
@@ -77,10 +63,19 @@ export function getCurrentChannel(): string | null {
   return parseChannelFromPath(window.location.pathname)
 }
 
-export function formatChannelName(channel: string): string {
-  const known = KNOWN_DISPLAY_NAMES[channel.toLowerCase()]
-  if (known) return known
-  return channel.charAt(0).toUpperCase() + channel.slice(1)
+/**
+ * How to spell a channel on screen.
+ *
+ * This used to upper-case the first letter of the login, which invents casing
+ * nobody chose: `anoterostv` became `Anoterostv`, and `xqc` became `Xqc`.
+ * Twitch capitalisation is data, so pass the real display name when one is
+ * known - see core/channelNames.ts - and otherwise the login is shown exactly
+ * as Twitch canonicalised it.
+ */
+export function formatChannelName(channel: string, displayName?: string | null): string {
+  const name = displayName?.trim()
+  if (name && name.toLowerCase() === channel.trim().toLowerCase()) return name
+  return channel
 }
 
 export function channelUrl(channel: string): string {

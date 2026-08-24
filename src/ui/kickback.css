@@ -1282,19 +1282,31 @@
   text-align: center;
 }
 
+/*
+ * A chat line is one inline formatting context, not a flex row.
+ *
+ * It used to be `display: flex; flex-wrap: wrap`, which made the name and the
+ * message two flex items. A flex item is sized by the layout, so the body got
+ * `container - username - gap` and then used that width for EVERY line - not
+ * just the first. The result was prose wrapping with 70px of empty space to the
+ * right of it, and the longer someone's name, the narrower their messages got.
+ *
+ * Inline is what this actually is: the name is a word, and the message flows
+ * after it. Line one starts after the name; every line after it uses the full
+ * width, which is what chat has always done everywhere else.
+ */
 .kb-msg-head {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: 5px;
   font-size: 12.5px;
   line-height: 1.45;
+  /* Break a URL or an unbroken token only when it cannot fit on a line of its
+     own. Ordinary words are never broken mid-word. */
+  overflow-wrap: break-word;
 }
 
 .kb-msg-who {
   font-weight: 800;
   color: var(--kb-accent);
-  flex: none;
+  margin-right: 5px;
 }
 
 .kb-msg-who-self {
@@ -1302,8 +1314,6 @@
 }
 
 .kb-msg-body {
-  min-width: 0;
-  word-break: break-word;
   color: var(--kb-text);
 }
 
@@ -1326,6 +1336,8 @@
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  /* The flex gap used to space this; inline needs its own margin. */
+  margin-left: 5px;
   padding: 1px 7px 1px 5px;
   border-radius: 999px;
   font-size: 11px;
@@ -1546,4 +1558,206 @@
 
 .kb-emote-btn:hover {
   background: var(--kb-bg-hover);
+}
+
+/* ---------- group identity ---------- */
+
+.kb-group-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  line-height: 1;
+}
+
+/* No icon chosen looks quiet rather than like a choice somebody made. */
+.kb-group-icon-empty {
+  color: var(--kb-faint);
+}
+
+.kb-icon-swatch {
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 9px;
+}
+
+.kb-icon-swatch:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-icon-picker {
+  padding: 7px;
+  margin: 2px;
+  border-radius: 9px;
+  background: var(--kb-bg-raised);
+  border: 1px solid var(--kb-line);
+}
+
+.kb-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 3px;
+}
+
+.kb-icon-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 16px;
+  line-height: 1;
+  transition: background 0.12s ease;
+}
+
+.kb-icon-choice:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-icon-choice-on {
+  background: rgba(255, 132, 82, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 132, 82, 0.55);
+}
+
+.kb-icon-picker-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+/* ---------- group presence clusters ---------- */
+
+.kb-clusters {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.kb-cluster-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 4px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.045);
+}
+
+/* The channel you are already on is not somewhere to go. */
+.kb-cluster-head-here {
+  background: rgba(46, 230, 168, 0.13);
+}
+
+.kb-cluster-head-here .kb-cluster-title {
+  color: var(--kb-here);
+}
+
+.kb-cluster-head-quiet {
+  background: none;
+}
+
+.kb-cluster-head-quiet .kb-cluster-title {
+  color: var(--kb-faint);
+}
+
+.kb-cluster-title {
+  font-size: 11.5px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-cluster-count {
+  flex: none;
+  min-width: 16px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--kb-dim);
+  text-align: center;
+}
+
+.kb-cluster-row {
+  position: relative;
+}
+
+.kb-person-btn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 3px 6px 3px 10px;
+  border-radius: 7px;
+  text-align: left;
+  transition: background 0.12s ease;
+}
+
+.kb-person-btn:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-cluster-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- user card ---------- */
+
+.kb-usercard {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 6px;
+  right: 6px;
+  z-index: 5;
+  padding: 9px;
+  border-radius: 10px;
+  background: var(--kb-bg);
+  border: 1px solid rgba(255, 132, 82, 0.32);
+  box-shadow: var(--kb-shadow);
+  animation: kb-pop 0.14s ease-out;
+}
+
+.kb-usercard-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kb-usercard-id {
+  min-width: 0;
+}
+
+.kb-usercard-name {
+  font-size: 13px;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-usercard-activity {
+  margin: 7px 0;
+  font-size: 12px;
+  color: var(--kb-dim);
+}
+
+.kb-usercard-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+/* An anchor styled as one of our buttons. */
+a.kb-ghost-btn {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
 }

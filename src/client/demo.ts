@@ -49,6 +49,7 @@ const DEMO_GROUP_ID = 'demo-group'
 const DEMO_GROUP: GroupSummary = {
   groupId: DEMO_GROUP_ID,
   name: 'The Boys',
+  icon: '🎮',
   ownerId: 'demo-user',
   isOwner: true,
   memberCount: 4,
@@ -81,9 +82,15 @@ const DEMO_MESSAGES: ChatMessage[] = [
   chat(12, 'u_dave', 'Dave', 'said he was raiding someone'),
   // Ends mid-chant, so the anchored active-combo indicator has something to
   // show. Alternating users, because one person cannot build a combo alone.
-  chat(13, 'u_jake', 'Jake', ':fire:'),
-  chat(14, 'u_sarah', 'Sarah', ':fire:'),
-  chat(15, 'u_jake', 'Jake', ':fire:'),
+  // Deliberately awkward shapes, so chat wrapping can be looked at without
+  // waiting for a real conversation to produce them.
+  chat(13, 'u_nina', 'Nina', 'also sometimes chats have a random line break from my username?'),
+  chat(14, 'u_matt', 'Matt', 'making notes. should be able to use the streamers avatar/icon'),
+  chat(15, 'u_dave', 'Dave', 'https://www.twitch.tv/videos/2147483647?filter=archives&sort=time'),
+  chat(16, 'u_sarah', 'Sarah', 'Wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww'),
+  chat(17, 'u_jake', 'Jake', ':fire:'),
+  chat(18, 'u_sarah', 'Sarah', ':fire:'),
+  chat(19, 'u_jake', 'Jake', ':fire:'),
 ]
 
 const offlinePresence = (userId: string): Presence => ({
@@ -96,11 +103,26 @@ const offlinePresence = (userId: string): Presence => ({
 export function createDemoClient(): KickbackClient {
   const listeners = new Set<(state: KickbackState) => void>()
 
-  const demoMembers = (): GroupMember[] =>
-    ['u_jake', 'u_matt', 'u_sarah', 'u_nina'].flatMap((id) => {
+  /**
+   * Group members carrying the same live presence as the friends list, so the
+   * clustered "where is everyone" view has something real to arrange - people
+   * on different channels, people together on one, people merely around, and
+   * people offline.
+   */
+  const demoMembers = (presences: Presence[]): GroupMember[] => {
+    const byId = new Map(presences.map((presence) => [presence.userId, presence]))
+    return ['u_jake', 'u_matt', 'u_sarah', 'u_nina', 'u_dave'].flatMap((id) => {
       const user = getUser(id)
-      return user ? [{ user, role: 'member' as const, presence: null }] : []
+      if (!user) return []
+      return [
+        {
+          user,
+          role: (id === 'u_jake' ? 'owner' : 'member') as 'owner' | 'member',
+          presence: byId.get(id) ?? offlinePresence(id),
+        },
+      ]
     })
+  }
 
   const toFriends = (presences: Presence[]): Friend[] => {
     const byId = new Map(presences.map((presence) => [presence.userId, presence]))
@@ -117,7 +139,7 @@ export function createDemoClient(): KickbackClient {
     identity: DEMO_IDENTITY,
     friends: toFriends(mockPresenceService.getPresences()),
     groups: [DEMO_GROUP],
-    groupMembers: { [DEMO_GROUP_ID]: demoMembers() },
+    groupMembers: { [DEMO_GROUP_ID]: demoMembers(mockPresenceService.getPresences()) },
     groupMessages: { [DEMO_GROUP_ID]: DEMO_MESSAGES },
     demo: true,
   }
@@ -127,7 +149,12 @@ export function createDemoClient(): KickbackClient {
     for (const listener of listeners) listener(state)
   }
 
-  mockPresenceService.subscribe((presences) => setState({ friends: toFriends(presences) }))
+  mockPresenceService.subscribe((presences) =>
+    setState({
+      friends: toFriends(presences),
+      groupMembers: { [DEMO_GROUP_ID]: demoMembers(presences) },
+    }),
+  )
 
   // The mock service needs to know where we are so its scripted follower can
   // walk onto the current channel.
@@ -161,12 +188,21 @@ export function createDemoClient(): KickbackClient {
     cancelFriendRequest: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     removeFriend: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     refreshFriends: () => Promise.resolve(),
-    reportActivity: () => {},
+    // Demo mode has no worker, so it keeps the learned channel casing itself.
+    // Same resolution path as production, just a shorter one.
+    reportActivity: (channel, _visible, channelName) => {
+      if (!channel || !channelName) return
+      const login = channel.toLowerCase()
+      if (channelName.toLowerCase() !== login) return
+      if (state.channelNames[login] === channelName) return
+      setState({ channelNames: { ...state.channelNames, [login]: channelName } })
+    },
     markSeen: () => {},
     markKindSeen: () => {},
     setPreferences: () => Promise.resolve(),
     createGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     renameGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    setGroupIcon: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     deleteGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     inviteToGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     respondToGroupInvite: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),

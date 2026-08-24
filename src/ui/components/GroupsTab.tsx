@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { Activity } from '../../core/types'
-import { effectiveStatus, findGatherings, isHere, isWatching } from '../../core/presence'
-import { formatChannelName } from '../../platforms/twitch/channels'
+import { effectiveStatus, findGatherings, isHere } from '../../core/presence'
+import { useChannelName } from '../ChannelNames'
+import { GroupPresence } from './GroupPresence'
+import { GroupIcon, GroupIconPicker } from './GroupIcon'
 import type { Friend, GroupMember, KickbackClient, KickbackState } from '../../client/types'
 import { Avatar } from './Avatar'
 import { BackIcon } from './Icons'
@@ -49,6 +51,7 @@ function GroupActivityLine({
   localActivity: Activity
 }) {
   const activity = useGroupActivity(members, localActivity)
+  const channelName = useChannelName()
 
   if (activity.hereCount > 0) {
     return (
@@ -65,7 +68,7 @@ function GroupActivityLine({
     return (
       <div className="kb-gathering">
         <span className="kb-gathering-text">
-          🔥 {biggest.userIds.length} watching {formatChannelName(biggest.channel)}
+          🔥 {biggest.userIds.length} watching {channelName(biggest.channel)}
         </span>
         <span onClick={(event) => event.stopPropagation()}>
           <JoinButton channel={biggest.channel} source="group" label="JOIN THEM" />
@@ -156,6 +159,15 @@ function GroupDetail({
     client.markGroupRead(groupId)
   }, [client, groupId, messages.length])
 
+  // Passed to the user card so it offers Add friend to exactly the people it
+  // applies to, and never to someone already connected. Computed above the
+  // early return below, because hook order cannot depend on a branch.
+  const friendIds = useMemo(() => new Set(friends.map((friend) => friend.user.id)), [friends])
+  const outgoingRequestIds = useMemo(
+    () => new Set(view.outgoingRequests.map((request) => request.user.id)),
+    [view.outgoingRequests],
+  )
+
   if (!group) {
     return (
       <div className="kb-quiet">
@@ -170,6 +182,8 @@ function GroupDetail({
   const invitable = friends.filter(
     (friend) => !members.some((member) => member.user.id === friend.user.id),
   )
+  /** Owners can remove anyone but themselves. */
+  const removable = members.filter((member) => member.role !== 'owner')
 
   return (
     <>
@@ -177,6 +191,7 @@ function GroupDetail({
         <button type="button" className="kb-back" onClick={onBack} title="Back to groups">
           <BackIcon />
         </button>
+        <GroupIcon icon={group.icon} />
         <div className="kb-group-name">{group.name}</div>
         <button
           type="button"
@@ -193,37 +208,47 @@ function GroupDetail({
 
       {managing ? (
         <>
-          <div className="kb-section-label">Members</div>
-          {members.map((member) => (
-            <div className="kb-row" key={member.user.id}>
-              <Avatar user={member.user} showDot={false} />
-              <div className="kb-row-main">
-                <div className="kb-row-name">
-                  {member.user.displayName}
-                  {member.role === 'owner' && <span className="kb-role"> owner</span>}
+          {group.isOwner && (
+            <>
+              <div className="kb-section-label">Group icon</div>
+              <GroupIconPicker
+                value={group.icon}
+                onPick={(icon) => void act(() => client.setGroupIcon(groupId, icon))}
+              />
+            </>
+          )}
+
+          <div className="kb-section-label">Where everyone is</div>
+          <GroupPresence
+            members={members}
+            localActivity={view.localActivity}
+            client={client}
+            friendIds={friendIds}
+            outgoingRequestIds={outgoingRequestIds}
+            selfId={view.identity?.userId ?? null}
+          />
+
+          {group.isOwner && removable.length > 0 && (
+            <>
+              <div className="kb-section-label">Remove a member</div>
+              {removable.map((member) => (
+                <div className="kb-row" key={member.user.id}>
+                  <Avatar user={member.user} showDot={false} />
+                  <div className="kb-row-main">
+                    <div className="kb-row-name">{member.user.displayName}</div>
+                  </div>
+                  <button
+                    type="button"
+                    className="kb-row-action"
+                    title={`Remove ${member.user.displayName}`}
+                    onClick={() => void act(() => client.removeGroupMember(groupId, member.user.id))}
+                  >
+                    &times;
+                  </button>
                 </div>
-                <div className="kb-row-status">
-                  <span className="kb-handle">
-                    {member.presence && effectiveStatus(member.presence) === 'online'
-                      ? isWatching(member.presence.activity)
-                        ? `Watching ${formatChannelName(member.presence.activity.channel)}`
-                        : 'Around'
-                      : 'Offline'}
-                  </span>
-                </div>
-              </div>
-              {group.isOwner && member.role !== 'owner' && (
-                <button
-                  type="button"
-                  className="kb-row-action"
-                  title={`Remove ${member.user.displayName}`}
-                  onClick={() => void act(() => client.removeGroupMember(groupId, member.user.id))}
-                >
-                  &times;
-                </button>
-              )}
-            </div>
-          ))}
+              ))}
+            </>
+          )}
 
           {group.isOwner && invitable.length > 0 && (
             <>
@@ -420,7 +445,7 @@ export function GroupsTab({ view, client, friends, openGroupId, onOpenGroup }: G
                     }}
                   >
                     <div className="kb-group-head">
-                      <div className="kb-group-emoji">👥</div>
+                      <GroupIcon icon={group.icon} />
                       <div className="kb-group-name">{group.name}</div>
                       {unread > 0 && (
                         <span className={`kb-tab-badge${muted ? ' kb-badge-muted' : ''}`}>

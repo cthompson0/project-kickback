@@ -171,7 +171,9 @@ describe('before the user has resized anything', () => {
       {
         status: 'signed_in',
         identity: IDENTITY,
-        groups: [{ groupId: 'g1', name: 'The Boys', ownerId: 'u1', isOwner: true, memberCount: 2 }],
+        groups: [
+          { groupId: 'g1', name: 'The Boys', icon: null, ownerId: 'u1', isOwner: true, memberCount: 2 },
+        ],
       },
       { sized: false },
     )

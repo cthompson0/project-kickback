@@ -50,6 +50,9 @@ const FUNCTIONS = [
   ['is_group_member', { p_group: NIL }],
   ['shares_group_with', { p_other: NIL }],
   ['consume_presence_budget', {}],
+  // 0009. Group icons need the new RPC and the two-argument create_group.
+  ['set_group_icon', { p_group: NIL, p_icon: 'x' }],
+  ['create_group', { p_name: 'x', p_icon: 'x' }],
 ]
 
 function readEnv() {
@@ -94,7 +97,7 @@ export async function verifyGroupSchema({ quiet = false } = {}) {
   const missing = []
 
   log('project      :', url)
-  log('checking     : migrations 0006, 0007, 0008 against the hosted database\n')
+  log('checking     : migrations 0006 - 0009 against the hosted database\n')
 
   for (const table of TABLES) {
     let code
@@ -130,8 +133,11 @@ export async function verifyGroupSchema({ quiet = false } = {}) {
   }
 
   if (missing.length > 0) {
-    console.error('\nThe hosted database is missing part of the group backend.')
-    console.error('Groups and group chat would be broken for every tester.\n')
+    console.error('\nDATABASE MIGRATION REQUIRED.')
+    console.error('The hosted database is missing part of the group backend, so what')
+    console.error('depends on it would be broken for every tester:\n')
+    for (const item of missing) console.error(`  - ${item}`)
+    console.error('')
     console.error('To fix it:')
     console.error('  1. npm run db:bundle')
     console.error('  2. Open the Supabase dashboard -> SQL Editor')

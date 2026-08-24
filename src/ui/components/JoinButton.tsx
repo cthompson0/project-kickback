@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { joinChannel } from '../../platforms/twitch/join'
 import type { JoinSource } from '../../platforms/twitch/join'
-import { formatChannelName } from '../../platforms/twitch/channels'
+import { useChannelName } from '../ChannelNames'
 
 interface JoinButtonProps {
   channel: string
@@ -12,12 +12,13 @@ interface JoinButtonProps {
 
 export function JoinButton({ channel, label = 'JOIN', source = 'friend_row' }: JoinButtonProps) {
   const [joining, setJoining] = useState(false)
+  const channelName = useChannelName()
 
   return (
     <button
       type="button"
       className={`kb-join${joining ? ' kb-join-busy' : ''}`}
-      title={`Watch ${formatChannelName(channel)} on Twitch`}
+      title={`Watch ${channelName(channel)} on Twitch`}
       disabled={joining}
       onClick={() => {
         setJoining(true)

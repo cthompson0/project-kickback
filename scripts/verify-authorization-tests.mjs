@@ -142,6 +142,31 @@ const MUTATIONS = [
     to: `  if p_user = v_actor then`,
     expect: 'refuses a delete or removal by a member',
   },
+  {
+    // Added with group icons in 0009. Without the ownership check any member
+    // could restyle a group that is not theirs.
+    name: 'groups: let any member change the icon',
+    file: '0009_group_icons.sql',
+    from: `  if not exists (
+    select 1 from public.groups g
+    where g.id = p_group and g.owner_id = v_actor
+  ) then
+    raise exception 'kickback: group not found' using errcode = 'P0002';
+  end if;`,
+    to: '',
+    expect: 'refuses an icon change by a member or a stranger',
+  },
+  {
+    name: 'groups: drop the icon length bound',
+    file: '0009_group_icons.sql',
+    from: `  if v_icon is not null and char_length(v_icon) > 24 then
+    raise exception 'kickback: group icon is too long' using errcode = '22023';
+  end if;
+
+  -- The ownership check is the authorization boundary.`,
+    to: '  -- The ownership check is the authorization boundary.',
+    expect: 'refuses an icon long enough to be a second name',
+  },
 ]
 
 function runSuite(migrationsDir) {

@@ -166,14 +166,18 @@ export function createPortClient(): KickbackClient {
       await rpc('refreshFriends')
     },
 
-    reportActivity: (channel, visible) => send({ type: 'activity', channel, visible }),
+    reportActivity: (channel, visible, channelName) =>
+      send({ type: 'activity', channel, visible, channelName: channelName ?? null }),
     markSeen: (keys) => send({ type: 'seen', keys }),
     markKindSeen: (kind) => send({ type: 'seen', kind }),
     setPreferences: async (patch) => {
       await rpc('setPreferences', patch)
     },
 
-    createGroup: (name) => rpc<string>('createGroup', name),
+    createGroup: (name, icon) => rpc<string>('createGroup', name, icon ?? null),
+    setGroupIcon: async (groupId, icon) => {
+      await rpc('setGroupIcon', groupId, icon)
+    },
     renameGroup: async (groupId, name) => {
       await rpc('renameGroup', groupId, name)
     },

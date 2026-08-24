@@ -25,6 +25,7 @@ function summary(overrides: Partial<GroupSummary> = {}): GroupSummary {
   return {
     groupId: GROUP,
     name: 'The Boys',
+    icon: null,
     ownerId: SELF,
     isOwner: true,
     memberCount: 3,
@@ -80,9 +81,13 @@ class FakeGroupsBackend implements GroupsBackend {
   async listMessages() {
     return this.ok([...this.messages])
   }
-  async createGroup(name: string) {
-    this.calls.push(`createGroup:${name}`)
+  async createGroup(name: string, icon: string | null) {
+    this.calls.push(`createGroup:${name}:${icon ?? '-'}`)
     return this.ok('g-new')
+  }
+  async setGroupIcon(groupId: string, icon: string | null) {
+    this.calls.push(`setIcon:${groupId}:${icon ?? '-'}`)
+    return this.ok(groupId)
   }
   async renameGroup(groupId: string, name: string) {
     this.calls.push(`rename:${groupId}:${name}`)
@@ -361,7 +366,7 @@ describe('group actions reach the backend', () => {
     await groups.renameGroup(GROUP, 'The Lads')
     await groups.deleteGroup(GROUP)
 
-    expect(backend.calls).toContain('createGroup:The Boys')
+    expect(backend.calls).toContain('createGroup:The Boys:-')
     expect(backend.calls).toContain(`rename:${GROUP}:The Lads`)
     expect(backend.calls).toContain(`delete:${GROUP}`)
   })

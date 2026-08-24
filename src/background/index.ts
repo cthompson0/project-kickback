@@ -5,6 +5,7 @@ import { createPresenceSync } from './presenceSync'
 import { createPresenceReporter } from './presence'
 import { createActivityRegistry } from './activity'
 import { createGatheringWatcher } from './gatherings'
+import { resolveChannelName } from '../core/channelNames'
 import {
   createAttentionService,
   friendRequestKey,
@@ -216,7 +217,16 @@ const gatheringWatcher = createGatheringWatcher({
       .map((id) => friendsState.friends.find((friend) => friend.user.id === id))
       .filter((friend) => friend !== undefined)
       .map((friend) => friend.user.displayName)
-    notifier.notifyGathering({ channel, names })
+    // Friends are the best source of a channel's real casing: a channel is a
+    // Twitch user, so if one of them IS this channel, their name is its name.
+    notifier.notifyGathering({
+      channel,
+      names,
+      channelName: resolveChannelName(channel, {
+        people: friendsState.friends.map((friend) => friend.user),
+        seen: channelNames,
+      }),
+    })
   },
 })
 
@@ -272,6 +282,53 @@ function refreshAttention(): void {
   )
 }
 
+/**
+ * Twitch's own capitalisation for channels this browser has opened.
+ *
+ * Presentation only - every lookup, comparison and URL still uses the
+ * lowercase login. Kept so a friend watching a channel you have also visited
+ * is shown as "AnoterosTV" rather than the login, without asking Twitch's API
+ * for something the page already told us.
+ */
+const CHANNEL_NAMES_KEY = 'kickback:channelNames'
+/** Enough for anyone's rotation; oldest entries fall off first. */
+const MAX_CHANNEL_NAMES = 300
+
+let channelNames: Record<string, string> = {}
+
+function rememberChannelName(channel: string, name: string): void {
+  const login = channel.toLowerCase()
+  // Only a different spelling of the same word; never a rename.
+  if (name.toLowerCase() !== login) return
+  if (channelNames[login] === name) return
+
+  const entries = Object.entries(channelNames).filter(([key]) => key !== login)
+  entries.push([login, name])
+  channelNames = Object.fromEntries(entries.slice(-MAX_CHANNEL_NAMES))
+
+  void chrome.storage.local.set({ [CHANNEL_NAMES_KEY]: channelNames })
+  broadcast()
+}
+
+async function loadChannelNames(): Promise<void> {
+  try {
+    const stored = await chrome.storage.local.get(CHANNEL_NAMES_KEY)
+    const value = stored?.[CHANNEL_NAMES_KEY]
+    if (value && typeof value === 'object') {
+      channelNames = Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).filter(
+          ([key, name]) => typeof name === 'string' && name.toLowerCase() === key,
+        ) as Array<[string, string]>,
+      )
+      broadcast()
+    }
+  } catch (error) {
+    logError('loadChannelNames', error)
+  }
+}
+
+void loadChannelNames()
+
 function pushActivity(): void {
   // The emote catalog follows the channel even when signed out - it costs
   // nothing and means the picker is warm by the time chat is opened.
@@ -312,6 +369,7 @@ function currentState(): KickbackState {
     mutedGroupIds: groupsState.mutedGroupIds,
     groupsLoading: groupsState.groupsLoading,
     groupsError: groupsState.groupsError,
+    channelNames: { ...channelNames },
   }
 }
 
@@ -394,7 +452,10 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   cancelFriendRequest: ([requestId]) => friends.cancel(String(requestId)),
   removeFriend: ([userId]) => friends.remove(String(userId)),
   refreshFriends: () => friends.refresh(),
-  createGroup: ([name]) => groups.createGroup(String(name)),
+  createGroup: ([name, icon]) =>
+    groups.createGroup(String(name), typeof icon === 'string' ? icon : null),
+  setGroupIcon: ([groupId, icon]) =>
+    groups.setGroupIcon(String(groupId), typeof icon === 'string' ? icon : null),
   renameGroup: ([groupId, name]) => groups.renameGroup(String(groupId), String(name)),
   deleteGroup: ([groupId]) => groups.deleteGroup(String(groupId)),
   inviteToGroup: ([groupId, userId]) => groups.invite(String(groupId), String(userId)),
@@ -488,13 +549,18 @@ chrome.runtime.onConnect.addListener((port) => {
       case 'retry':
         void auth.retry()
         break
-      case 'activity':
+      case 'activity': {
+        const channel = typeof raw.channel === 'string' ? raw.channel : null
         tabActivity.update(port, {
-          channel: typeof raw.channel === 'string' ? raw.channel : null,
+          channel,
           visible: raw.visible === true,
           updatedAt: Date.now(),
         })
+        if (channel && typeof raw.channelName === 'string') {
+          rememberChannelName(channel, raw.channelName)
+        }
         pushActivity()
+      }
         break
       case 'seen':
         if (Array.isArray(raw.keys)) attention.markSeen(raw.keys)

@@ -111,7 +111,7 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 602 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
+npm test            # 659 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
@@ -224,6 +224,33 @@ through the bottom of the panel.
 Kickback still never modifies Twitch. It appends one host element to `<body>`
 and renders inside its shadow root; the host covers the viewport but ignores
 pointer events, so every click that is not on the panel reaches the page.
+
+## Names, groups and identity (polish pass)
+
+**Capitalisation is data, not a formatting rule.** Twitch gives every account a
+canonical lowercase login (`anoterostv`) and a display name its owner chose
+(`AnoterosTV`). The login is identity - URLs, comparisons, lookups, storage.
+The display name is presentation. Kickback used to derive the second from the
+first by upper-casing a letter, which produced `Anoterostv`: a name nobody
+chose. It now only ever *looks names up*, from two sources that cost nothing:
+people it already knows (a Twitch channel is a Twitch user, so a friend's name
+IS their channel's name) and page titles this browser has actually opened. When
+neither knows, the login is shown unchanged.
+
+**Groups read by activity, not alphabetically.** A group is a persistent social
+circle, so its member list is clustered by what people are doing: the people
+already with you, then channels biggest-cluster-first with JOIN on the cluster,
+then people merely around, then offline. Everyone under one heading is
+literally together. The roster stays complete, so a group is still something
+you can look at rather than a list of whoever happens to be online.
+
+**Clicking a name opens a small card** - their activity, JOIN, View on Twitch,
+and Add or Remove friend. It exists mostly for one case: group members who are
+not yet friends now have an obvious path to becoming friends.
+
+**Groups can wear an emoji.** One character, from a fixed set, optional, with a
+neutral mark when none is chosen. No uploads, no storage, no cropping, no
+moderation.
 
 ## Combos (Phase 2C.1)
 

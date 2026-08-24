@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { formatChannelName } from '../platforms/twitch/channels'
+import { useEffect, useMemo, useState } from 'react'
+import { ChannelLabel, ChannelNameProvider } from './ChannelNames'
 import type { KickbackClient } from '../client/types'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
@@ -131,6 +131,23 @@ export function KickbackPanel({
     }
   }
 
+  const knownPeople = useMemo(() => {
+    const people = friends.map((friend) => friend.user)
+    for (const roster of Object.values(view.groupMembers)) {
+      for (const member of roster) people.push(member.user)
+    }
+    if (identity?.twitchLogin) {
+      people.push({
+        id: identity.userId,
+        username: identity.twitchLogin,
+        displayName: identity.displayName,
+        avatarUrl: identity.avatarUrl,
+        accentColor: '#ff8452',
+      })
+    }
+    return people
+  }, [friends, view.groupMembers, identity])
+
   const position = {
     '--kb-x': `${layout.x}px`,
     '--kb-y': `${layout.y}px`,
@@ -163,6 +180,9 @@ export function KickbackPanel({
   }
 
   return (
+    // One resolver for the whole panel, so a channel is spelled the same way
+    // in the activity line, a friend row and a group cluster.
+    <ChannelNameProvider people={knownPeople} seen={view.channelNames}>
     <div
       // A height the user chose is what the panel is, not a ceiling: otherwise
       // the panel springs back to content height the moment they let go, and
@@ -214,7 +234,7 @@ export function KickbackPanel({
         {channel ? (
           <span className="kb-now-value">
             <span className="kb-live-dot" />
-            {formatChannelName(channel)}
+            <ChannelLabel channel={channel} />
           </span>
         ) : (
           <span className="kb-now-idle">Browsing Twitch</span>
@@ -285,7 +305,7 @@ export function KickbackPanel({
             <div className="kb-gathering kb-gathering-banner" key={gathering.channel}>
               <span className="kb-gathering-text">
                 🔥 {gathering.userIds.length} friends watching{' '}
-                {formatChannelName(gathering.channel)}
+                <ChannelLabel channel={gathering.channel} />
               </span>
               <JoinButton channel={gathering.channel} source="gathering" />
             </div>
@@ -410,5 +430,6 @@ export function KickbackPanel({
       <div className="kb-resize kb-resize-s" onPointerDown={beginResize('s')} />
       <div className="kb-resize kb-resize-se" onPointerDown={beginResize('se')} />
     </div>
+    </ChannelNameProvider>
   )
 }

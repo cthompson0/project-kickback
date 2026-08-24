@@ -27,7 +27,8 @@ export interface GroupsBackend {
   listInvites(): Promise<BackendResult<GroupInvite[]>>
   listMembers(groupId: string): Promise<BackendResult<GroupMember[]>>
   listMessages(groupId: string, limit: number): Promise<BackendResult<ChatMessage[]>>
-  createGroup(name: string): Promise<BackendResult<string>>
+  createGroup(name: string, icon: string | null): Promise<BackendResult<string>>
+  setGroupIcon(groupId: string, icon: string | null): Promise<BackendResult<string>>
   renameGroup(groupId: string, name: string): Promise<BackendResult<string>>
   deleteGroup(groupId: string): Promise<BackendResult<boolean>>
   inviteToGroup(groupId: string, userId: string): Promise<BackendResult<string>>
@@ -85,7 +86,8 @@ export interface GroupsService {
   markGroupRead(groupId: string): void
   setMuted(groupId: string, muted: boolean): Promise<void>
 
-  createGroup(name: string): Promise<string>
+  createGroup(name: string, icon?: string | null): Promise<string>
+  setGroupIcon(groupId: string, icon: string | null): Promise<void>
   renameGroup(groupId: string, name: string): Promise<void>
   deleteGroup(groupId: string): Promise<void>
   invite(groupId: string, userId: string): Promise<string>
@@ -293,10 +295,15 @@ export function createGroupsService(deps: GroupsDeps): GroupsService {
       })
     },
 
-    async createGroup(name: string): Promise<string> {
-      const id = await mutate('createGroup', () => deps.backend.createGroup(name))
+    async createGroup(name: string, icon: string | null = null): Promise<string> {
+      const id = await mutate('createGroup', () => deps.backend.createGroup(name, icon))
       await refresh()
       return id
+    },
+
+    async setGroupIcon(groupId: string, icon: string | null): Promise<void> {
+      await mutate('renameGroup', () => deps.backend.setGroupIcon(groupId, icon))
+      await refresh()
     },
 
     async renameGroup(groupId: string, name: string): Promise<void> {

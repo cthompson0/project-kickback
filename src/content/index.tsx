@@ -7,6 +7,7 @@ import { watchTopOffset } from '../platforms/twitch/anchor'
 import { measureChatRail } from '../platforms/twitch/chatRail'
 import { watchChannel } from '../platforms/twitch/navigation'
 import { getCurrentChannel } from '../platforms/twitch/channels'
+import { channelNameFromTitle } from '../core/channelNames'
 import panelStyles from '../ui/kickback.css?inline'
 
 /**
@@ -103,7 +104,13 @@ async function mount(): Promise<void> {
  * rule - this only reports the facts.
  */
 function reportActivity(client: KickbackClient): void {
-  const send = () => client.reportActivity(getCurrentChannel(), !document.hidden)
+  const send = () => {
+    const channel = getCurrentChannel()
+    // Twitch spells the channel properly in the page title, which is the one
+    // place its own casing is available without touching its markup.
+    const name = channel ? channelNameFromTitle(document.title, channel) : null
+    client.reportActivity(channel, !document.hidden, name)
+  }
 
   // On connect, on navigation, and whenever this tab is shown or hidden.
   send()

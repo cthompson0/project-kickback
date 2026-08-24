@@ -380,6 +380,7 @@ export async function setPresenceVisibility(
 interface GroupRow {
   group_id: string
   name: string
+  icon: string | null
   owner_id: string
   is_owner: boolean
   member_count: number
@@ -451,6 +452,7 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
         rows.map((row) => ({
           groupId: row.group_id,
           name: row.name,
+          icon: row.icon ?? null,
           ownerId: row.owner_id,
           isOwner: row.is_owner,
           memberCount: row.member_count,
@@ -500,8 +502,10 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
         (rows) => rows.map(toChatMessage),
       ),
 
-    createGroup: (name) =>
-      call<string, string>('create_group', { p_name: name }, (rows) => rows[0]),
+    createGroup: (name, icon) =>
+      call<string, string>('create_group', { p_name: name, p_icon: icon }, (rows) => rows[0]),
+    setGroupIcon: (groupId, icon) =>
+      call<string, string>('set_group_icon', { p_group: groupId, p_icon: icon }, () => groupId),
     renameGroup: (groupId, name) =>
       call<string, string>('rename_group', { p_group: groupId, p_name: name }, (rows) => rows[0]),
     deleteGroup: (groupId) =>

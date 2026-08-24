@@ -475,6 +475,58 @@ describe('group administration', () => {
     ).toMatch(/only the group owner/i)
   })
 
+  it('lets the owner set and clear a group icon', async () => {
+    const group = await makeGroup(alice)
+
+    await db.as(alice, 'select public.set_group_icon($1, $2)', [group, '🎮'])
+    const [chosen] = await db.as<{ icon: string | null }>(alice, 'select * from public.list_groups()')
+    expect(chosen.icon).toBe('🎮')
+
+    // Clearing is a legitimate choice, not an error: icons are optional.
+    await db.as(alice, 'select public.set_group_icon($1, $2)', [group, null])
+    const [cleared] = await db.as<{ icon: string | null }>(alice, 'select * from public.list_groups()')
+    expect(cleared.icon).toBeNull()
+  })
+
+  it('starts a group with no icon unless one was chosen', async () => {
+    // Every group that existed before icons did must keep working untouched.
+    const group = await makeGroup(alice)
+    const [row] = await db.as<{ group_id: string; icon: string | null }>(
+      alice,
+      'select * from public.list_groups()',
+    )
+    expect(row.group_id).toBe(group)
+    expect(row.icon).toBeNull()
+  })
+
+  it('refuses an icon change by a member or a stranger', async () => {
+    // Same authorization boundary as renaming: a non-owner is told the group
+    // does not exist rather than that they lack permission.
+    const group = await makeGroup(alice)
+    await addToGroup(alice, group, bob)
+
+    expect(
+      await refusal(() => db.as(bob, 'select public.set_group_icon($1, $2)', [group, '💀'])),
+    ).toMatch(/not found/i)
+    expect(
+      await refusal(() =>
+        db.as(mallory, 'select public.set_group_icon($1, $2)', [group, '💀']),
+      ),
+    ).toMatch(/not found/i)
+
+    const [row] = await db.as<{ icon: string | null }>(alice, 'select * from public.list_groups()')
+    expect(row.icon).toBeNull()
+  })
+
+  it('refuses an icon long enough to be a second name', async () => {
+    const group = await makeGroup(alice)
+    expect(
+      await refusal(() =>
+        db.as(alice, 'select public.set_group_icon($1, $2)', [group, 'x'.repeat(40)]),
+      ),
+    ).toMatch(/too long/i)
+  })
+
   it('lets the owner delete, taking members and messages with it', async () => {
     const group = await makeGroup(alice)
     await addToGroup(alice, group, bob)

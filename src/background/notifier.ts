@@ -38,6 +38,13 @@ export interface GatheringNotification {
   channel: string
   /** Display names, already authorized - these are the user's own friends. */
   names: string[]
+  /**
+   * Twitch's own capitalisation for the channel, when it is known.
+   *
+   * Passed in rather than derived: the login cannot tell you whether a channel
+   * spells itself xQc or Xqc, and guessing produces a name nobody chose.
+   */
+  channelName?: string | null
 }
 
 export interface Notifier {
@@ -77,7 +84,7 @@ export function createNotifier(deps: NotifierDeps): Notifier {
   })
 
   return {
-    notifyGathering({ channel, names }: GatheringNotification): void {
+    notifyGathering({ channel, names, channelName }: GatheringNotification): void {
       const safeChannel = parseChannelFromPath(`/${channel}`)
       if (!safeChannel) return
 
@@ -87,7 +94,7 @@ export function createNotifier(deps: NotifierDeps): Notifier {
         type: 'basic',
         iconUrl: deps.iconUrl,
         title: `${describeNames(names)} on Twitch`,
-        message: `Watching ${formatChannelName(safeChannel)}`,
+        message: `Watching ${formatChannelName(safeChannel, channelName)}`,
         buttons: [{ title: 'Join them' }],
       })
     },

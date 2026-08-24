@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import type { Activity } from '../../core/types'
 import { effectiveStatus, formatSince, isHere, isWatching } from '../../core/presence'
-import { formatChannelName } from '../../platforms/twitch/channels'
+import { useChannelName } from '../ChannelNames'
 import type { Friend } from '../../client/types'
 import { Avatar } from './Avatar'
 import type { AvatarState } from './Avatar'
@@ -16,6 +16,7 @@ interface PersonRowProps {
 export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
   const { user, presence } = person
   const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const channelName = useChannelName()
 
   /**
    * No presence at all is not the same as offline, and Kickback must not say
@@ -77,7 +78,7 @@ export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
           ) : channel ? (
             <>
               <span>
-                Watching <span className="kb-channel">{formatChannelName(channel)}</span>
+                Watching <span className="kb-channel">{channelName(channel)}</span>
               </span>
               <span className="kb-time">{formatSince(presence.since)}</span>
             </>

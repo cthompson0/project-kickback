@@ -437,12 +437,31 @@ describe('desktop notifications', () => {
 
   it('names the friends and the channel', () => {
     const h = harness()
-    h.notifier.notifyGathering({ channel: 'lirik', names: ['Jake', 'Matt', 'Chris'] })
+    h.notifier.notifyGathering({
+      channel: 'lirik',
+      names: ['Jake', 'Matt', 'Chris'],
+      channelName: 'LIRIK',
+    })
 
     expect(h.created).toHaveLength(1)
     expect(h.created[0].options.title).toBe('Jake, Matt and Chris on Twitch')
     expect(h.created[0].options.message).toBe('Watching LIRIK')
     expect(h.created[0].options.buttons?.[0].title).toBe('Join them')
+  })
+
+  it('shows the login rather than inventing capitalisation', () => {
+    // Nothing knows how this channel spells itself, and `Anoterostv` would be
+    // a name its owner never chose. The login is plain but true.
+    const h = harness()
+    h.notifier.notifyGathering({ channel: 'anoterostv', names: ['Jake'] })
+    expect(h.created[0].options.message).toBe('Watching anoterostv')
+  })
+
+  it('refuses a display name that is a different word', () => {
+    // A mismatched name would rename someone's channel in a desktop alert.
+    const h = harness()
+    h.notifier.notifyGathering({ channel: 'lirik', names: ['Jake'], channelName: 'Somebody Else' })
+    expect(h.created[0].options.message).toBe('Watching lirik')
   })
 
   it('reuses one id per channel, so Chrome replaces rather than stacks', () => {
