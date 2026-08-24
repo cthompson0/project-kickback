@@ -64,11 +64,22 @@ function harness(options: { enabled?: boolean; environment?: 'private_beta' | 'p
     },
     /** What the hub has written to extension storage. */
     storage: () => cells,
-    /** Lets the hub's internal promise chain drain, then sends. */
+    /**
+     * Lets the hub's internal promise chain drain, then sends.
+     *
+     * Macrotasks rather than a fixed number of microtasks: the chain grew when
+     * the lifecycle work was added, and counting ticks quietly stopped being
+     * enough - the later calls simply had not run yet, so the test saw an empty
+     * result and blamed the code.
+     */
     settle: async () => {
-      for (let index = 0; index < 20; index += 1) await Promise.resolve()
+      for (let index = 0; index < 5; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
       await hub.flush()
-      for (let index = 0; index < 20; index += 1) await Promise.resolve()
+      for (let index = 0; index < 5; index += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0))
+      }
     },
     named: (name: string) => sent.filter((event) => event.event_name === name),
   }
@@ -173,6 +184,139 @@ describe('the JOIN funnel joins up', () => {
 
       const [started] = h.named('watching_together_started')
       expect(started.properties.from_join).toBe(false)
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+describe('the destination lifecycle reaches the wire intact', () => {
+  it('dates the end of co-viewing to when it happened, not when it was noticed', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.recordJoin({
+        channel: 'summit1g',
+        source: 'friend_row',
+        socialCount: 1,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      h.hub.noteChannel('summit1g')
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      // The friend leaves ten minutes in. Nothing notices at the time.
+      h.advance(10 * 60 * 1000)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+      const friendLeftAt = 1_700_000_000_000 + 10 * 60 * 1000
+
+      // Forty minutes of watching alone, then leaving.
+      h.advance(40 * 60 * 1000)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      // The whole point: occurred_at is the effective end.
+      expect(Date.parse(end.occurred_at)).toBe(friendLeftAt)
+      expect(end.properties.duration_ms).toBe(10 * 60 * 1000)
+      expect(end.properties.end_reason).toBe('alone_again')
+      // And the lag is kept as its own fact rather than being lost.
+      expect(end.properties.detection_delay_ms).toBe(40 * 60 * 1000)
+
+      const [post] = h.named('post_social_retention_ended')
+      expect(post.properties.duration_ms).toBe(40 * 60 * 1000)
+      expect(post.properties.from_join).toBe(true)
+      expect(post.destination_channel).toBe('summit1g')
+      // The same attribution as the click, so the funnel joins straight up.
+      expect(post.attribution_id).toBe(h.named('join_clicked')[0].attribution_id)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('records no detection lag when the end is seen immediately', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      h.advance(5 * 60 * 1000)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const [end] = h.named('watching_together_ended')
+      expect(end.properties.detection_delay_ms).toBe(0)
+      expect(end.properties.end_reason).toBe('left_channel')
+      expect(h.named('post_social_retention_ended')).toHaveLength(0)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('claims no JOIN credit for organic co-viewing', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      // No JOIN at all: they happened to be watching the same thing.
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 1 })
+      await h.settle()
+
+      h.advance(10 * 60 * 1000)
+      h.hub.noteTogether({ channel: 'summit1g', otherCount: 0 })
+      await h.settle()
+
+      h.advance(10 * 60 * 1000)
+      h.hub.noteTogether({ channel: null, otherCount: 0 })
+      await h.settle()
+
+      const [start] = h.named('watching_together_started')
+      const [end] = h.named('watching_together_ended')
+      const [post] = h.named('post_social_retention_ended')
+
+      // The intervals are still measured - they are facts about what happened.
+      expect(end.properties.duration_ms).toBe(10 * 60 * 1000)
+      expect(post.properties.duration_ms).toBe(10 * 60 * 1000)
+      // The credit is not. Nothing here was brought about by a JOIN.
+      expect(start.properties.from_join).toBe(false)
+      expect(post.properties.from_join).toBe(false)
+      expect(start.attribution_id).toBeNull()
+      expect(post.attribution_id).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('does not collapse a cluster of friends to one of them', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      h.hub.recordJoin({
+        channel: 'xqc',
+        source: 'gathering',
+        socialCount: 3,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      h.hub.noteChannel('xqc')
+      h.hub.noteTogether({ channel: 'xqc', otherCount: 3 })
+      await h.settle()
+
+      // One click, one arrival, one shared watch - carrying the size of the
+      // opportunity, not the identity of an arbitrarily chosen member of it.
+      expect(h.named('join_clicked')).toHaveLength(1)
+      expect(h.named('watching_together_started')).toHaveLength(1)
+      expect(h.named('join_clicked')[0].properties.social_count).toBe(3)
+      expect(h.named('watching_together_started')[0].properties.other_count).toBe(3)
+
+      const wire = JSON.stringify(h.sent)
+      // No friend ids anywhere: the social context gets the credit.
+      expect(wire).not.toContain('user_id')
+      expect(wire).not.toContain('friend_id')
     } finally {
       h.restore()
     }

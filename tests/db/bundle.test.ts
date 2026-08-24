@@ -157,6 +157,56 @@ describe('the generated bundle', () => {
     await db.close()
   })
 
+  it('applies on top of the current hosted state, which stopped at 0014', async () => {
+    /*
+     * The exact upgrade path 0015 and 0016 will be run along.
+     *
+     * Worth its own case rather than being covered by implication: 0015
+     * replaces a function 0013 created and 0016 replaces views 0014 created,
+     * and both of those are the shapes that produce 42P13 when they are done
+     * carelessly.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0014')
+    await expect(applyBundle(db)).resolves.not.toThrow()
+
+    const [{ version }] = (
+      await db.query<{ version: number }>('select public.analytics_schema_version() as version')
+    ).rows
+    expect(version).toBe(16)
+
+    // The revised contract survived the upgrade, rather than 0013's copy
+    // winning because it runs later in the file.
+    const [{ properties }] = (
+      await db.query<{ properties: string[] }>(
+        "select allowed_properties as properties from public.analytics_event_names where name = 'watching_together_ended'",
+      )
+    ).rows
+    expect(properties).toContain('detection_delay_ms')
+    await db.close()
+  })
+
+  it('keeps the lifecycle views usable after repeated runs', async () => {
+    // 0014 creates the together and funnel views and 0016 replaces them. Run
+    // the whole thing three times and the newest shape must still be what is
+    // there - a column from 0016, not one from 0014.
+    const db = await freshDb()
+    await applyBundle(db)
+    await applyBundle(db)
+    await applyBundle(db)
+
+    const columns = (
+      await db.query<{ column_name: string }>(
+        "select column_name from information_schema.columns where table_name = 'analytics_join_funnel_v'",
+      )
+    ).rows.map((row) => row.column_name)
+
+    expect(columns).toContain('post_social_retained')
+    expect(columns).toContain('together_effective_ended_at')
+    expect(columns).toContain('opportunity_key')
+    await db.close()
+  })
+
   it('re-running updates an event contract rather than leaving it stale', async () => {
     // 0013 seeds analytics_event_names with ON CONFLICT DO UPDATE, so an event
     // that gains a property on a later pass is brought up to date. Without it,

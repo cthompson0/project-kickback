@@ -42,6 +42,9 @@ const ATTRIBUTION_SUITE = 'tests/extension/joinAttribution.test.ts'
 const EXPOSURE_SUITE = 'tests/extension/exposureAndTogether.test.ts'
 const HUB_SUITE = 'tests/extension/analyticsHub.test.ts'
 const DB_SUITE = 'tests/db/analytics.test.ts'
+const MIGRATION_15 = 'supabase/migrations/0015_social_discovery.sql'
+const VIEWS_16 = 'supabase/migrations/0016_social_discovery_views.sql'
+const LIFECYCLE_SUITE = 'tests/extension/socialLifecycle.test.ts'
 
 const MUTATIONS = [
   // ------------------------------------------------------------- privacy
@@ -87,7 +90,7 @@ const MUTATIONS = [
   },
   {
     name: 'server: accept any string as a channel',
-    file: MIGRATION,
+    file: MIGRATION_15,
     from: "    if v_channel is not null and v_channel !~ '^[a-z0-9_]{1,25}$' then\n      v_channel := null;\n    end if;",
     to: '',
     expect: 'refuses anything that is not one, rather than storing it',
@@ -97,7 +100,7 @@ const MUTATIONS = [
   // ------------------------------------------------------- authorization
   {
     name: 'server: trust an actor the client supplies',
-    file: MIGRATION,
+    file: MIGRATION_15,
     from: "  v_actor    uuid := public.require_actor();",
     to: "  v_actor    uuid := coalesce((p_events -> 0 ->> 'actor_id')::uuid, public.require_actor());",
     expect: 'ignores an actor the client tries to supply',
@@ -139,7 +142,7 @@ const MUTATIONS = [
   // ---------------------------------------------------------- rate guard
   {
     name: 'server: charge the budget per call rather than per event',
-    file: MIGRATION,
+    file: MIGRATION_15,
     from: "  if not public.consume_rate_budget_n(\n       'analytics',\n       least(jsonb_array_length(p_events), 50),",
     to: "  if not public.consume_rate_budget_n(\n       'analytics',\n       1,",
     expect: 'counts events rather than calls, so batching cannot cheat it',
@@ -147,7 +150,7 @@ const MUTATIONS = [
   },
   {
     name: 'server: accept a batch of any size',
-    file: MIGRATION,
+    file: MIGRATION_15,
     from: '    exit when v_seen > 50;',
     to: '',
     expect: 'caps a single batch, so one call cannot be a bulk import',
@@ -335,10 +338,10 @@ const MUTATIONS = [
   {
     name: 'together: count the grace period as watching together',
     file: TOGETHER,
-    from: '      durationMs: Math.max(0, (state.aloneSince ?? at) - state.startedAt),',
-    to: '      durationMs: Math.max(0, at - state.startedAt),',
-    expect: 'ends once they are really gone',
-    suite: EXPOSURE_SUITE,
+    from: '      const effectiveAt = state.aloneSince ?? at',
+    to: '      const effectiveAt = at',
+    expect: 'ends the shared watch when A actually left, not when B did',
+    suite: LIFECYCLE_SUITE,
   },
   {
     name: 'together: report the final count rather than the peak',
@@ -351,8 +354,8 @@ const MUTATIONS = [
   {
     name: 'together: keep the session open after navigating away',
     file: TOGETHER,
-    from: "      if (state && state.channel !== channel) {\n        const ended = close('left_channel', at)",
-    to: "      if (false) {\n        const ended = close('left_channel', at)",
+    from: "      if (state && state.channel !== channel) {\n        events.push(...closeAll('left_channel', at))",
+    to: "      if (false) {\n        events.push(...closeAll('left_channel', at))",
     expect: 'ends at once when the user navigates away',
     suite: EXPOSURE_SUITE,
   },
@@ -413,6 +416,167 @@ const MUTATIONS = [
     to: '        await recorder.flush()',
     expect: 'never sends the previous account events under the next account',
     suite: HUB_SUITE,
+  },
+
+  // ------------------------------------------- social discovery semantics
+  //
+  // The observed bug and its neighbours. Every one of these was true of the
+  // code that shipped, and none of them changed a duration by enough for a
+  // duration assertion to notice - which is why the tests they point at assert
+  // the effective TIME and the REASON as hard as the length.
+  {
+    name: 'together: date the end of co-viewing to when it was noticed',
+    file: HUB,
+    from: '          occurredAt: event.effectiveAt,',
+    to: '          occurredAt: event.detectedAt,',
+    expect: 'dates the end of co-viewing to when it happened, not when it was noticed',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'together: measure the shared watch to the detection instead of the end',
+    file: TOGETHER,
+    from: '      durationMs: Math.max(0, effectiveAt - open.startedAt),',
+    to: '      durationMs: Math.max(0, detectedAt - open.startedAt),',
+    expect: 'records the shared watch as ten minutes, not fifty',
+    suite: LIFECYCLE_SUITE,
+  },
+  {
+    name: 'together: blame whatever revealed the end rather than what caused it',
+    file: TOGETHER,
+    from: "      out.push(togetherEnded(state.aloneSince !== null ? 'alone_again' : reason, effectiveAt, at))",
+    to: '      out.push(togetherEnded(reason, effectiveAt, at))',
+    expect: 'says it ended because everyone left, not because B did',
+    suite: LIFECYCLE_SUITE,
+  },
+  {
+    name: 'together: throw away the detection lag',
+    file: HUB,
+    from: '            detection_delay_ms: Math.max(0, event.detectedAt - event.effectiveAt),',
+    to: '            detection_delay_ms: 0,',
+    expect: 'dates the end of co-viewing to when it happened, not when it was noticed',
+    suite: HUB_SUITE,
+  },
+
+  // ------------------------------------------------- post-social retention
+  {
+    name: 'retention: never record the time spent alone afterwards',
+    file: TOGETHER,
+    from: "      if (state.aloneSince !== null) out.push(postSocialEnded(reason, state.aloneSince, at))",
+    to: '',
+    expect: 'records the forty minutes B stayed on alone',
+    suite: LIFECYCLE_SUITE,
+  },
+  {
+    name: 'retention: start it when the user leaves rather than when the friends did',
+    file: TOGETHER,
+    from: '      durationMs: Math.max(0, at - from),',
+    to: '      durationMs: 0,',
+    expect: 'records the forty minutes B stayed on alone',
+    suite: LIFECYCLE_SUITE,
+  },
+  {
+    name: 'retention: begin it before the social context has dissolved',
+    file: TOGETHER,
+    from: '          state.otherCountPeak = Math.max(state.otherCountPeak, otherCount)\n          state.aloneSince = null',
+    to: '          state.otherCountPeak = Math.max(state.otherCountPeak, otherCount)',
+    expect: 'counts the whole stretch, including the flap, as together',
+    suite: LIFECYCLE_SUITE,
+  },
+  {
+    name: 'retention: leave a gap between co-viewing ending and retention starting',
+    file: TOGETHER,
+    from: '          events.push(togetherEnded(\'alone_again\', state.aloneSince, at))\n          state.socialEndedAt = state.aloneSince',
+    to: '          events.push(togetherEnded(\'alone_again\', state.aloneSince, at))\n          state.socialEndedAt = at',
+    expect: 'leaves no gap or overlap between the two intervals',
+    suite: LIFECYCLE_SUITE,
+  },
+
+  // --------------------------------------------- last friend, not any friend
+  {
+    name: 'together: end as soon as the group starts thinning out',
+    file: TOGETHER,
+    from: '        if (otherCount > 0) {\n          state.otherCountPeak = Math.max(state.otherCountPeak, otherCount)',
+    to: '        if (otherCount >= state.otherCountPeak) {\n          state.otherCountPeak = Math.max(state.otherCountPeak, otherCount)',
+    expect: 'keeps the shared watch going while any of them remain',
+    suite: LIFECYCLE_SUITE,
+  },
+
+  // ------------------------------------------------------ cluster attribution
+  {
+    name: 'cluster: drop the attribution when friends come back',
+    file: TOGETHER,
+    from: '            attributionId: state.attributionId,\n            aloneSince: null,\n            socialEndedAt: null,\n          }\n          events.push({',
+    to: '            attributionId: null,\n            aloneSince: null,\n            socialEndedAt: null,\n          }\n          events.push({',
+    expect: 'closes the retention and opens a new shared watch',
+    suite: LIFECYCLE_SUITE,
+  },
+  {
+    name: 'cluster: credit an organic shared watch to a JOIN anyway',
+    file: HUB,
+    from: "          from_join: event.attributionId !== null,\n          end_reason: event.reason,",
+    to: '          from_join: true,\n          end_reason: event.reason,',
+    expect: 'claims no JOIN credit for organic co-viewing',
+    suite: HUB_SUITE,
+  },
+  {
+    name: 'cluster: record one shared watch per friend rather than per opportunity',
+    file: TOGETHER,
+    from: '      if (state && state.socialEndedAt !== null) {',
+    to: '      if (state && state.socialEndedAt !== null && false) {',
+    expect: 'closes the retention and opens a new shared watch',
+    suite: LIFECYCLE_SUITE,
+  },
+
+  // -------------------------------------------------------- client clocks
+  {
+    name: 'clock: accept an event dated a day into the future again',
+    file: MIGRATION_15,
+    from: "       or v_occurred > now() + interval '5 minutes'",
+    to: "       or v_occurred > now() + interval '1 day'",
+    expect: 'refuses an event dated in the future',
+    suite: DB_SUITE,
+  },
+  {
+    name: 'clock: refuse the late-arriving events this whole design depends on',
+    file: MIGRATION_15,
+    from: "       or v_occurred < now() - interval '1 day' then",
+    to: "       or v_occurred < now() - interval '5 minutes' then",
+    expect: 'accepts an event dated well in the past, because late detection is real',
+    suite: DB_SUITE,
+  },
+
+  // ------------------------------------------------------ contract and views
+  {
+    name: 'contract: forget to register the cluster identity',
+    file: MIGRATION_15,
+    from: "   array['social_count', 'already_on_twitch', 'already_on_destination', 'navigated',\n         'opportunity_key']),",
+    to: "   array['social_count', 'already_on_twitch', 'already_on_destination', 'navigated']),",
+    expect: 'round-trips on a join, so Social Gravity needs no contract change',
+    suite: DB_SUITE,
+  },
+  {
+    name: 'contract: leave the detection lag out of the event contract',
+    file: MIGRATION_15,
+    from: "   array['other_count_peak', 'duration_ms', 'end_reason', 'detection_delay_ms']),",
+    to: "   array['other_count_peak', 'duration_ms', 'end_reason']),",
+    expect: 'reads the LATER definition when a migration revises one',
+    suite: CONTRACT_SUITE,
+  },
+  {
+    name: 'views: report every shared watch as retained',
+    file: VIEWS_16,
+    from: '  p.id is not null              as post_social_retained',
+    to: '  true                          as post_social_retained',
+    expect: 'reports no retention when the user left first',
+    suite: DB_SUITE,
+  },
+  {
+    name: 'views: collapse the effective end into the detection time',
+    file: VIEWS_16,
+    from: '  e.occurred_at                 as effective_ended_at,',
+    to: '  e.occurred_at\n    + make_interval(secs => coalesce((e.properties ->> \'detection_delay_ms\')::bigint, 0) / 1000.0)\n                                as effective_ended_at,',
+    expect: 'separates when co-viewing ended from when we noticed',
+    suite: DB_SUITE,
   },
 ]
 

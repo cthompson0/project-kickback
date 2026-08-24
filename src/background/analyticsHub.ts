@@ -148,26 +148,53 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
   function emitTogether(events: ReturnType<typeof together.update>): void {
     for (const event of events) {
       if (event.type === 'started') {
-        recorder.track({
+        record({
           name: 'watching_together_started',
           properties: { other_count: event.otherCount, from_join: event.attributionId !== null },
           channel: event.channel,
           attributionId: event.attributionId,
           occurredAt: event.at,
         })
-      } else {
-        recorder.track({
+        continue
+      }
+
+      if (event.type === 'ended') {
+        record({
           name: 'watching_together_ended',
           properties: {
             other_count_peak: event.otherCountPeak,
             duration_ms: event.durationMs,
             end_reason: event.reason,
+            detection_delay_ms: Math.max(0, event.detectedAt - event.effectiveAt),
           },
           channel: event.channel,
           attributionId: event.attributionId,
-          occurredAt: event.at,
+          /*
+           * The EFFECTIVE end, not the moment we noticed.
+           *
+           * A remote friend leaving is something we work out, sometimes long
+           * afterwards - forty minutes, in the case this was written for. If
+           * the event were dated to the detection, every "when did people stop
+           * watching together" question would be wrong by however slow we
+           * were, and post-social retention would start in the wrong place.
+           * The lag is not lost: it is the property above.
+           */
+          occurredAt: event.effectiveAt,
         })
+        continue
       }
+
+      record({
+        name: 'post_social_retention_ended',
+        properties: {
+          duration_ms: event.durationMs,
+          from_join: event.attributionId !== null,
+          end_reason: event.reason,
+        },
+        channel: event.channel,
+        attributionId: event.attributionId,
+        occurredAt: event.at,
+      })
     }
   }
 
@@ -314,9 +341,16 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       if (off) return
       const login = normalizeChannel(channel)
       serial(async () => {
-        // A shared watch beginning on a channel a JOIN led to is that JOIN's
-        // outcome even if presence took a minute to catch up.
-        if (login && !together.current()) {
+        /*
+         * A shared watch beginning on a channel a JOIN led to is that JOIN's
+         * outcome even if presence took a minute to catch up.
+         *
+         * Asked of the tracker rather than of `current()`: a post-social
+         * interval is open state, but the shared watch that follows it if
+         * somebody comes back inherits the attribution already held, so
+         * looking one up again would be wrong as well as wasteful.
+         */
+        if (login && together.wantsAttribution()) {
           const credit = await attribution.forTogether(login)
           if (credit) together.attribute(credit.id)
         }

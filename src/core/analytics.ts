@@ -81,7 +81,13 @@ export interface AnalyticsEventMap {
   friend_presence_impression: { state: 'watching_with_you' | 'watching_elsewhere'; visible_count: number }
   gathering_impression: { friend_count: number; rank: number; visible_count: number }
   /** Reserved for Social Gravity. Registered now so that checkpoint adds no plumbing. */
-  gravity_cluster_impression: { friend_count: number; rank: number; visible_clusters: number }
+  gravity_cluster_impression: {
+    friend_count: number
+    rank: number
+    visible_clusters: number
+    /** Reserved, as on join_clicked: which opportunity was shown. */
+    opportunity_key?: string
+  }
 
   // --------------------------------------------------------------------- join
   join_clicked: {
@@ -89,15 +95,45 @@ export interface AnalyticsEventMap {
     already_on_twitch: boolean
     already_on_destination: boolean
     navigated: boolean
+    /**
+     * Identity of the social opportunity acted on, when there is one.
+     *
+     * Registered and currently unset. A friend row is one person and needs no
+     * key; a Social Gravity cluster is a thing several people can act on
+     * separately, and counting how many viewers ONE gathering produced needs
+     * them to agree on what one gathering was. Reserved here so that
+     * checkpoint sets a property rather than changing a contract.
+     */
+    opportunity_key?: string
   }
   join_arrived: { elapsed_ms: number }
 
   // --------------------------------------------------------- watching together
   watching_together_started: { other_count: number; from_join: boolean }
+  /**
+   * Recorded at the moment co-viewing actually stopped, not when we noticed.
+   * See togetherWatch.ts - the two can be forty minutes apart.
+   */
   watching_together_ended: {
     other_count_peak: number
     duration_ms: number
     end_reason: TogetherEndReason
+    /** How long after the fact this was worked out. Zero when immediate. */
+    detection_delay_ms: number
+  }
+  /**
+   * The user stayed on a socially-attributed destination after the last person
+   * they were watching with had gone - and has now left it too.
+   *
+   * There is deliberately no matching start event: the interval begins exactly
+   * where watching_together_ended's effective time is, so one would be a second
+   * copy of a fact we already have, with a second chance to disagree with it.
+   */
+  post_social_retention_ended: {
+    duration_ms: number
+    /** False for organic co-viewing that no JOIN brought about. */
+    from_join: boolean
+    end_reason: PostSocialEndReason
   }
 
   // --------------------------------------------------------------- gatherings
@@ -117,6 +153,7 @@ export type AnalyticsEventName = keyof AnalyticsEventMap
 
 export type SessionEndReason = 'idle' | 'signed_out'
 export type TogetherEndReason = 'left_channel' | 'alone_again' | 'session_ended'
+export type PostSocialEndReason = 'left_channel' | 'rejoined' | 'session_ended'
 export type LengthBucket = 'short' | 'medium' | 'long'
 
 /** Message length as a bucket, because the length itself is nearly the message. */
@@ -146,13 +183,25 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
 
   friend_presence_impression: ['state', 'visible_count'],
   gathering_impression: ['friend_count', 'rank', 'visible_count'],
-  gravity_cluster_impression: ['friend_count', 'rank', 'visible_clusters'],
+  gravity_cluster_impression: ['friend_count', 'rank', 'visible_clusters', 'opportunity_key'],
 
-  join_clicked: ['social_count', 'already_on_twitch', 'already_on_destination', 'navigated'],
+  join_clicked: [
+    'social_count',
+    'already_on_twitch',
+    'already_on_destination',
+    'navigated',
+    'opportunity_key',
+  ],
   join_arrived: ['elapsed_ms'],
 
   watching_together_started: ['other_count', 'from_join'],
-  watching_together_ended: ['other_count_peak', 'duration_ms', 'end_reason'],
+  watching_together_ended: [
+    'other_count_peak',
+    'duration_ms',
+    'end_reason',
+    'detection_delay_ms',
+  ],
+  post_social_retention_ended: ['duration_ms', 'from_join', 'end_reason'],
 
   gathering_notification_shown: ['friend_count'],
   gathering_notification_clicked: ['friend_count'],

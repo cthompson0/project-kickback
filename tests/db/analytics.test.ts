@@ -418,3 +418,269 @@ describe('analytics is a separate island from product data', () => {
     expect(rows[0].has).toBe(false)
   })
 })
+
+describe('the socially-attributed destination lifecycle', () => {
+  const S = '11111111-1111-4111-8111-111111111111'
+  const A = '22222222-2222-4222-8222-222222222222'
+  const t0 = Date.now() - 2 * 60 * 60 * 1000
+  const iso = (ms: number) => new Date(ms).toISOString()
+
+  /**
+   * The exact case two-account testing turned up: co-viewing ends ten minutes
+   * in, is not noticed for forty, and the user stays on the destination the
+   * whole time. The client sends the EFFECTIVE end as occurred_at and the lag
+   * as a property, so the database has to accept a timestamp well in the past.
+   */
+  async function recordLifecycle(user: TestUser) {
+    return track(user, [
+      {
+        event_name: 'join_clicked',
+        environment: 'private_beta',
+        session_id: S,
+        attribution_id: A,
+        occurred_at: iso(t0),
+        source: 'friend_row',
+        destination_channel: 'summit1g',
+        properties: {
+          social_count: 1,
+          already_on_twitch: true,
+          already_on_destination: false,
+          navigated: true,
+        },
+      },
+      {
+        event_name: 'join_arrived',
+        environment: 'private_beta',
+        session_id: S,
+        attribution_id: A,
+        occurred_at: iso(t0 + 4_000),
+        source: 'friend_row',
+        destination_channel: 'summit1g',
+        properties: { elapsed_ms: 4_000 },
+      },
+      {
+        event_name: 'watching_together_started',
+        environment: 'private_beta',
+        session_id: S,
+        attribution_id: A,
+        occurred_at: iso(t0 + 5_000),
+        destination_channel: 'summit1g',
+        properties: { other_count: 1, from_join: true },
+      },
+      {
+        event_name: 'watching_together_ended',
+        environment: 'private_beta',
+        session_id: S,
+        attribution_id: A,
+        // Ten minutes after it started - not when it was noticed.
+        occurred_at: iso(t0 + 5_000 + 600_000),
+        destination_channel: 'summit1g',
+        properties: {
+          other_count_peak: 1,
+          duration_ms: 600_000,
+          end_reason: 'alone_again',
+          detection_delay_ms: 2_400_000,
+        },
+      },
+      {
+        event_name: 'post_social_retention_ended',
+        environment: 'private_beta',
+        session_id: S,
+        attribution_id: A,
+        occurred_at: iso(t0 + 5_000 + 600_000 + 2_400_000),
+        destination_channel: 'summit1g',
+        properties: { duration_ms: 2_400_000, from_join: true, end_reason: 'left_channel' },
+      },
+    ])
+  }
+
+  it('accepts the whole lifecycle, including a late-dated end', async () => {
+    expect(await recordLifecycle(nina)).toBe(5)
+  })
+
+  it('reads back as one funnel row, joined on the attribution', async () => {
+    await recordLifecycle(nina)
+
+    const [row] = await db.root<Record<string, unknown>>(
+      `select source, destination_channel, social_count, arrival_elapsed_ms,
+              together_duration::text        as together_duration,
+              together_detection_delay::text as detection_delay,
+              together_end_reason,
+              post_social_retained,
+              post_social_duration::text     as post_social_duration,
+              destination_left_at is not null as has_left
+         from public.analytics_join_funnel_v`,
+    )
+
+    expect(row).toMatchObject({
+      source: 'friend_row',
+      destination_channel: 'summit1g',
+      social_count: 1,
+      arrival_elapsed_ms: 4000,
+      // Ten minutes together; forty minutes late finding out; forty staying on.
+      together_duration: '00:10:00',
+      detection_delay: '00:40:00',
+      together_end_reason: 'alone_again',
+      post_social_retained: true,
+      post_social_duration: '00:40:00',
+      has_left: true,
+    })
+  })
+
+  it('separates when co-viewing ended from when we noticed', async () => {
+    await recordLifecycle(nina)
+    const [row] = await db.root<{ ended: string; detected: string; ok: boolean }>(
+      `select effective_ended_at::text as ended,
+              detected_at::text        as detected,
+              detected_at > effective_ended_at as ok
+         from public.analytics_together_v`,
+    )
+    expect(row.ok).toBe(true)
+    expect(row.ended).not.toBe(row.detected)
+  })
+
+  it('reports no retention when the user left first', async () => {
+    await track(nina, [
+      {
+        event_name: 'watching_together_started',
+        environment: 'private_beta',
+        session_id: S,
+        occurred_at: iso(t0),
+        destination_channel: 'lirik',
+        properties: { other_count: 2, from_join: false },
+      },
+      {
+        event_name: 'watching_together_ended',
+        environment: 'private_beta',
+        session_id: S,
+        occurred_at: iso(t0 + 300_000),
+        destination_channel: 'lirik',
+        properties: {
+          other_count_peak: 2,
+          duration_ms: 300_000,
+          end_reason: 'left_channel',
+          detection_delay_ms: 0,
+        },
+      },
+    ])
+
+    const [row] = await db.root<{ retained: boolean; gone: string | null }>(
+      `select post_social_retained as retained, destination_left_at::text as gone
+         from public.analytics_together_v`,
+    )
+    expect(row.retained).toBe(false)
+    expect(row.gone).toBeNull()
+  })
+
+  it('records organic co-viewing with no JOIN credit', async () => {
+    await track(nina, [
+      {
+        event_name: 'watching_together_started',
+        environment: 'private_beta',
+        session_id: S,
+        occurred_at: iso(t0),
+        destination_channel: 'lirik',
+        properties: { other_count: 1, from_join: false },
+      },
+      {
+        event_name: 'post_social_retention_ended',
+        environment: 'private_beta',
+        session_id: S,
+        occurred_at: iso(t0 + 600_000),
+        destination_channel: 'lirik',
+        properties: { duration_ms: 600_000, from_join: false, end_reason: 'left_channel' },
+      },
+    ])
+
+    // The interval is a fact and is stored; the funnel is about JOINs and
+    // must not claim it.
+    const [row] = await db.root<{ from_join: boolean; attribution: string | null }>(
+      `select (properties ->> 'from_join')::boolean as from_join, attribution_id as attribution
+         from public.analytics_events where event_name = 'post_social_retention_ended'`,
+    )
+    expect(row.from_join).toBe(false)
+    expect(row.attribution).toBeNull()
+    expect(await db.root('select * from public.analytics_join_funnel_v')).toHaveLength(0)
+  })
+})
+
+describe('the reserved cluster identity', () => {
+  it('round-trips on a join, so Social Gravity needs no contract change', async () => {
+    // Nothing emits this yet. Proving the path works now is what stops the
+    // next checkpoint discovering that it does not.
+    await track(nina, [
+      {
+        event_name: 'join_clicked',
+        environment: 'private_beta',
+        occurred_at: NOW(),
+        source: 'social_gravity',
+        destination_channel: 'xqc',
+        attribution_id: '33333333-3333-4333-8333-333333333333',
+        properties: { social_count: 3, navigated: true, opportunity_key: 'gravity:xqc:7' },
+      },
+    ])
+
+    const [row] = await db.root<{ key: string; count: number }>(
+      `select opportunity_key as key, social_count as count from public.analytics_join_funnel_v`,
+    )
+    // The cluster is identified as a cluster, and by its size - never by one
+    // arbitrarily chosen member of it.
+    expect(row.key).toBe('gravity:xqc:7')
+    expect(row.count).toBe(3)
+  })
+
+  it('is still stripped from an event that does not declare it', async () => {
+    await track(nina, [
+      event({ event_name: 'group_created', properties: { opportunity_key: 'nope' } }),
+    ])
+    const [row] = await db.root<{ properties: Record<string, unknown> }>(
+      `select properties from public.analytics_events where event_name = 'group_created'`,
+    )
+    expect(row.properties).toEqual({})
+  })
+})
+
+describe('how far the client clock is trusted', () => {
+  it('accepts an event dated well in the past, because late detection is real', async () => {
+    // A shared watch that ended when the friends left is emitted when the user
+    // finally moves, which can be hours. Refusing those would throw away the
+    // measurement this all exists for.
+    const sixHoursAgo = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+    await track(nina, [event({ occurred_at: sixHoursAgo })])
+
+    const [row] = await db.root<{ kept: boolean }>(
+      `select occurred_at < now() - interval '5 hours' as kept from public.analytics_events`,
+    )
+    expect(row.kept).toBe(true)
+  })
+
+  it('refuses an event dated in the future', async () => {
+    // Nothing that has already happened happens later than now, so the only
+    // thing a future timestamp can be is a wrong clock or a hostile one.
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    await track(nina, [event({ occurred_at: tomorrow })])
+
+    const [row] = await db.root<{ clamped: boolean }>(
+      `select occurred_at <= now() + interval '1 minute' as clamped from public.analytics_events`,
+    )
+    expect(row.clamped).toBe(true)
+  })
+
+  it('tolerates a clock that is only a little fast', async () => {
+    const soon = new Date(Date.now() + 60 * 1000).toISOString()
+    await track(nina, [event({ occurred_at: soon })])
+
+    const [row] = await db.root<{ kept: boolean }>(
+      `select occurred_at > now() + interval '30 seconds' as kept from public.analytics_events`,
+    )
+    expect(row.kept).toBe(true)
+  })
+
+  it('always records when it actually arrived, whatever the client said', async () => {
+    await track(nina, [event({ occurred_at: new Date(Date.now() - 60 * 60 * 1000).toISOString() })])
+    const [row] = await db.root<{ recent: boolean }>(
+      `select received_at > now() - interval '1 minute' as recent from public.analytics_events`,
+    )
+    expect(row.recent).toBe(true)
+  })
+})

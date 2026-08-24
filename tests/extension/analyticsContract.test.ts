@@ -26,19 +26,36 @@ import {
 
 const MIGRATION = readFileSync('supabase/migrations/0013_analytics.sql', 'utf8')
 
-/** Pulls the seeded (name, allowed_properties) pairs out of the insert. */
+/**
+ * Every migration that seeds the contract, in the order the bundle applies
+ * them.
+ *
+ * The order is load-bearing rather than incidental. 0013 still lists the shape
+ * watching_together_ended had before the effective-end fix, and resets it on
+ * every bundle run; 0015 runs afterwards and upserts the current one. Reading
+ * only the first file would test a contract the database never ends up with.
+ */
+const CONTRACT_MIGRATIONS = [
+  'supabase/migrations/0013_analytics.sql',
+  'supabase/migrations/0015_social_discovery.sql',
+]
+
+/** Pulls the seeded (name, allowed_properties) pairs out of the inserts. */
 function contractFromSql(): Map<string, string[]> {
   const contract = new Map<string, string[]>()
 
-  // Each row is ('name', 'description', array[...]) or array[]::text[].
-  const rows = MIGRATION.matchAll(
-    /\('([a-z_]+)',\s*\n?\s*'(?:[^']|'')*',\s*\n?\s*array\[([^\]]*)\]/g,
-  )
+  for (const file of CONTRACT_MIGRATIONS) {
+    // Each row is ('name', 'description', array[...]) or array[]::text[].
+    const rows = readFileSync(file, 'utf8').matchAll(
+      /\('([a-z_]+)',\s*\n?\s*'(?:[^']|'')*',\s*\n?\s*array\[([^\]]*)\]/g,
+    )
 
-  for (const row of rows) {
-    const [, name, body] = row
-    const properties = [...body.matchAll(/'([a-z_]+)'/g)].map((match) => match[1])
-    contract.set(name, properties)
+    for (const row of rows) {
+      const [, name, body] = row
+      const properties = [...body.matchAll(/'([a-z_]+)'/g)].map((match) => match[1])
+      // Later migrations win, exactly as ON CONFLICT DO UPDATE does.
+      contract.set(name, properties)
+    }
   }
 
   return contract
@@ -52,6 +69,14 @@ describe('the event contract matches the database', () => {
     // test below pass for the wrong reason.
     expect(sql.size).toBeGreaterThan(15)
     expect(sql.has('join_clicked')).toBe(true)
+  })
+
+  it('reads the LATER definition when a migration revises one', () => {
+    // The specific thing the multi-file read exists for: 0013 seeds
+    // watching_together_ended without the detection lag, 0015 adds it, and the
+    // database ends up with 0015's shape.
+    expect(sql.get('watching_together_ended')).toContain('detection_delay_ms')
+    expect(sql.get('join_clicked')).toContain('opportunity_key')
   })
 
   it('registers exactly the events the client can emit', () => {

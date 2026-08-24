@@ -20,17 +20,24 @@
  *                                    identical, so the signatures below must
  *                                    match the migration exactly.
  *
+ * WHAT IT CANNOT TELL YOU
+ *
+ * Two things, both by design. It cannot say whether anybody's events have
+ * arrived - that is a SQL question, and docs/ANALYTICS.md has the query. And
+ * it cannot read the event contract back, because analytics_event_names is
+ * revoked from every client role like everything else here; whether an event
+ * is registered is checked by the migration bundle tests instead, which apply
+ * the real SQL to a real Postgres.
+ *
  * This runs with the publishable key only. It never authenticates, never
- * writes an event, and never prints key material. It cannot tell you whether
- * anybody's events have arrived - that is a SQL question, and docs/ANALYTICS.md
- * has the query.
+ * writes an event, and never prints key material.
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 const ENV_PATH = '.env.local'
 
-/** Must match supabase/migrations/0013 and 0014 exactly. */
+/** Must match supabase/migrations/0013 through 0016 exactly. */
 const TABLES = [
   'analytics_events',
   'analytics_actors',
@@ -56,6 +63,14 @@ const FUNCTIONS = [
   ['analytics_clean_properties', { p_properties: {}, p_allowed: [] }],
   ['analytics_reset_environment', { p_environment: 'x', p_confirm: 'x' }],
   ['consume_rate_budget_n', { p_bucket: 'x', p_amount: 1, p_limit: 1, p_window: '00:05:00' }],
+  /*
+   * The marker 0016 leaves behind.
+   *
+   * Everything else 0015 and 0016 change is a contract row, a function body or
+   * a view column, and all of those are invisible from here - so without this,
+   * a database that had stopped at 0014 would report as fully healthy.
+   */
+  ['analytics_schema_version', {}],
 ]
 
 function readEnv() {
@@ -101,7 +116,7 @@ export async function verifyAnalyticsSchema({ quiet = false } = {}) {
   const exposed = []
 
   log('project      :', url)
-  log('checking     : migrations 0013 and 0014 against the hosted database\n')
+  log('checking     : migrations 0013 - 0016 against the hosted database\n')
 
   for (const relation of [...TABLES, ...VIEWS]) {
     let code
@@ -164,7 +179,7 @@ export async function verifyAnalyticsSchema({ quiet = false } = {}) {
     }
     if (exposed.length > 0) {
       console.error(`\nReadable by an anonymous client: ${exposed.join(', ')}`)
-      console.error('The revokes in 0013/0014 have not taken effect. Re-apply them.')
+      console.error('The revokes in 0013/0014/0016 have not taken effect. Re-apply them.')
     }
   }
 

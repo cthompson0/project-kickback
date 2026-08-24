@@ -36,11 +36,12 @@ Every event carries:
 | `environment` | `development`, `private_beta` or `production` — which build produced it. |
 | `event_name` | One of the events in section 4. Anything else is discarded. |
 | `session_id` | A random id for this stretch of Kickback use. Not linked to anything outside analytics. |
-| `occurred_at` / `received_at` | Your clock and the server's. A client clock more than a day out is replaced. |
+| `occurred_at` | When the thing **happened**, which for a shared watch ending is not when it was noticed. See section 8. |
+| `received_at` | When the row reached the database. Always the server's clock. |
 | `app_version` | e.g. `0.5.0`. So a tester on an old ZIP is identifiable as such. |
-| `source` | Which Kickback surface: `friend_row`, `gathering`, `notification`, `group`, `user_card`. |
+| `source` | Which Kickback surface: `friend_row`, `user_card`, `gathering`, `notification`, `group`; later `social_gravity`. |
 | `destination_channel` | A Twitch channel login, for events that are about going somewhere. See section 3. |
-| `attribution_id` | A random id linking one JOIN click to what followed it. Expires within minutes. |
+| `attribution_id` | A random id linking one JOIN click to its arrival, shared watch and post-social retention. Held in the browser for minutes, then dropped. |
 | `properties` | A handful of counts, buckets and flags. Each event's allowed keys are listed in the database. |
 
 ### What is never collected
@@ -77,8 +78,15 @@ channel metadata later.
 
 What matters for privacy is the *scope*, and the scope is narrow: the channel
 is recorded only for events that are about a destination — a JOIN, an
-impression of somebody being somewhere, a shared watch. Ordinary browsing
-records nothing. There are no URLs, no paths, no titles, and no history.
+impression of somebody being somewhere, a shared watch, and the retention that
+followed one. Ordinary browsing records nothing. There are no URLs, no paths,
+no titles, and no history.
+
+Post-social retention does not widen this. It is recorded **only** for a
+destination where co-viewing had already happened, so it adds one interval to a
+channel that was already in the record for a social reason. Watching a channel
+Kickback knows nothing about produces no event at all, whatever you do there
+and however long you stay.
 
 ---
 
@@ -106,7 +114,8 @@ In summary:
 
 **JOIN** — `join_clicked`, `join_arrived`
 
-**Watching together** — `watching_together_started`, `watching_together_ended`
+**Watching together** — `watching_together_started`, `watching_together_ended`,
+`post_social_retention_ended`
 
 **Gatherings** — `gathering_notification_shown`,
 `gathering_notification_clicked`
@@ -196,25 +205,102 @@ Then it is dropped. Nothing here accumulates.
 
 ---
 
-## 8. Watching together
+## 8. Watching together, and what happens after
 
-A shared watch starts when you are on a channel and at least one person visible
-to you is too, and ends when you leave, when the last of them does, or when the
-session ends.
+Two intervals, measured separately, because merging them would answer neither
+question.
 
-Two pieces of hysteresis, both earned:
+**Shared watch** — you are on a channel and at least one person visible to you
+is too. Detected from real presence through the same `describePresence`
+selector the UI uses, so "Watching with you" on screen and
+`watching_together` in analytics cannot mean different things.
+
+**Post-social retention** — the last of them has gone and you are still there.
+This is the interval that says whether a socially-attributed destination
+survived the social context that produced it.
+
+### Detection time is not event time
+
+This is the correction that this whole section exists for, and it came out of
+real two-account testing.
+
+A was watching summit1g. B joined and both were Watching Together. A left; B
+kept watching alone for forty minutes and then left. B's shared watch was
+recorded with the right *duration* — but stamped forty minutes late, and
+labelled `left_channel` when what actually ended it was running out of people.
+The forty minutes B stayed on were recorded nowhere at all.
+
+The cause is that a remote friend leaving is not something we are told. It is
+something we work out, when presence stops arriving — and if no presence
+traffic arrives at all, we may not work it out until the user themselves moves.
+
+So every end carries **both** times:
+
+| | Meaning |
+|---|---|
+| `occurred_at` | When co-viewing actually stopped. This is the event's time and what every duration is measured against. |
+| `detection_delay_ms` | How long after that we worked it out. Zero when immediate; forty minutes in the case above. |
+| `received_at` | When the row reached the database, as always. |
+
+`analytics_together_v` exposes `effective_ended_at`, `detected_at` and
+`detection_delay` as separate columns. **A late detection can no longer inflate
+a duration**, and how late we were stays visible instead of being lost.
+
+### Hysteresis, and why durations still exclude it
 
 - Presence heartbeats every 45s and goes stale at 90s, so a friend can briefly
-  appear to vanish. The end therefore waits **2 minutes** — otherwise one
-  evening becomes a dozen sessions, each too short to mean anything.
+  appear to vanish. Ending on that would chop one evening into a dozen
+  fragments, so the end waits **2 minutes** — but the interval is dated to when
+  they actually went, not to when the wait expired.
 - A channel change ends it immediately, because that is not ambiguous.
+- `other_count_peak` is the most people it ever had, which answers "how shared
+  was this" better than whoever happened to still be there at the end.
 
-The recorded duration runs to when the others were **last actually there**, not
-through the grace period, so durations are not inflated by two minutes each.
-`other_count_peak` is the most people it ever had, which answers "how shared was
-this" better than whoever happened to still be there at the end.
+### The rules, precisely
 
----
+| Situation | Shared watch | Post-social retention |
+|---|---|---|
+| Last co-viewer leaves at T1, user leaves at T2 | ends at **T1**, reason `alone_again` | T1 → T2 |
+| User leaves while still with people | ends now, reason `left_channel` | none |
+| One of several friends leaves | continues | none — it starts only when the **last** one goes |
+| Friend vanishes briefly and returns | continues, gap included | none |
+| Friend returns after the context dissolved | a **new** shared watch starts | ends, reason `rejoined` |
+| User changes channel | ends | ends, reason `left_channel` |
+| Sign-out | ends, reason `session_ended` | ends, reason `session_ended` |
+| Co-viewing that no JOIN caused | measured | measured, but with **no attribution** |
+
+That last row matters. The intervals are facts and are recorded either way; the
+*credit* is not. `from_join` is false and `attribution_id` is null for organic
+co-viewing, and `analytics_join_funnel_v` does not contain it at all.
+
+### Retention as a metric, not a judgement
+
+`post_social_retained` is true whenever the user was still on the destination
+after the social context dissolved — including by two seconds. **How long** is
+`post_social_duration`. A query that wants "meaningfully retained" should
+threshold on the duration; the boolean deliberately does not decide for you.
+
+## 8a. Individual referral versus cluster referral
+
+A JOIN's social cause is not always a person.
+
+| | `source` | What caused it |
+|---|---|---|
+| Individual referral | `friend_row`, `user_card` | one person, whose row was clicked |
+| Cluster referral | `gathering`, `group`, later `social_gravity` | the **opportunity**, not any one member of it |
+
+`social_count` records how many people the surface was showing. Nothing
+anywhere records *which* friend was in a cluster, and nothing picks one to
+credit: when A sees "🔥 xQc · 3 friends" and joins, the social context gets the
+attribution, not Jake.
+
+`opportunity_key` is registered on `join_clicked` and
+`gravity_cluster_impression` and is **not set by anything yet**. A friend row is
+one person and needs no key; a Gravity cluster is a thing several people act on
+separately, and "how many viewers did *one* gathering produce" needs them to
+agree on what one gathering was. It is reserved now, and its round-trip is
+tested, so that checkpoint sets a property rather than changing a contract.
+
 
 ## 9. Environments and test data
 
@@ -264,7 +350,7 @@ Per active user per day, on ordinary use:
 | 2–6 | session starts and ends |
 | 5–40 | presence and gathering impressions (one per friend-and-channel per 30 min the panel is open) |
 | 0–10 | JOIN clicks and arrivals |
-| 0–6 | shared-watch starts and ends |
+| 0–9 | shared-watch starts and ends, plus the retention that followed one |
 | 0–30 | group opens, messages, combos |
 
 **Roughly 10–90 events per user per day**, dominated by impressions and
@@ -393,6 +479,92 @@ order by first_day;
 ```
 
 ```sql
+-- The whole socially-attributed destination lifecycle, one row per JOIN.
+-- This is the query to run when inspecting a single real test.
+select source,
+       destination_channel                      as destination,
+       social_count,
+       opportunity_key,                          -- null until Social Gravity
+       clicked_at,
+       arrived_at,
+       together_started_at,
+       together_effective_ended_at,              -- when co-viewing really ended
+       together_detected_at,                     -- when we worked that out
+       together_detection_delay,
+       together_duration,
+       together_end_reason,
+       post_social_retained,
+       post_social_duration,
+       destination_left_at
+from public.analytics_join_funnel_v
+where environment = 'private_beta'
+order by clicked_at desc
+limit 20;
+```
+
+```sql
+-- Post-social retention rate, by the surface that produced the JOIN.
+-- The 60-second floor is a choice, not a definition: `post_social_retained`
+-- is true for two seconds of retention, and thresholding belongs in the query.
+select source,
+       count(*)                                                     as shared_watches,
+       count(*) filter (where post_social_duration > interval '60 seconds')
+                                                                    as retained,
+       round(100.0 * count(*) filter (where post_social_duration > interval '60 seconds')
+                   / nullif(count(*), 0), 1)                        as retention_pct,
+       avg(post_social_duration) filter (where post_social_retained) as avg_stay
+from public.analytics_join_funnel_v
+where environment = 'private_beta'
+  and together_started_at is not null
+group by source
+order by shared_watches desc;
+```
+
+```sql
+-- Shared-watch duration, split by whether a JOIN caused it.
+-- Organic co-viewing is measured but never credited to a JOIN, so it is the
+-- honest baseline to compare an attributed shared watch against.
+select from_join,
+       count(*)                        as intervals,
+       avg(duration)                   as avg_duration,
+       percentile_cont(0.5) within group (order by extract(epoch from duration))
+                                       as median_seconds,
+       avg(other_count_peak)           as avg_people
+from public.analytics_together_v
+where environment = 'private_beta' and duration is not null
+group by from_join;
+```
+
+```sql
+-- How late our detection actually is. Worth watching: a large delay does not
+-- corrupt any duration, but it does mean live dashboards lag reality.
+select count(*)                                          as ended_intervals,
+       count(*) filter (where detection_delay > interval '0')  as noticed_late,
+       max(detection_delay)                              as worst,
+       percentile_cont(0.9) within group (order by extract(epoch from detection_delay))
+                                                         as p90_seconds
+from public.analytics_together_v
+where environment = 'private_beta' and effective_ended_at is not null;
+```
+
+```sql
+-- Social amplification, as far as it can be measured today: how many distinct
+-- viewers a destination drew through Kickback in a window.
+--
+-- Per-DESTINATION, not per-gathering. Counting the viewers one specific
+-- gathering produced needs `opportunity_key`, which nothing sets yet.
+select destination_channel,
+       date_trunc('hour', arrived_at)   as hour,
+       count(distinct actor_id)         as arrivals,
+       count(distinct actor_id) filter (where post_social_retained) as stayed_on
+from public.analytics_join_funnel_v
+where environment = 'private_beta' and arrived_at is not null
+group by destination_channel, hour
+order by arrivals desc
+limit 20;
+```
+
+```sql
 -- Everything split by environment, to check nothing is mixed
 select environment, count(*) as events, count(distinct actor_id) as people,
        min(occurred_at) as first_seen, max(occurred_at) as last_seen
@@ -402,23 +574,113 @@ group by environment;
 
 ---
 
+## 11a. The strategic metrics
+
+What the schema can answer today, and what it cannot. Anything marked FUTURE is
+not computable now and must not be quoted.
+
+| # | Metric | Status | How |
+|---|---|---|---|
+| 1 | **Social JOIN Rate** | ✅ now | share of weekly actives with a `join_clicked`; by `source` for surface comparison |
+| 2 | **Non-Followed Creator JOIN Rate** | 🚫 FUTURE | needs Twitch follow state; see §11b |
+| 3 | **Shared-Watch Duration** | ✅ now | `analytics_together_v.duration`, measured to the effective end |
+| 4 | **Post-Social Retention Rate** | ✅ now | share of shared watches with `post_social_retained` and a duration over your threshold |
+| 5 | **Post-Social Retention Duration** | ✅ now | `analytics_together_v.post_social_duration` |
+| 6 | **Social Follow Conversion** | 🚫 FUTURE | needs Twitch follow state; see §11b |
+| 7 | **Social Amplification** | ⚠️ partial | arrivals per destination per window are computable now; *per gathering* needs `opportunity_key`, which is reserved and unset until Social Gravity |
+| 8 | **Incremental Twitch Engagement** | 🚫 FUTURE | requires a randomised holdout **and** watch-time measurement Kickback does not have |
+| 9 | **Retention lift** | ⚠️ partial | D1/D7/D30 by cohort is computable; *lift* is a causal claim and needs an experiment |
+
+## 11b. Twitch follow state: the future integration point
+
+Two of the metrics above need to know whether the viewer already followed the
+creator when they joined, and whether they followed afterwards. **Kickback
+cannot know either today**, and nothing in the schema pretends otherwise.
+
+The reason is architectural, not an oversight: Kickback deliberately retains no
+usable Twitch provider token. Supabase holds the OAuth result, the extension
+never sees a provider access token, and no scope beyond the default has been
+requested. Inventing `following_at_join` from anything we *do* have would be
+fabrication.
+
+### What would be needed
+
+A separate **Twitch OAuth/API capability** checkpoint — explicitly not this one
+— that adds server-side provider-token handling, a scope audit, and
+`user:read:follows`.
+
+### Why adding it later is cheap
+
+The contract is **data, not DDL**. Registering a new event or a new property is
+one `INSERT ... ON CONFLICT DO UPDATE` into `analytics_event_names`, exactly as
+migration 0015 does. Concretely, that checkpoint would need:
+
+1. `following_at_join` added to `join_clicked`'s allowed properties — one row.
+2. A `creator_followed` event, with `destination_channel` — one row.
+
+No table, column, index, policy or grant changes; no client transport changes.
+
+### Joining a later follow back to the JOIN that may have caused it
+
+The browser drops an attribution within minutes, so a follow observed days
+later cannot quote `attribution_id`. It does not need to: the destination and
+the actor are enough to find the JOIN in SQL.
+
+```sql
+-- The shape a follow-conversion query would take, once the event exists.
+select j.source, j.destination_channel, count(*) as follows
+from public.analytics_reportable_events_v f
+join public.analytics_join_funnel_v j
+  on j.actor_id = f.actor_id
+ and j.destination_channel = f.destination_channel
+ and f.occurred_at between j.clicked_at and j.clicked_at + interval '7 days'
+where f.event_name = 'creator_followed'   -- FUTURE: does not exist yet
+group by j.source, j.destination_channel;
+```
+
+### One semantic distinction to preserve
+
+**"Not following" does not mean "has never watched before."** A viewer may have
+watched a creator for years without following them. Any future field must be
+named for what it observes — `following_at_join` — and never read as
+first-ever-exposure.
+
+If we later want to track first exposure, it must be named honestly (something
+like `first_observed_by_kickback_at`), scoped to destinations Kickback already
+records for a social reason, and understood as *what Kickback saw*, never as
+*what the viewer had done*. Kickback's records begin when Kickback was
+installed; they are not the viewer's history.
+
+---
+
 ## 12. What these numbers can and cannot say
 
 This matters more than any single query.
 
-**Observational data supports** statements about *association* and about
-*Kickback's own funnel*, where the counterfactual is not in question:
+**Observational data supports** statements about *association*, and about
+things Kickback itself did, where the counterfactual is not in question:
 
-- "31% of weekly active users clicked JOIN" — a fact about our own UI.
-- "62% of JOIN clicks resulted in arriving at that channel" — our funnel.
-- "Sessions containing a JOIN are 18% longer than sessions without one" — an
+- ✅ "This JOIN was initiated through Kickback" — we performed the navigation.
+- ✅ "31% of weekly active users clicked JOIN" — a fact about our own UI.
+- ✅ "62% of JOIN clicks resulted in arriving at that channel" — our funnel.
+- ✅ "After co-viewing ended, viewers stayed a median of 11 more minutes" — a
+  measured interval, stated as a measurement.
+- ✅ "Sessions containing a JOIN are 18% longer than sessions without one" — an
   association, and it must be stated as one.
+- ✅ *(once follow state exists)* "The viewer was not following this creator at
+  the time of the JOIN", and "the viewer followed within 7 days of it" — both
+  observations about sequence, not about cause.
 
 **Observational data cannot support** causal claims about Twitch behaviour:
 
 - ❌ "Kickback caused +18% watch time."
+- ❌ "Kickback caused the follow." Following *after* an attributed JOIN is a
+  sequence, not a cause: the viewer chose to join because they were already
+  interested, and might well have found the creator anyway.
 - ❌ "X% of gathering notifications *produced* a Twitch session."
 - ❌ "Social Gravity increased JOINs by Y%."
+- ❌ "Post-social retention proves Kickback creates lasting viewership." It
+  shows the viewer stayed; it does not show they would have left otherwise.
 
 The reason is selection, not sample size. People who click JOIN are people who
 had a reason to — friends online, an evening free, an interest in that
@@ -433,6 +695,8 @@ who does this was going to".
 | "Social Gravity outperforms a flat friends list" | A randomised holdout: assign users to Gravity or flat at signup, compare JOIN rate between arms. This is the one the current schema is shaped for — `source` and the impression events make the comparison a group-by once the arms exist. |
 | "Kickback caused +N% watch time" | A holdout where some users get no gathering surface at all, plus watch-time measurement Kickback does not currently have. Out of scope today. |
 | "Notifications produce sessions" | A randomised notification holdout. `gathering_notification_shown` is recorded for everyone precisely so a suppressed arm would be comparable. |
+| "Kickback caused the follow" | A holdout on the social surface, plus follow state. Comparing followers-after-JOIN to a group that never saw the opportunity - not to people who saw it and declined, who differ in exactly the way that matters. |
+| "Kickback creates lasting viewership" | A holdout, plus watch-time measurement. Post-social retention is the right *outcome* to measure in such an experiment; on its own it is a description of one arm. |
 
 Nothing is ever stored under a name like `incremental`. Events record
 descriptive facts — `already_on_twitch`, `navigated`, `from_join` — and the
@@ -450,9 +714,11 @@ interpretation stays in the query, where it can be argued with.
 | Session lifecycle | `src/background/analyticsSession.ts` |
 | JOIN attribution | `src/background/joinAttribution.ts` |
 | Impression dedupe | `src/background/exposure.ts` |
-| Shared-watch detection | `src/background/togetherWatch.ts` |
+| Shared-watch and post-social detection | `src/background/togetherWatch.ts` |
 | Schema, contract, writer, reset | `supabase/migrations/0013_analytics.sql` |
 | Reporting views | `supabase/migrations/0014_analytics_views.sql` |
+| Social discovery semantics, contract and clock | `supabase/migrations/0015_social_discovery.sql` |
+| Lifecycle reporting views | `supabase/migrations/0016_social_discovery_views.sql` |
 
 `npm run test:analytics` breaks each rule above in turn and asserts a specific
 test goes red. `npm run verify:analytics` checks the hosted schema is applied
