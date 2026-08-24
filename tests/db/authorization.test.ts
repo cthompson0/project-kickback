@@ -71,6 +71,96 @@ describe('identity bootstrap', () => {
     expect(presence.status).toBe('offline')
   })
 
+  it("keeps Twitch's capitalisation, from the claim that actually carries it", async () => {
+    /*
+     * The bug this pins down. Supabase's Twitch provider sets
+     *
+     *   name / full_name -> user.Login        (anoterostv)
+     *   nickname / slug  -> user.DisplayName  (AnoterosTV)
+     *
+     * and 0004 read `name` first, so every display_name in every database was
+     * the lowercase login. The fixture had the two the other way round, which
+     * is exactly why this suite passed while production was wrong.
+     */
+    const user = await db.createUser({ login: 'anoterostv', displayName: 'AnoterosTV' })
+
+    const [profile] = await db.as<{ display_name: string; twitch_login: string }>(
+      user,
+      'select * from public.me()',
+    )
+
+    expect(profile.display_name).toBe('AnoterosTV')
+    // Identity is untouched: the login stays canonical and lowercase.
+    expect(profile.twitch_login).toBe('anoterostv')
+  })
+
+  it('never invents capitalisation when Twitch sends none', async () => {
+    const user = await db.createUser({ login: 'plainname', displayName: 'plainname' })
+    const [profile] = await db.as<{ display_name: string }>(user, 'select * from public.me()')
+    // Not "Plainname". A name nobody chose is worse than a plain one.
+    expect(profile.display_name).toBe('plainname')
+  })
+
+  it('corrects a profile that was stored lowercase before the fix', async () => {
+    // The state every existing account is in. The correction runs from
+    // metadata the database already holds, so nobody signs out and no
+    // friendship or group is touched.
+    const user = await db.createUser({ login: 'legacytv', displayName: 'LegacyTV' })
+
+    await db.root('update public.users set display_name = $1 where id = $2', [
+      'legacytv',
+      user.id,
+    ])
+    await db.root('update public.connected_accounts set platform_display_name = $1 where user_id = $2', [
+      'legacytv',
+      user.id,
+    ])
+
+    // Exactly what migration 0011's backfill does.
+    await db.root(`
+      update public.users u
+      set display_name = left(v.fixed, 60)
+      from (
+        select a.id,
+               public.display_name_from_meta(
+                 coalesce(a.raw_user_meta_data, '{}'::jsonb),
+                 public.login_from_meta(coalesce(a.raw_user_meta_data, '{}'::jsonb))
+               ) as fixed
+        from auth.users a
+      ) v
+      where u.id = v.id and v.fixed is not null and u.display_name is distinct from left(v.fixed, 60)
+    `)
+
+    const [profile] = await db.as<{ display_name: string; twitch_login: string }>(
+      user,
+      'select * from public.me()',
+    )
+    expect(profile.display_name).toBe('LegacyTV')
+    expect(profile.twitch_login).toBe('legacytv')
+  })
+
+  it('falls back to the login itself, unaltered, when no name claim arrives', async () => {
+    // The last resort in the chain. A provider that sends only a username
+    // must not have a capitalisation invented for it - "Sparse" is a name
+    // nobody chose.
+    const user = await db.createUser({
+      login: 'sparsemeta',
+      rawMeta: { sub: 'twitch-sparsemeta', user_name: 'sparsemeta' },
+    })
+    const [profile] = await db.as<{ display_name: string }>(user, 'select * from public.me()')
+    expect(profile.display_name).toBe('sparsemeta')
+  })
+
+  it('reads the display name out of provider metadata', async () => {
+    const meta = { nickname: 'AnoterosTV', name: 'anoterostv', full_name: 'anoterostv' }
+    const [row] = await db.root<{ display: string; login: string }>(
+      `select public.display_name_from_meta($1::jsonb, public.login_from_meta($1::jsonb)) as display,
+              public.login_from_meta($1::jsonb) as login`,
+      [JSON.stringify(meta)],
+    )
+    expect(row).toEqual({ display: 'AnoterosTV', login: 'anoterostv' })
+  })
+
   it('never copies the Twitch email into Kickback data', async () => {
     const [auth] = await db.root<{ email: string }>(
       'select email from auth.users where id = $1',

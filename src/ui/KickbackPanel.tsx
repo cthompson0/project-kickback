@@ -393,6 +393,8 @@ export function KickbackPanel({
                     friends={friends}
                     localActivity={view.localActivity}
                     onRemove={removeFriend}
+                    client={client}
+                    selfId={identity?.userId ?? null}
                   />
                 )}
               </>

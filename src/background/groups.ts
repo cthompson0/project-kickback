@@ -34,6 +34,7 @@ export interface GroupsBackend {
   renameGroup(groupId: string, name: string): Promise<BackendResult<string>>
   deleteGroup(groupId: string): Promise<BackendResult<boolean>>
   inviteToGroup(groupId: string, userId: string): Promise<BackendResult<string>>
+  cancelGroupInvite(groupId: string, userId: string): Promise<BackendResult<string>>
   respondToInvite(inviteId: string, accept: boolean): Promise<BackendResult<string>>
   leaveGroup(groupId: string): Promise<BackendResult<boolean>>
   removeMember(groupId: string, userId: string): Promise<BackendResult<boolean>>
@@ -96,6 +97,7 @@ export interface GroupsService {
   renameGroup(groupId: string, name: string): Promise<void>
   deleteGroup(groupId: string): Promise<void>
   invite(groupId: string, userId: string): Promise<string>
+  cancelInvite(groupId: string, userId: string): Promise<void>
   respondToInvite(inviteId: string, accept: boolean): Promise<string>
   leaveGroup(groupId: string): Promise<void>
   removeMember(groupId: string, userId: string): Promise<void>
@@ -332,6 +334,13 @@ export function createGroupsService(deps: GroupsDeps): GroupsService {
       const outcome = await mutate('invite', () => deps.backend.inviteToGroup(groupId, userId))
       await refresh()
       return outcome
+    },
+
+    async cancelInvite(groupId: string, userId: string): Promise<void> {
+      await mutate('invite', () => deps.backend.cancelGroupInvite(groupId, userId))
+      // Re-read rather than assume: the invitation may have been accepted a
+      // moment ago, in which case they are a member and nothing was cancelled.
+      await refresh()
     },
 
     async respondToInvite(inviteId: string, accept: boolean): Promise<string> {

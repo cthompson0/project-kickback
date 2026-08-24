@@ -134,7 +134,9 @@ describe('the compact activity summary', () => {
     }))
 
   const summary = (members: GroupMember[], local: Activity = { type: 'idle' }) =>
-    withNames(<GroupActivitySummary members={members} localActivity={local} />, { lirik: 'LIRIK' })
+    withNames(<GroupActivitySummary members={members} localActivity={local} selfId="me" />, {
+      lirik: 'LIRIK',
+    })
 
   it('names where people are watching, with a JOIN', () => {
     const html = summary(roster([['a', watching('lirik', 'a')]]))
@@ -159,7 +161,7 @@ describe('the compact activity summary', () => {
       platform: 'twitch',
       channel: 'lirik',
     })
-    expect(html).toContain('Here with you')
+    expect(html).toContain('Watching with you')
     expect(html).not.toContain('JOIN')
   })
 
@@ -220,6 +222,6 @@ describe('the compact activity summary', () => {
     // The channel row is labelled by the channel, which is 'xqc' - the
     // uppercase form is the member's display name, not the destination.
     expect(html).toContain('xqc')
-    expect(html.indexOf('Here with you')).toBeLessThan(html.indexOf('xqc'))
+    expect(html.indexOf('Watching with you')).toBeLessThan(html.indexOf('xqc'))
   })
 })

@@ -167,6 +167,43 @@ const MUTATIONS = [
     to: '  -- The ownership check is the authorization boundary.',
     expect: 'refuses an icon long enough to be a second name',
   },
+  {
+    // The bug 0011 fixed: reading the claim that holds the login instead of
+    // the one that holds the display name, so every profile was lowercase.
+    name: 'identity: read the display name from the login claim',
+    file: '0011_twitch_display_name.sql',
+    from: `        -- Twitch: the display name, with its capitalisation.
+        nullif(btrim(coalesce(p_meta ->> 'nickname', '')), ''),
+        nullif(btrim(coalesce(p_meta ->> 'slug', '')), ''),`,
+    to: '',
+    expect: "keeps Twitch's capitalisation, from the claim that actually carries it",
+  },
+  {
+    name: 'identity: fabricate capitalisation from the login',
+    file: '0011_twitch_display_name.sql',
+    from: `        coalesce(p_login, '')`,
+    to: `        initcap(coalesce(p_login, ''))`,
+    expect: 'falls back to the login itself, unaltered, when no name claim arrives',
+  },
+  {
+    name: 'invites: let anyone cancel an invitation',
+    file: '0012_cancel_group_invite.sql',
+    from: `  if not exists (
+    select 1 from public.groups g
+    where g.id = p_group and g.owner_id = v_actor
+  ) then
+    raise exception 'kickback: group not found' using errcode = 'P0002';
+  end if;`,
+    to: '',
+    expect: 'refuses a cancellation by a member or a stranger',
+  },
+  {
+    name: 'invites: let cancellation remove an accepted member',
+    file: '0012_cancel_group_invite.sql',
+    from: "    and i.status = 'pending'",
+    to: '',
+    expect: 'refuses to cancel an invitation that was already accepted',
+  },
 ]
 
 function runSuite(migrationsDir) {

@@ -108,7 +108,7 @@ describe('the user card', () => {
     const html = card({ presence: null })
     expect(html).not.toContain('JOIN')
     // And makes no claim about where they are.
-    expect(html).toContain('Not sharing activity right now')
+    expect(html).toContain('Offline')
   })
 
   it('links to Twitch by canonical login, never by display name', () => {

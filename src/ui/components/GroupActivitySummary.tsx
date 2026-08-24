@@ -37,22 +37,33 @@ function names(members: GroupMember[]): string {
 export function GroupActivitySummary({
   members,
   localActivity,
+  selfId,
 }: {
   members: GroupMember[]
   localActivity: Activity
+  /** The viewer, who is never one of the other people. */
+  selfId: string | null
 }) {
   const channelName = useChannelName()
 
   const clusters = useMemo(
     () =>
       clusterMembers(
-        members.map((member) => ({ member, presence: member.presence })),
+        members.map((member) => ({
+          member,
+          presence: member.presence,
+          userId: member.user.id,
+        })),
         localActivity,
+        // Left to the function's own default: reading the clock during render
+        // is impure, and the value is only used to age presence out.
+        undefined,
+        selfId,
       )
         // Actionable only: somewhere you are, or somewhere you could go.
         .filter((cluster) => cluster.kind === 'here' || cluster.kind === 'channel')
         .slice(0, MAX_CLUSTERS),
-    [members, localActivity],
+    [members, localActivity, selfId],
   )
 
   if (clusters.length === 0) {
@@ -70,7 +81,7 @@ export function GroupActivitySummary({
         >
           <span className="kb-summary-where">
             {cluster.kind === 'here'
-              ? 'Here with you'
+              ? 'Watching with you'
               : channelName(cluster.channel ?? '')}
           </span>
           <span className="kb-summary-count">{cluster.members.length}</span>

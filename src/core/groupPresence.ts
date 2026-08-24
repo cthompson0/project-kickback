@@ -20,6 +20,13 @@ import type { Activity, Presence } from './types'
  *   3. Browsing Twitch but not on a channel
  *   4. Offline
  *
+ * SELF IS NOT ONE OF THE PEOPLE. These clusters answer "where is everyone
+ * ELSE", so the viewer is removed before anything is counted or grouped -
+ * at the aggregation, not with a render-time filter. Otherwise you end up in
+ * your own "watching with you" row, which reads as though you had company you
+ * do not have, and the count is one too high. Membership and management lists
+ * are a different question and still show everybody.
+ *
  * PRIVACY. This function invents nothing. Presence is redacted when it is
  * written, so a member who hides their activity arrives here already looking
  * like someone with nothing to share, and lands in the last cluster. There is
@@ -31,6 +38,15 @@ export type ClusterKind = 'here' | 'channel' | 'browsing' | 'offline'
 export interface MemberLike<T> {
   member: T
   presence: Presence | null
+  /**
+   * Who this is.
+   *
+   * Carried separately from the presence because a member with no presence
+   * still has an identity - and if that member is the viewer, they must be
+   * excluded from "everyone else" whether or not they happen to be sharing
+   * anything.
+   */
+  userId?: string
 }
 
 export interface MemberCluster<T> {
@@ -73,6 +89,8 @@ export function clusterMembers<T>(
   members: readonly MemberLike<T>[],
   localActivity: Activity,
   now: number = Date.now(),
+  /** The viewer, who is never one of the other people. */
+  selfId: string | null = null,
 ): Array<MemberCluster<T>> {
   const here = localChannel(localActivity)
 
@@ -81,6 +99,9 @@ export function clusterMembers<T>(
   const offline: T[] = []
 
   for (const entry of members) {
+    // The viewer is not somebody they are watching with.
+    if (selfId !== null && (entry.userId ?? entry.presence?.userId) === selfId) continue
+
     const channel = channelOf(entry.presence, now)
     if (channel) {
       const bucket = byChannel.get(channel)
@@ -123,6 +144,11 @@ export function clusterMembers<T>(
 export function aroundCount<T>(
   members: readonly MemberLike<T>[],
   now: number = Date.now(),
+  selfId: string | null = null,
 ): number {
-  return members.filter((entry) => isAround(entry.presence, now)).length
+  return members.filter(
+    (entry) =>
+      (selfId === null || (entry.userId ?? entry.presence?.userId) !== selfId) &&
+      isAround(entry.presence, now),
+  ).length
 }

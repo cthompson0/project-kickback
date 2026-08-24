@@ -15,7 +15,10 @@ import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 const SUITE = 'tests/extension/presenceConsistency.test.ts'
+const PERSON_SUITE = 'tests/extension/personPresence.test.ts'
 const INDEX = 'src/background/presenceIndex.ts'
+const PERSON = 'src/core/personPresence.ts'
+const GROUP = 'src/core/groupPresence.ts'
 
 const MUTATIONS = [
   {
@@ -85,16 +88,87 @@ const MUTATIONS = [
     to: '  return [...ids].reverse()',
     expect: 'is stable, so an unchanged set does not resubscribe',
   },
+
+  // ------------------------------------------------- same-channel JOIN
+  {
+    // The reported bug: the card offered a JOIN that reloaded the stream the
+    // viewer was already watching.
+    name: 'presence: offer JOIN to where the viewer already is',
+    file: PERSON,
+    from: "  const here = viewerChannel(viewer)\n  if (here !== null && here === channel) {\n    return { kind: 'watching_with_you', channel, canJoin: false }\n  }",
+    to: '',
+    expect: 'reports watching with you when both are on the same channel',
+    suite: PERSON_SUITE,
+  },
+  {
+    name: 'presence: keep JOIN enabled while watching together',
+    file: PERSON,
+    from: "    return { kind: 'watching_with_you', channel, canJoin: false }",
+    to: "    return { kind: 'watching_with_you', channel, canJoin: true }",
+    expect: 'offers no JOIN to where the viewer already is',
+    suite: PERSON_SUITE,
+  },
+  {
+    name: 'presence: compare channels case-sensitively',
+    file: PERSON,
+    from: '  const channel = presence.activity.channel?.trim().toLowerCase()\n  if (!channel) return',
+    to: '  const channel = presence.activity.channel?.trim()\n  if (!channel) return',
+    expect: 'matches the same channel however either side was cased',
+    suite: PERSON_SUITE,
+  },
+  {
+    name: 'presence: treat a viewer with no channel as being everywhere',
+    file: PERSON,
+    from: '  if (here !== null && here === channel) {',
+    to: '  if (here === null || here === channel) {',
+    expect: 'never claims someone is with a viewer who has no channel',
+    suite: PERSON_SUITE,
+  },
+  {
+    name: 'join guard: let the action navigate to the current channel',
+    file: PERSON,
+    from: '  const target = destination?.trim().toLowerCase()\n  if (!target) return false\n  return viewerChannel(viewer) === target',
+    to: '  return false',
+    expect: 'recognises a destination the viewer is already at',
+    suite: PERSON_SUITE,
+  },
+
+  // ---------------------------------------------------- self exclusion
+  {
+    // The viewer appeared in their own "watching with you" row.
+    name: 'self: count the viewer as one of the other people',
+    file: GROUP,
+    from: '    if (selfId !== null && (entry.userId ?? entry.presence?.userId) === selfId) continue',
+    to: '',
+    expect: 'leaves the viewer out of the people they are watching with',
+    suite: PERSON_SUITE,
+  },
+  {
+    name: 'self: identify the viewer only by their presence row',
+    file: GROUP,
+    from: '(entry.userId ?? entry.presence?.userId) === selfId',
+    to: 'entry.presence?.userId === selfId',
+    expect: 'excludes the viewer even when they have shared no presence at all',
+    suite: PERSON_SUITE,
+  },
+  {
+    name: 'self: count the viewer as somebody who is around',
+    file: GROUP,
+    from: '      (selfId === null || (entry.userId ?? entry.presence?.userId) !== selfId) &&\n      isAround(entry.presence, now),',
+    to: '      isAround(entry.presence, now),',
+    expect: 'counts only other people as being around',
+    suite: PERSON_SUITE,
+  },
 ]
 
 const REPORT = join(tmpdir(), 'kickback-presence-mutation.json')
 
-function runSuite() {
+function runSuite(suite) {
   rmSync(REPORT, { force: true })
 
   let crashOutput = null
   try {
-    execFileSync('npx', ['vitest', 'run', SUITE, '--reporter=json', `--outputFile=${REPORT}`], {
+    execFileSync('npx', ['vitest', 'run', suite, '--reporter=json', `--outputFile=${REPORT}`], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
       shell: process.platform === 'win32',
@@ -133,7 +207,7 @@ for (const mutation of MUTATIONS) {
   writeFileSync(mutation.file, original.replace(mutation.from, () => mutation.to))
   let result
   try {
-    result = runSuite()
+    result = runSuite(mutation.suite ?? SUITE)
   } finally {
     writeFileSync(mutation.file, original)
   }

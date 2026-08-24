@@ -495,6 +495,13 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
           })),
       ),
 
+    cancelGroupInvite: (groupId, userId) =>
+      call<string, string>(
+        'cancel_group_invite',
+        { p_group: groupId, p_target: userId },
+        (rows) => rows[0] ?? 'not_pending',
+      ),
+
     listSentInvites: (groupId) =>
       call<{ to_user: string }, string[]>(
         'list_group_sent_invites',

@@ -1,21 +1,33 @@
 import { useState } from 'react'
 import type { Activity } from '../../core/types'
-import { effectiveStatus, formatSince, isHere, isWatching } from '../../core/presence'
+import { formatSince } from '../../core/presence'
+import { describePresence } from '../../core/personPresence'
 import { useChannelName } from '../ChannelNames'
-import type { Friend } from '../../client/types'
+import type { Friend, KickbackClient } from '../../client/types'
 import { Avatar } from './Avatar'
 import type { AvatarState } from './Avatar'
 import { JoinButton } from './JoinButton'
+import { UserCard } from './UserCard'
 
 interface PersonRowProps {
   person: Friend
   localActivity: Activity
   onRemove?: (userId: string) => void
+  /** Present in the Friends tab, so the identity can open a card. */
+  client?: KickbackClient
+  selfId?: string | null
 }
 
-export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
+export function PersonRow({
+  person,
+  localActivity,
+  onRemove,
+  client,
+  selfId = null,
+}: PersonRowProps) {
   const { user, presence } = person
   const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [cardOpen, setCardOpen] = useState(false)
   const channelName = useChannelName()
 
   /**
@@ -49,11 +61,13 @@ export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
     )
   }
 
-  const here = isHere(presence, localActivity)
-  // Offline is derived, not just stored: a row that says "online" but stopped
-  // being heartbeated describes someone who closed their laptop.
-  const offline = effectiveStatus(presence) === 'offline'
-  const channel = !offline && isWatching(presence.activity) ? presence.activity.channel : null
+  // The same interpretation the group clusters and the user card use, so a
+  // friend cannot read one way here and another way there.
+  const state = describePresence(presence, localActivity)
+  const here = state.kind === 'watching_with_you'
+  const offline = state.kind === 'offline'
+  // Only a channel the viewer could actually go to.
+  const channel = state.canJoin ? state.channel : null
 
   const avatarState: AvatarState = offline ? 'offline' : here ? 'here' : 'online'
 
@@ -66,7 +80,20 @@ export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
       <Avatar user={user} state={avatarState} />
 
       <div className="kb-row-main">
-        <div className="kb-row-name">{user.displayName}</div>
+        {client ? (
+          // Clicking the name opens the card; JOIN remains a separate,
+          // explicit target so the two never compete for one click.
+          <button
+            type="button"
+            className="kb-row-name kb-row-name-btn"
+            title={`About ${user.displayName}`}
+            onClick={() => setCardOpen((open) => !open)}
+          >
+            {user.displayName}
+          </button>
+        ) : (
+          <div className="kb-row-name">{user.displayName}</div>
+        )}
         <div className={`kb-row-status${here ? ' kb-row-status-here' : ''}`}>
           {offline ? (
             <span>Offline</span>
@@ -89,7 +116,20 @@ export function PersonRow({ person, localActivity, onRemove }: PersonRowProps) {
       </div>
 
       {here && <span className="kb-badge-here">HERE</span>}
-      {!here && channel && <JoinButton channel={channel} />}
+      {channel && <JoinButton channel={channel} />}
+
+      {cardOpen && client && (
+        <UserCard
+          user={user}
+          presence={presence}
+          client={client}
+          // Everyone in the Friends tab is, by definition, a friend.
+          isFriend
+          isSelf={user.id === selfId}
+          viewerActivity={localActivity}
+          onClose={() => setCardOpen(false)}
+        />
+      )}
     </div>
   )
 }

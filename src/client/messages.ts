@@ -34,6 +34,7 @@ export type RpcMethod =
   | 'removeGroupMember'
   | 'sendGroupMessage'
   | 'setGroupMuted'
+  | 'cancelGroupInvite'
   | 'setGroupIcon'
   | 'searchEmotes'
 

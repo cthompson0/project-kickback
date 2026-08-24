@@ -34,7 +34,7 @@ function ClusterHeading({
     return (
       <div className="kb-cluster-head kb-cluster-head-here">
         <span className="kb-cluster-title">
-          Here with you{cluster.channel ? ` on ${channelName(cluster.channel)}` : ''}
+          Watching with you{cluster.channel ? ` on ${channelName(cluster.channel)}` : ''}
         </span>
         <span className="kb-cluster-count">{count}</span>
       </div>
@@ -86,10 +86,19 @@ export function GroupPresence({
   const clusters = useMemo(
     () =>
       clusterMembers(
-        members.map((member) => ({ member, presence: member.presence })),
+        members.map((member) => ({
+          member,
+          presence: member.presence,
+          userId: member.user.id,
+        })),
         localActivity,
+        // Left to the function's own default: reading the clock during render
+        // is impure, and the value is only used to age presence out.
+        undefined,
+        // "Where is everyone else": the viewer is never one of them.
+        selfId,
       ),
-    [members, localActivity],
+    [members, localActivity, selfId],
   )
 
   return (
@@ -121,6 +130,7 @@ export function GroupPresence({
                   isFriend={friendIds.has(member.user.id)}
                   requestPending={outgoingRequestIds.has(member.user.id)}
                   isSelf={member.user.id === selfId}
+                  viewerActivity={localActivity}
                   onClose={() => setOpenCardId(null)}
                 />
               )}

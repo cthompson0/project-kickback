@@ -1873,3 +1873,57 @@ a.kb-ghost-btn {
 .kb-msg {
   position: relative;
 }
+
+/* ---------- relationship state, continued ---------- */
+
+/* PENDING is a quiet control rather than a label: withdrawing an invitation
+   is a real action, but not one that should shout for attention. */
+.kb-relation-btn {
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.kb-relation-btn:hover {
+  background: rgba(255, 132, 82, 0.2);
+  color: var(--kb-text);
+}
+
+.kb-relation-confirm {
+  display: inline-flex;
+  gap: 4px;
+  flex: none;
+}
+
+/* ---------- clickable friend identity ---------- */
+
+/*
+ * The name is a control, but still reads as a name: no padding, no background,
+ * left-aligned like the div it replaced. JOIN stays a separate target so the
+ * two never compete for one click.
+ */
+.kb-row-name-btn {
+  display: block;
+  width: 100%;
+  padding: 0;
+  font: inherit;
+  font-weight: 600;
+  color: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-row-name-btn:hover {
+  text-decoration: underline;
+}
+
+/* The friend row anchors its own card. */
+.kb-row {
+  position: relative;
+}
+
+/* Watching-with-you reads as one thought: the label, then the channel. */
+.kb-usercard-channel {
+  margin-left: 5px;
+}

@@ -142,10 +142,25 @@ export async function createTestDb(): Promise<TestDb> {
       userCounter += 1
       const id = `00000000-0000-4000-8000-${String(userCounter).padStart(12, '0')}`
       const displayName = input.displayName ?? input.login
+      /*
+       * Modelled on what Supabase's Twitch provider ACTUALLY sends, which is
+       * the opposite of what it reads like:
+       *
+       *   name / full_name  ->  user.Login        (lowercase)
+       *   nickname / slug   ->  user.DisplayName  (AnoterosTV)
+       *
+       * See supabase/auth internal/api/provider/twitch.go. This fixture used
+       * to have the two the other way round, which is precisely why the
+       * display-name tests passed while every real profile was lowercase: the
+       * fixture encoded the same misunderstanding as the migration it was
+       * checking. A fixture that agrees with the bug proves nothing.
+       */
       const meta = input.rawMeta ?? {
         sub: `twitch-${input.login}`,
-        nickname: input.login,
-        name: displayName,
+        name: input.login,
+        full_name: input.login,
+        nickname: displayName,
+        slug: displayName,
         picture: input.avatarUrl ?? `https://cdn.example.test/${input.login}.png`,
       }
 

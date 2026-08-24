@@ -205,6 +205,7 @@ export function createDemoClient(): KickbackClient {
     setGroupIcon: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     deleteGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     inviteToGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    cancelGroupInvite: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     respondToGroupInvite: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     leaveGroup: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     removeGroupMember: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),

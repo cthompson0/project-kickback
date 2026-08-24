@@ -559,6 +559,88 @@ describe('group administration', () => {
     expect(result.invite_to_group).toBe('already_member')
   })
 
+  it('lets the owner withdraw an invitation nobody has answered', async () => {
+    const group = await makeGroup(alice)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+
+    const [result] = await db.as<{ cancel_group_invite: string }>(
+      alice,
+      'select public.cancel_group_invite($1, $2)',
+      [group, bob.id],
+    )
+    expect(result.cancel_group_invite).toBe('cancelled')
+
+    // Nothing outstanding, so the button goes back to offering an invite.
+    expect(await db.as(alice, 'select * from public.list_group_sent_invites($1)', [group])).toEqual(
+      [],
+    )
+    // And the invitee no longer sees it.
+    expect(await db.as(bob, 'select * from public.list_group_invites()')).toEqual([])
+  })
+
+  it('lets the owner invite again after cancelling', async () => {
+    const group = await makeGroup(alice)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+    await db.as(alice, 'select public.cancel_group_invite($1, $2)', [group, bob.id])
+
+    const [again] = await db.as<{ invite_to_group: string }>(
+      alice,
+      'select public.invite_to_group($1, $2)',
+      [group, bob.id],
+    )
+    expect(again).toMatchObject({ invite_to_group: expect.not.stringMatching(/already/) })
+  })
+
+  it('refuses to cancel an invitation that was already accepted', async () => {
+    // Cancelling must never become a back door for removing a member: that is
+    // remove_group_member's job, with its own rules.
+    const group = await makeGroup(alice)
+    await addToGroup(alice, group, bob)
+
+    const [result] = await db.as<{ cancel_group_invite: string }>(
+      alice,
+      'select public.cancel_group_invite($1, $2)',
+      [group, bob.id],
+    )
+    expect(result.cancel_group_invite).toBe('not_pending')
+
+    // Still a member.
+    const members = await db.as<{ user_id: string }>(
+      alice,
+      'select user_id from public.list_group_members($1)',
+      [group],
+    )
+    expect(members.map((row) => row.user_id)).toContain(bob.id)
+  })
+
+  it('reports nothing to cancel rather than failing', async () => {
+    const group = await makeGroup(alice)
+    const [result] = await db.as<{ cancel_group_invite: string }>(
+      alice,
+      'select public.cancel_group_invite($1, $2)',
+      [group, bob.id],
+    )
+    expect(result.cancel_group_invite).toBe('not_pending')
+  })
+
+  it('refuses a cancellation by a member or a stranger', async () => {
+    // mallory is a member here, so this covers "a member cannot" as well as
+    // "a stranger cannot" - both get the same answer.
+    const group = await makeGroup(alice)
+    await addToGroup(alice, group, mallory)
+    await db.as(alice, 'select public.invite_to_group($1, $2)', [group, bob.id])
+
+    expect(
+      await refusal(() =>
+        db.as(mallory, 'select public.cancel_group_invite($1, $2)', [group, bob.id]),
+      ),
+    ).toMatch(/not found/i)
+
+    // The invitation is untouched.
+    const rows = await db.as(alice, 'select * from public.list_group_sent_invites($1)', [group])
+    expect(rows).toHaveLength(1)
+  })
+
   it('lets the owner set and clear a group icon', async () => {
     const group = await makeGroup(alice)
 

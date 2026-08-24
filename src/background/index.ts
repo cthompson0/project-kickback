@@ -535,6 +535,8 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   renameGroup: ([groupId, name]) => groups.renameGroup(String(groupId), String(name)),
   deleteGroup: ([groupId]) => groups.deleteGroup(String(groupId)),
   inviteToGroup: ([groupId, userId]) => groups.invite(String(groupId), String(userId)),
+  cancelGroupInvite: ([groupId, userId]) =>
+    groups.cancelInvite(String(groupId), String(userId)),
   respondToGroupInvite: ([inviteId, accept]) =>
     groups.respondToInvite(String(inviteId), accept === true),
   leaveGroup: ([groupId]) => groups.leaveGroup(String(groupId)),

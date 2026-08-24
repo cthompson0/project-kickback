@@ -55,6 +55,12 @@ const FUNCTIONS = [
   ['create_group', { p_name: 'x', p_icon: 'x' }],
   // 0010. The invite button reads its state from this.
   ['list_group_sent_invites', { p_group: NIL }],
+  // 0011. Twitch display names. These are revoked from every client role,
+  // so "permission denied" is the healthy answer and absence is the signal.
+  ['display_name_from_meta', { p_meta: {}, p_login: 'x' }],
+  ['login_from_meta', { p_meta: {} }],
+  // 0012. Withdrawing an invitation nobody has answered.
+  ['cancel_group_invite', { p_group: NIL, p_target: NIL }],
 ]
 
 function readEnv() {
@@ -99,7 +105,7 @@ export async function verifyGroupSchema({ quiet = false } = {}) {
   const missing = []
 
   log('project      :', url)
-  log('checking     : migrations 0006 - 0010 against the hosted database\n')
+  log('checking     : migrations 0006 - 0012 against the hosted database\n')
 
   for (const table of TABLES) {
     let code

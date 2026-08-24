@@ -87,6 +87,11 @@ class FakeGroupsBackend implements GroupsBackend {
   }
   /** Owner-only on the server; the fake mirrors that with a plain list. */
   sentInvites: Record<string, string[]> = {}
+  async cancelGroupInvite(groupId: string, userId: string) {
+    this.calls.push(`cancelInvite:${groupId}:${userId}`)
+    this.sentInvites[groupId] = (this.sentInvites[groupId] ?? []).filter((id) => id !== userId)
+    return this.ok('cancelled')
+  }
   async listSentInvites(groupId: string) {
     this.calls.push(`listSentInvites:${groupId}`)
     return this.ok(this.sentInvites[groupId] ?? [])

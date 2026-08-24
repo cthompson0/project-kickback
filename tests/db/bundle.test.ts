@@ -229,6 +229,59 @@ describe('the generated bundle', () => {
     await db.close()
   })
 
+  it('corrects a lowercase display name, and leaves a correct one alone', async () => {
+    /*
+     * Migration 0011 is the only one that rewrites existing rows, so it is the
+     * only one where "idempotent" means more than "does not error". Applying
+     * the bundle twice must leave the same name, not a name that drifts.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0008')
+
+    await db.exec(`
+      insert into auth.users (id, raw_user_meta_data, raw_app_meta_data)
+      values (
+        '33333333-3333-3333-3333-333333333333',
+        '{"sub":"twitch-1","name":"anoterostv","full_name":"anoterostv","nickname":"AnoterosTV","slug":"AnoterosTV"}'::jsonb,
+        '{"provider":"twitch"}'::jsonb
+      );
+    `)
+
+    // The state every existing profile is in: display name equals the login,
+    // because 0004 read the claim that holds the login.
+    const before = await db.query<{ display_name: string }>(
+      'select display_name from public.users where id = $1',
+      ['33333333-3333-3333-3333-333333333333'],
+    )
+    expect(before.rows[0].display_name).toBe('anoterostv')
+
+    await applyBundle(db)
+    const once = await db.query<{ display_name: string }>(
+      'select display_name from public.users where id = $1',
+      ['33333333-3333-3333-3333-333333333333'],
+    )
+    expect(once.rows[0].display_name).toBe('AnoterosTV')
+
+    await applyBundle(db)
+    const twice = await db.query<{ display_name: string }>(
+      'select display_name from public.users where id = $1',
+      ['33333333-3333-3333-3333-333333333333'],
+    )
+    expect(twice.rows[0].display_name).toBe('AnoterosTV')
+
+    // The canonical login is untouched by any of it.
+    const account = await db.query<{ platform_login: string; platform_display_name: string }>(
+      'select platform_login, platform_display_name from public.connected_accounts where user_id = $1',
+      ['33333333-3333-3333-3333-333333333333'],
+    )
+    expect(account.rows[0]).toEqual({
+      platform_login: 'anoterostv',
+      platform_display_name: 'AnoterosTV',
+    })
+
+    await db.close()
+  })
+
   it('keeps the bundle in step with the migrations it is generated from', async () => {
     // A stale bundle is how the wrong SQL reaches a real database.
     const bundle = readFileSync(BUNDLE, 'utf8')

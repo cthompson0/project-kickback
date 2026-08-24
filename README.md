@@ -111,7 +111,7 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 701 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
+npm test            # 757 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
@@ -244,6 +244,26 @@ already with you, then channels biggest-cluster-first with JOIN on the cluster,
 then people merely around, then offline. Everyone under one heading is
 literally together. The roster stays complete, so a group is still something
 you can look at rather than a list of whoever happens to be online.
+
+**One interpretation per person, too.** `core/personPresence.ts` decides
+whether somebody is watching with you, watching elsewhere, around, or offline -
+and whether JOIN makes any sense. Every surface asks it: friend rows, group
+clusters, the compact summary, and the user card wherever it is opened from.
+Before it, the cluster said "here with you" while the card, given the same
+presence and the same viewer, said "watching stankRat" and offered a JOIN that
+reloaded the stream you were already on.
+
+**Social summaries describe other people.** The viewer is removed at the
+aggregation, not by a render-time filter, so you can never appear in your own
+"watching with you" row or inflate its count. Membership and management lists
+are a different question and still show everybody.
+
+**Capitalisation, for real this time.** Supabase's Twitch provider maps
+`name` and `full_name` to the *login* and `nickname` and `slug` to the
+*display name* - the opposite of what the names suggest. Kickback read
+`name` first, so every stored display name was the lowercase login. Migration
+0011 reads the claims that actually carry each value and backfills existing
+profiles from metadata the database already holds.
 
 **One presence per person.** Friends and group rosters used to carry separate
 copies, and only the friends copy was kept current - so the same person could

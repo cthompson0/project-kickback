@@ -202,6 +202,10 @@ export interface KickbackClient {
   setGroupIcon(groupId: string, icon: string | null): Promise<void>
   deleteGroup(groupId: string): Promise<void>
   inviteToGroup(groupId: string, userId: string): Promise<string>
+  /** Withdraws an invitation that has not been answered yet. */
+  cancelGroupInvite(groupId: string, userId: string): Promise<void>
+  /** Withdraws an invitation that has not been answered yet. */
+  cancelGroupInvite(groupId: string, userId: string): Promise<void>
   respondToGroupInvite(inviteId: string, accept: boolean): Promise<string>
   leaveGroup(groupId: string): Promise<void>
   removeGroupMember(groupId: string, userId: string): Promise<void>

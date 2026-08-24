@@ -1,4 +1,4 @@
-import { channelUrl } from './channels'
+import { channelUrl, getCurrentChannel } from './channels'
 
 /**
  * Where a JOIN came from.
@@ -14,6 +14,12 @@ export type JoinSource = 'friend_row' | 'gathering' | 'notification' | 'group'
  * we do a real navigation - reliable, and Kickback re-mounts with its panel
  * state restored, which keeps the join feeling continuous.
  */
-export function joinChannel(channel: string, _source: JoinSource = 'friend_row'): void {
+export function joinChannel(channel: string, _source: JoinSource = 'friend_row'): boolean {
+  // Guarded at the action, not only where the button is drawn: a panel that
+  // has not re-rendered since the user navigated must not be able to reload
+  // the stream they are already watching.
+  if (getCurrentChannel()?.toLowerCase() === channel.trim().toLowerCase()) return false
+
   window.location.assign(channelUrl(channel))
+  return true
 }

@@ -29,10 +29,22 @@ interface GroupsTabProps {
   onOpenGroup: (groupId: string | null) => void
 }
 
-/** What a group is up to, from its members' real presence. */
-function useGroupActivity(members: GroupMember[], localActivity: Activity) {
+/**
+ * What a group is up to, from its members' real presence.
+ *
+ * Everything here answers "how many OTHER people", so the viewer is dropped
+ * before anything is counted. Counting yourself made a group of one look like
+ * company.
+ */
+function useGroupActivity(
+  members: GroupMember[],
+  localActivity: Activity,
+  selfId: string | null,
+) {
   return useMemo(() => {
-    const presences = members.flatMap((member) => (member.presence ? [member.presence] : []))
+    const presences = members
+      .filter((member) => member.user.id !== selfId)
+      .flatMap((member) => (member.presence ? [member.presence] : []))
     const online = presences.filter((presence) => effectiveStatus(presence) === 'online')
     const here = presences.filter((presence) => isHere(presence, localActivity))
     const elsewhere = findGatherings(presences, localActivity)
@@ -44,24 +56,28 @@ function useGroupActivity(members: GroupMember[], localActivity: Activity) {
       // A lone member watching something is still worth a line.
       solo: elsewhere.filter((gathering) => gathering.userIds.length === 1),
     }
-  }, [members, localActivity])
+  }, [members, localActivity, selfId])
 }
 
 function GroupActivityLine({
   members,
   localActivity,
+  selfId,
 }: {
   members: GroupMember[]
   localActivity: Activity
+  selfId: string | null
 }) {
-  const activity = useGroupActivity(members, localActivity)
+  const activity = useGroupActivity(members, localActivity, selfId)
   const channelName = useChannelName()
 
   if (activity.hereCount > 0) {
     return (
       <div className="kb-gathering kb-gathering-here">
         <span className="kb-gathering-text">
-          {activity.hereCount === 1 ? '1 member is here' : `${activity.hereCount} members are here`}
+          {activity.hereCount === 1
+            ? '1 member is watching with you'
+            : `${activity.hereCount} members are watching with you`}
         </span>
       </div>
     )
@@ -159,6 +175,8 @@ function GroupDetail({
   const [managing, setManaging] = useState(false)
   /** Which invite is in flight, so the button cannot be double-fired. */
   const [inviting, setInviting] = useState<string | null>(null)
+  /** Which pending invite is being withdrawn, awaiting confirmation. */
+  const [cancelling, setCancelling] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
@@ -229,7 +247,11 @@ function GroupDetail({
         </button>
       </div>
 
-      <GroupActivityLine members={members} localActivity={view.localActivity} />
+      <GroupActivityLine
+        members={members}
+        localActivity={view.localActivity}
+        selfId={view.identity?.userId ?? null}
+      />
       {error && <div className="kb-inline-note">{error}</div>}
 
       {managing ? (
@@ -300,12 +322,43 @@ function GroupDetail({
                     >
                       {inviting === friend.user.id ? '…' : 'INVITE'}
                     </button>
-                  ) : (
-                    // Not a button: there is nothing to do, and something that
-                    // looks pressable but is not is worse than a label.
-                    <span className={`kb-relation kb-relation-${state}`}>
-                      {state === 'member' ? 'MEMBER' : 'PENDING'}
+                  ) : state === 'member' ? (
+                    // Nothing to do: a control that looks pressable but is not
+                    // would be worse than a label.
+                    <span className="kb-relation kb-relation-member">MEMBER</span>
+                  ) : cancelling === friend.user.id ? (
+                    // One deliberate confirmation, so PENDING is never
+                    // withdrawn by a stray click.
+                    <span className="kb-relation-confirm">
+                      <button
+                        type="button"
+                        className="kb-ghost-btn kb-ghost-btn-inline kb-confirm-yes"
+                        onClick={() =>
+                          void act(
+                            () => client.cancelGroupInvite(groupId, friend.user.id),
+                            () => setCancelling(null),
+                          )
+                        }
+                      >
+                        Cancel invite
+                      </button>
+                      <button
+                        type="button"
+                        className="kb-ghost-btn kb-ghost-btn-inline"
+                        onClick={() => setCancelling(null)}
+                      >
+                        Keep
+                      </button>
                     </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="kb-relation kb-relation-pending kb-relation-btn"
+                      title={`Cancel the invitation to ${friend.user.displayName}`}
+                      onClick={() => setCancelling(friend.user.id)}
+                    >
+                      PENDING
+                    </button>
                   )}
                 </div>
               ))}
@@ -374,7 +427,11 @@ function GroupDetail({
       ) : (
         <>
           {/* Where the group is, above chat, without the whole roster. */}
-          <GroupActivitySummary members={members} localActivity={view.localActivity} />
+          <GroupActivitySummary
+            members={members}
+            localActivity={view.localActivity}
+            selfId={view.identity?.userId ?? null}
+          />
           <GroupChat
             groupId={groupId}
             messages={messages}
@@ -507,6 +564,7 @@ export function GroupsTab({ view, client, friends, openGroupId, onOpenGroup }: G
                     <GroupActivityLine
                       members={view.groupMembers[group.groupId] ?? []}
                       localActivity={view.localActivity}
+                      selfId={view.identity?.userId ?? null}
                     />
                   </div>
                 )

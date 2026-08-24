@@ -1,12 +1,15 @@
 import type { Activity } from '../../core/types'
 import { effectiveStatus, isHere, isWatching } from '../../core/presence'
-import type { Friend } from '../../client/types'
+import type { Friend, KickbackClient } from '../../client/types'
 import { PersonRow } from './PersonRow'
 
 interface FriendsTabProps {
   friends: Friend[]
   localActivity: Activity
   onRemove?: (userId: string) => void
+  /** Passed through so a friend's name opens the same card as everywhere. */
+  client: KickbackClient
+  selfId: string | null
 }
 
 type Bucket = 'here' | 'watching' | 'online' | 'offline' | 'unknown'
@@ -25,14 +28,20 @@ function bucketOf(friend: Friend, localActivity: Activity): Bucket {
 }
 
 const SECTIONS: Array<{ key: Bucket; label: string | null }> = [
-  { key: 'here', label: 'Here with you' },
+  { key: 'here', label: 'Watching with you' },
   { key: 'watching', label: 'Watching elsewhere' },
   { key: 'online', label: 'Around' },
   { key: 'unknown', label: null },
   { key: 'offline', label: 'Offline' },
 ]
 
-export function FriendsTab({ friends, localActivity, onRemove }: FriendsTabProps) {
+export function FriendsTab({
+  friends,
+  localActivity,
+  onRemove,
+  client,
+  selfId,
+}: FriendsTabProps) {
   if (friends.length === 0) {
     return <div className="kb-empty">No friends yet.</div>
   }
@@ -56,6 +65,8 @@ export function FriendsTab({ friends, localActivity, onRemove }: FriendsTabProps
                 person={friend}
                 localActivity={localActivity}
                 onRemove={onRemove}
+                client={client}
+                selfId={selfId}
               />
             ))}
           </div>
