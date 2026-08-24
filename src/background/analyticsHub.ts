@@ -15,6 +15,7 @@
  */
 
 import { createAnalyticsRecorder } from './analytics'
+import type { LiveState } from '../core/twitchMetadata'
 import type { AnalyticsBackend, AnalyticsRecorder } from './analytics'
 import { createAnalyticsSession, sessionDuration } from './analyticsSession'
 import type { SessionStore } from './analyticsSession'
@@ -54,7 +55,13 @@ export interface ExposureReport {
     state: 'watching_with_you' | 'watching_elsewhere'
   }>
   gatherings: Array<{ channel: string; friendCount: number; rank: number }>
-  gravity: Array<{ channel: string; friendCount: number; rank: number }>
+  gravity: Array<{
+    channel: string
+    friendCount: number
+    rank: number
+    /** Whether Twitch said the destination was streaming when it was shown. */
+    live?: LiveState
+  }>
 }
 
 export interface AnalyticsHubDeps {
@@ -634,6 +641,20 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
              * were - both call the same function with the same clock.
              */
             opportunity_key: opportunityKey(channel, now()),
+            /*
+             * Whether the destination was actually streaming.
+             *
+             * Omitted entirely when nothing told us, rather than sent as
+             * "unknown": a property that is absent reads as absent in every
+             * query, whereas a literal "unknown" would have to be excluded by
+             * hand in each one, and eventually would not be.
+             *
+             * This is the ONLY Twitch field analytics carries. Titles, viewer
+             * counts, categories and avatars answer no question we have.
+             */
+            ...(cluster.live && cluster.live !== 'unknown'
+              ? { destination_live: cluster.live === 'live' }
+              : {}),
           },
           channel,
         })

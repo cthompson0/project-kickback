@@ -29,6 +29,7 @@ import { createEmoteCatalog } from './emoteCatalog'
 import { createSevenTvClient } from './sevenTv'
 import { createPreferences } from './preferences'
 import { createAnalyticsHub } from './analyticsHub'
+import { createMetadataService } from './metadata'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
 import { isPersistedLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
@@ -49,6 +50,7 @@ import {
 } from './supabaseRealtime'
 import {
   createSupabaseAnalyticsBackend,
+  createSupabaseMetadataBackend,
   createSupabaseBackend,
   createSupabaseClient,
   createSupabaseFriendsBackend,
@@ -311,6 +313,35 @@ const groupSync = createGroupSync({
 })
 const attention = createAttentionService({ storage: storageArea, onError: logError })
 
+/**
+ * Public Twitch metadata for the destinations the map is showing.
+ *
+ * One cache for every tab, in the one place that already owns shared state.
+ * It is asked for channels on every broadcast and fetches only what is missing
+ * or expired, so requests scale with DISTINCT DESTINATIONS rather than with
+ * presence heartbeats - see metadata.ts.
+ *
+ * Nothing here can fail in a way a user sees. A metadata outage means the map
+ * renders exactly as it did before this existed.
+ */
+const METADATA_KEY = 'kickback:channelMetadata'
+
+const metadata = createMetadataService({
+  fetcher: createSupabaseMetadataBackend(supabase),
+  load: async () => {
+    const stored = await storageArea.get(METADATA_KEY)
+    const value = stored?.[METADATA_KEY]
+    return value && typeof value === 'object' ? (value as Record<string, unknown>) : null
+  },
+  save: (records) => {
+    void storageArea.set({ [METADATA_KEY]: records })
+  },
+  // A refreshed record changes what the panel should draw, so the same
+  // broadcast every other state change goes through.
+  onChange: () => broadcast(),
+  onError: logError,
+})
+
 const notifier = createNotifier({
   create: (id, options) => chrome.notifications.create(id, options),
   clear: (id) => chrome.notifications.clear(id),
@@ -383,7 +414,33 @@ function currentChannel(): string | null {
  * Recomputes what is worth noticing, and lets the watcher decide whether any
  * of it warrants a desktop notification.
  */
+/**
+ * Ask for metadata about every destination currently on the map.
+ *
+ * Called wherever attention is recomputed - which is exactly when the set of
+ * destinations can have changed - rather than on a timer or from the
+ * broadcast. `want` is idempotent and fetches only what is missing or
+ * expired, so calling it more often than necessary costs a set intersection
+ * and nothing else.
+ *
+ * The viewer's own channel is included: the HERE card should be able to say
+ * that the stream they are watching has ended.
+ */
+function wantMetadata(): void {
+  const channels = friendsState.friends.flatMap((friend) => {
+    const activity = friend.presence?.activity
+    return activity?.type === 'watching' ? [activity.channel] : []
+  })
+
+  const here = currentChannel()
+  if (here) channels.push(here)
+
+  metadata.want(channels)
+}
+
 function refreshAttention(): void {
+  wantMetadata()
+
   const gatherings = findGatherings(
     friendsState.friends.flatMap((friend) => (friend.presence ? [friend.presence] : [])),
     // Friends on our own channel are HERE, not a place to be told to go.
@@ -560,6 +617,7 @@ function currentState(): KickbackState {
     groupsLoading: groupsState.groupsLoading,
     groupsError: groupsState.groupsError,
     channelNames: { ...channelNames },
+    channelMetadata: { ...metadata.snapshot() },
   }
 }
 
@@ -604,6 +662,15 @@ auth.subscribe((next) => {
     groupSync.stop()
     attention.clear()
     gatheringWatcher.reset()
+    /*
+     * Public data, but still dropped on sign-out.
+     *
+     * Nothing in it is private - it is what Twitch shows anybody - but it is a
+     * record of which channels this account's friends were on, and leaving it
+     * for whoever signs in next would be a small, avoidable leak of the
+     * previous account's social graph.
+     */
+    metadata.reset()
     // Only on the transition: a repeated signed_out update must not emit a
     // session end for a session that was already closed.
     if (lastStatus === 'signed_in') analytics.noteSignedOut()
@@ -948,6 +1015,9 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onStartup.addListener(() => {
   void preferences.hydrate()
 void attention.hydrate()
+// A worker that has just woken should not start from a cold metadata cache;
+// a day-old record is dropped on the way in rather than shown.
+void metadata.hydrate()
 void groups.hydrate()
 void auth.initialize()
 })

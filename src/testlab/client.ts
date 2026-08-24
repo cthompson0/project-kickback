@@ -23,7 +23,14 @@ import { findGatherings } from '../core/presence'
 import { resolveChannelName } from '../core/channelNames'
 import type { AnalyticsEvent } from '../core/analytics'
 import type { Presence, User } from '../core/types'
-import { canonicalChannel, channelNames, friendsOf, presenceRow, updateUser } from './world'
+import {
+  canonicalChannel,
+  channelMetadata,
+  channelNames,
+  friendsOf,
+  presenceRow,
+  updateUser,
+} from './world'
 import type { SimUser, SimWorld } from './world'
 
 /**
@@ -278,6 +285,9 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       incomingRequests: requests('incoming'),
       outgoingRequests: requests('outgoing'),
       channelNames: channelNames(world),
+      // Handed over at the boundary production reads it from, so the panel
+      // cannot tell a simulated record from a fetched one.
+      channelMetadata: channelMetadata(world, now),
       attention: attention.getState().items,
       unread: attention.getState().unread,
     }

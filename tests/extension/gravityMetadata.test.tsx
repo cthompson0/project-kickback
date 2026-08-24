@@ -1,0 +1,382 @@
+import { readFileSync } from 'node:fs'
+import { describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { SocialGravity } from '../../src/ui/components/SocialGravity'
+import { ChannelNameProvider } from '../../src/ui/ChannelNames'
+import { socialGravity } from '../../src/core/socialGravity'
+import { STALE_TOLERANCE_MS } from '../../src/core/twitchMetadata'
+import type { ChannelMetadata } from '../../src/core/twitchMetadata'
+import type { Friend, KickbackClient } from '../../src/client/types'
+import type { Activity, Presence } from '../../src/core/types'
+
+/**
+ * Twitch metadata on the social map.
+ *
+ * Two rules are being defended, and they pull in opposite directions.
+ *
+ * The first is that metadata must MAKE THE CARD BETTER: authoritative casing,
+ * an avatar, a category, whether the stream is even on.
+ *
+ * The second is that it must never make the card WORSE. Friend count still
+ * decides the order. Viewer count and category decide nothing. And every
+ * absence, failure and stale record has to land on the plain card that shipped
+ * before any of this existed - because that card works, and a confidently
+ * wrong one does not.
+ */
+
+const NOW = 1_700_000_000_000
+const CSS = readFileSync('src/ui/kickback.css', 'utf8')
+
+const friend = (id: string, name: string, channel: string | null): Friend => ({
+  user: { id, username: id, displayName: name, avatarUrl: null, accentColor: '#ff8452' },
+  presence: {
+    userId: id,
+    status: 'online',
+    activity: channel
+      ? { type: 'watching', platform: 'twitch', channel }
+      : { type: 'browsing', platform: 'twitch' },
+    since: NOW - 60_000,
+    lastSeenAt: Date.now(),
+  } as Presence,
+})
+
+const meta = (login: string, over: Partial<ChannelMetadata> = {}): ChannelMetadata => ({
+  login,
+  userId: '1',
+  displayName: login.toUpperCase(),
+  profileImageUrl: `https://static-cdn.jtvnw.net/jtv_user_pictures/${login}.png`,
+  live: 'live',
+  gameName: 'Escape from Tarkov',
+  title: 'late night wipe grind',
+  viewerCount: 18_412,
+  startedAt: Date.now() - 60_000,
+  fetchedAt: Date.now(),
+  ...over,
+})
+
+const IDLE: Activity = { type: 'idle' }
+const ON = (channel: string): Activity => ({ type: 'watching', platform: 'twitch', channel })
+
+function stubClient(): KickbackClient {
+  return {
+    sendFriendRequest: async () => 'req',
+    removeFriend: async () => {},
+    track: () => {},
+    recordJoin: () => {},
+    reportExposure: () => {},
+  } as unknown as KickbackClient
+}
+
+function render(
+  friends: Friend[],
+  metadata?: Record<string, ChannelMetadata>,
+  local: Activity = IDLE,
+) {
+  return renderToStaticMarkup(
+    <ChannelNameProvider people={[]} seen={{}} metadata={metadata}>
+      <SocialGravity
+        friends={friends}
+        localActivity={local}
+        client={stubClient()}
+        cardContext={{
+          selfId: 'me',
+          viewerActivity: local,
+          friendIds: new Set(friends.map((f) => f.user.id)),
+          outgoingRequestIds: new Set(),
+        }}
+        metadata={metadata}
+      />
+    </ChannelNameProvider>,
+  )
+}
+
+const THREE_ON_LIRIK = [
+  friend('jake', 'Jake', 'lirik'),
+  friend('matt', 'Matt', 'lirik'),
+  friend('chris', 'Chris', 'lirik'),
+]
+
+describe('a live destination', () => {
+  const html = render(THREE_ON_LIRIK, { lirik: meta('lirik') })
+
+  it('says it is live, and what of', () => {
+    expect(html).toContain('LIVE')
+    expect(html).toContain('Escape from Tarkov')
+    expect(html).toContain('late night wipe grind')
+  })
+
+  it('shows the viewer count compactly, and quietly', () => {
+    expect(html).toContain('18K')
+    // Context, not a headline: it must not be the friend count's size or
+    // weight. The count keeps kb-gravity-count; viewers get their own class.
+    expect(html).toContain('kb-gravity-viewers')
+    const viewers = CSS.slice(CSS.indexOf('.kb-gravity-viewers {'))
+    expect(viewers).toContain('var(--kb-faint)')
+  })
+
+  it('shows the creator avatar from Twitch', () => {
+    expect(html).toMatch(/<img[^>]*class="kb-gravity-avatar"[^>]*src="https:\/\/static-cdn\.jtvnw\.net/)
+    expect(html).toContain('loading="lazy"')
+    // Decorative: the name is right beside it.
+    expect(html).toContain('aria-hidden="true"')
+  })
+
+  it('still leads with the friends', () => {
+    expect(html).toContain('LIRIK')
+    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+    for (const name of ['Jake', 'Matt', 'Chris']) expect(html).toContain(name)
+    expect(html).toContain('kb-join')
+    expect(html).toContain('🔥')
+  })
+})
+
+describe('a destination whose stream has ended', () => {
+  const html = render(THREE_ON_LIRIK, { lirik: meta('lirik', { live: 'offline' }) })
+
+  it('says so plainly', () => {
+    expect(html).toContain('OFFLINE')
+    expect(html).toContain('kb-gravity-card-offline')
+  })
+
+  it('keeps the friends, the count and the JOIN', () => {
+    /*
+     * Presence is the authority on where people are. A destination that
+     * vanished because Twitch said the stream ended would be a worse lie than
+     * one marked OFFLINE - the friends really are there.
+     */
+    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(html).toContain('Jake')
+    expect(html).toContain('kb-join')
+  })
+
+  it('carries nothing from a stream that is not happening', () => {
+    const withStream = render(THREE_ON_LIRIK, {
+      lirik: meta('lirik', { live: 'offline', gameName: null, title: null, viewerCount: null }),
+    })
+    expect(withStream).not.toContain('Escape from Tarkov')
+    expect(withStream).not.toContain('18K')
+    expect(withStream).not.toContain('>LIVE<')
+  })
+})
+
+describe('when nothing told us', () => {
+  it('draws exactly the card that shipped before metadata existed', () => {
+    const plain = render(THREE_ON_LIRIK)
+    const unknown = render(THREE_ON_LIRIK, {})
+
+    expect(plain).toBe(unknown)
+    // No badge, no placeholder, no empty row: silence.
+    expect(plain).not.toContain('LIVE')
+    expect(plain).not.toContain('OFFLINE')
+    expect(plain).not.toContain('kb-gravity-stream')
+    expect(plain).not.toContain('kb-gravity-avatar')
+    // And everything that mattered before still works.
+    expect(plain).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(plain).toContain('kb-join')
+  })
+
+  it('treats a record too old to be evidence the same way', () => {
+    /*
+     * A worker that slept for an hour must not show LIVE badges for streams
+     * that ended while it was asleep. Past the tolerance the record stops
+     * asserting anything about now - and lands on the plain card, NOT on
+     * OFFLINE, because we no longer know.
+     */
+    const stale = render(THREE_ON_LIRIK, {
+      lirik: meta('lirik', { fetchedAt: Date.now() - STALE_TOLERANCE_MS - 1 }),
+    })
+    expect(stale).not.toContain('LIVE')
+    expect(stale).not.toContain('OFFLINE')
+    expect(stale).toMatch(/kb-gravity-count[^>]*>3</)
+  })
+})
+
+describe('metadata is not the discovery algorithm', () => {
+  const fiftyViewers = meta('lirik', { viewerCount: 50 })
+  const fiftyThousand = meta('xqc', {
+    displayName: 'xQc',
+    viewerCount: 50_000,
+    gameName: 'Just Chatting',
+  })
+
+  it('lets five friends on a tiny stream beat one friend on a huge one', () => {
+    const html = render(
+      [
+        ...THREE_ON_LIRIK,
+        friend('dana', 'Dana', 'lirik'),
+        friend('eli', 'Eli', 'lirik'),
+        friend('sarah', 'Sarah', 'xqc'),
+      ],
+      { lirik: fiftyViewers, xqc: fiftyThousand },
+    )
+
+    expect(html.indexOf('LIRIK')).toBeLessThan(html.indexOf('xQc'))
+  })
+
+  it('does not reorder anything when only the metadata differs', () => {
+    // The map with rich metadata and the map with none must agree about
+    // order. Only live-state may move a card, and neither of these is offline.
+    const order = (html: string) =>
+      [...html.matchAll(/class="kb-gravity-channel kb-channel">([^<]+)</g)].map((m) => m[1])
+
+    const friends = [...THREE_ON_LIRIK, friend('sarah', 'Sarah', 'xqc')]
+    expect(order(render(friends, { lirik: fiftyViewers, xqc: fiftyThousand }))).toEqual([
+      'LIRIK',
+      'xQc',
+    ])
+    expect(order(render(friends))).toEqual(['lirik', 'xqc'])
+  })
+})
+
+describe('an ended stream sinks, and only an ended stream', () => {
+  const map = (metadata?: Record<string, ChannelMetadata>) =>
+    socialGravity(
+      [
+        { member: 'a', userId: 'a', presence: friend('a', 'A', 'lirik').presence },
+        { member: 'b', userId: 'b', presence: friend('b', 'B', 'lirik').presence },
+        { member: 'c', userId: 'c', presence: friend('c', 'C', 'lirik').presence },
+        { member: 'd', userId: 'd', presence: friend('d', 'D', 'xqc').presence },
+      ],
+      IDLE,
+      Date.now(),
+      'me',
+      metadata,
+    ).filter((section) => section.kind === 'destination')
+
+  it('puts the bigger cluster first when nothing is known', () => {
+    expect(map().map((s) => [s.channel, s.count])).toEqual([
+      ['lirik', 3],
+      ['xqc', 1],
+    ])
+  })
+
+  it('sinks the ended one below the live one, however many friends it has', () => {
+    const sections = map({
+      lirik: meta('lirik', { live: 'offline' }),
+      xqc: meta('xqc'),
+    })
+    expect(sections.map((s) => s.channel)).toEqual(['xqc', 'lirik'])
+    // Ranks follow what is on screen, so the funnel joins on the right row.
+    expect(sections.map((s) => s.rank)).toEqual([1, 2])
+  })
+
+  it('leaves an unknown destination exactly where it was', () => {
+    /*
+     * The important half. A metadata outage produces `unknown` for everything,
+     * and if that demoted anything a backend blip would silently reorder the
+     * whole map underneath somebody's cursor.
+     */
+    const sections = map({ xqc: meta('xqc') })
+    expect(sections.map((s) => s.channel)).toEqual(['lirik', 'xqc'])
+  })
+
+  it('reports live state on the section, including for HERE', () => {
+    const sections = socialGravity(
+      [{ member: 'a', userId: 'a', presence: friend('a', 'A', 'lirik').presence }],
+      ON('LIRIK'),
+      Date.now(),
+      'me',
+      { lirik: meta('lirik', { live: 'offline' }) },
+    )
+    const here = sections.find((section) => section.kind === 'here')
+    // The viewer deserves to know the stream they are watching has ended, even
+    // though there is nowhere for them to go.
+    expect(here?.live).toBe('offline')
+  })
+})
+
+describe('authoritative casing', () => {
+  it('outranks everything the browser learned', () => {
+    // Nobody here has ever opened lvndmark and nobody is friends with them.
+    // Only metadata can spell it.
+    const html = render([friend('jake', 'Jake', 'lvndmark')], {
+      lvndmark: meta('lvndmark', { displayName: 'LVNDMARK' }),
+    })
+    expect(html).toContain('LVNDMARK')
+    expect(html).not.toContain('>lvndmark<')
+  })
+
+  it('beats a page title, because it is the account record itself', () => {
+    const html = renderToStaticMarkup(
+      <ChannelNameProvider
+        people={[]}
+        seen={{ lvndmark: 'Lvndmark' }}
+        metadata={{ lvndmark: meta('lvndmark', { displayName: 'LVNDMARK' }) }}
+      >
+        <SocialGravity
+          friends={[friend('jake', 'Jake', 'lvndmark')]}
+          localActivity={IDLE}
+          client={stubClient()}
+          cardContext={{
+            selfId: 'me',
+            viewerActivity: IDLE,
+            friendIds: new Set(['jake']),
+            outgoingRequestIds: new Set(),
+          }}
+          metadata={{ lvndmark: meta('lvndmark', { displayName: 'LVNDMARK' }) }}
+        />
+      </ChannelNameProvider>,
+    )
+    expect(html).toContain('LVNDMARK')
+    expect(html).not.toContain('Lvndmark')
+  })
+
+  it('never lets display text become identity', () => {
+    // The cluster key, the JOIN target and the analytics destination stay the
+    // lowercase login however authoritative the spelling is.
+    const sections = socialGravity(
+      [{ member: 'a', userId: 'a', presence: friend('a', 'A', 'LVNDMARK').presence }],
+      IDLE,
+      Date.now(),
+      'me',
+      { lvndmark: meta('lvndmark', { displayName: 'LVNDMARK' }) },
+    )
+    expect(sections[0].channel).toBe('lvndmark')
+  })
+})
+
+describe('the card survives what a creator can put in it', () => {
+  it('clamps a long title and a long category to one line each', () => {
+    const html = render(THREE_ON_LIRIK, {
+      lirik: meta('lirik', {
+        gameName: 'Dungeons and Dragons Online: Stormreach Anniversary Edition',
+        title: 'day 412 of asking chat to stop backseating '.repeat(3),
+      }),
+    })
+    expect(html).toContain('kb-gravity-title')
+
+    for (const selector of ['.kb-gravity-title {', '.kb-gravity-game {']) {
+      const rule = CSS.slice(CSS.indexOf(selector), CSS.indexOf('}', CSS.indexOf(selector)))
+      expect(rule).toContain('text-overflow: ellipsis')
+      expect(rule).toContain('white-space: nowrap')
+    }
+  })
+
+  it('keeps the badge and the count off the flexible half', () => {
+    // At 260px a long category must not push LIVE or the viewer count out of
+    // the card, so the category is the only thing allowed to shrink.
+    const game = CSS.slice(CSS.indexOf('.kb-gravity-game {'), CSS.indexOf('}', CSS.indexOf('.kb-gravity-game {')))
+    expect(game).toContain('min-width: 0')
+    const status = CSS.slice(CSS.indexOf('.kb-gravity-status {'), CSS.indexOf('}', CSS.indexOf('.kb-gravity-status {')))
+    expect(status).toContain('flex: none')
+    const avatar = CSS.slice(CSS.indexOf('.kb-gravity-avatar {'), CSS.indexOf('}', CSS.indexOf('.kb-gravity-avatar {')))
+    expect(avatar).toContain('flex: none')
+  })
+
+  it('renders no avatar at all rather than a broken one', () => {
+    const html = render(THREE_ON_LIRIK, { lirik: meta('lirik', { profileImageUrl: null }) })
+    expect(html).not.toContain('kb-gravity-avatar')
+    // And the head is otherwise untouched.
+    expect(html).toContain('LIRIK')
+    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+  })
+
+  it('escapes a title rather than rendering it', () => {
+    // Somebody else's free text, in a page we do not control.
+    const html = render(THREE_ON_LIRIK, {
+      lirik: meta('lirik', { title: '<img src=x onerror=alert(1)>' }),
+    })
+    expect(html).not.toContain('<img src=x')
+    expect(html).toContain('&lt;img')
+  })
+})

@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo } from 'react'
 import type { ReactNode } from 'react'
+import type { LiveState } from '../core/twitchMetadata'
 import type {
   AnalyticsEventMap,
   AnalyticsEventName,
@@ -42,7 +43,13 @@ export interface Analytics {
       state: 'watching_with_you' | 'watching_elsewhere'
     }>
     gatherings: Array<{ channel: string; friendCount: number; rank: number }>
-    gravity: Array<{ channel: string; friendCount: number; rank: number }>
+    gravity: Array<{
+      channel: string
+      friendCount: number
+      rank: number
+      /** Whether Twitch said the destination was streaming. */
+      live?: LiveState
+    }>
   }): void
 }
 

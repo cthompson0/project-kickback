@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   ANALYTICS_ENVIRONMENTS,
@@ -34,11 +34,16 @@ const MIGRATION = readFileSync('supabase/migrations/0013_analytics.sql', 'utf8')
  * watching_together_ended had before the effective-end fix, and resets it on
  * every bundle run; 0015 runs afterwards and upserts the current one. Reading
  * only the first file would test a contract the database never ends up with.
+ *
+ * Read from the directory in filename order - the same thing the bundle does -
+ * rather than from a list kept here. A list has to be edited whenever a
+ * migration revises the contract, and the failure mode of forgetting is this
+ * test passing against a contract the database does not have.
  */
-const CONTRACT_MIGRATIONS = [
-  'supabase/migrations/0013_analytics.sql',
-  'supabase/migrations/0015_social_discovery.sql',
-]
+const CONTRACT_MIGRATIONS = readdirSync('supabase/migrations')
+  .filter((file) => file.endsWith('.sql'))
+  .sort()
+  .map((file) => `supabase/migrations/${file}`)
 
 /** Pulls the seeded (name, allowed_properties) pairs out of the inserts. */
 function contractFromSql(): Map<string, string[]> {

@@ -1,4 +1,4 @@
-import type { SimActivity, SimUser, SimVisibility, SimWorld } from './world'
+import type { SimActivity, SimChannelMeta, SimUser, SimVisibility, SimWorld } from './world'
 
 /**
  * Deterministic starting worlds.
@@ -70,12 +70,26 @@ function crowd(count: number, channel: string, from = 0): SimUser[] {
   )
 }
 
-function world(users: SimUser[], observerChannel: string | null = null): SimWorld {
+function world(
+  users: SimUser[],
+  observerChannel: string | null = null,
+  metadata?: Record<string, SimChannelMeta>,
+): SimWorld {
   return {
     observer: { ...OBSERVER, channel: observerChannel },
     users,
+    metadata,
     clockOffsetMs: 0,
   }
+}
+
+/** A plausible live stream, so metadata presets read like the real thing. */
+const LIVE: SimChannelMeta = {
+  live: 'live',
+  displayName: 'LIRIK',
+  gameName: 'Escape from Tarkov',
+  title: 'late night wipe grind - !discord !settings',
+  viewerCount: 18_412,
 }
 
 export interface Preset {
@@ -186,6 +200,83 @@ export const PRESETS: Preset[] = [
         person(1, { activity: 'watching', channel: 'LIRIK', staleForMs: 120_000 }),
       ]),
   },
+  // ------------------------------------------------------ metadata states
+  {
+    id: 'meta-live',
+    label: 'Live creator',
+    hint: 'Avatar, category, title, LIVE badge and viewers on a 3-friend card.',
+    build: () => world(crowd(3, 'LIRIK'), null, { lirik: LIVE }),
+  },
+  {
+    id: 'meta-offline',
+    label: 'Offline creator',
+    hint: 'Twitch says the stream ended. The card stays, marked, and sinks.',
+    build: () =>
+      world([...crowd(3, 'LIRIK'), ...crowd(1, 'xQc', 3)], null, {
+        lirik: { live: 'offline', displayName: 'LIRIK' },
+        xqc: { live: 'live', displayName: 'xQc', gameName: 'Just Chatting', viewerCount: 40_120 },
+      }),
+  },
+  {
+    id: 'meta-unavailable',
+    label: 'Metadata unavailable',
+    hint: 'Backend down, or nothing asked yet. Must look exactly like no metadata.',
+    build: () => world(crowd(3, 'LIRIK'), null, { lirik: { live: 'unavailable' } }),
+  },
+  {
+    id: 'meta-long',
+    label: 'Long title + category',
+    hint: 'Both must clamp to one line and never push JOIN off the card.',
+    build: () =>
+      world(crowd(2, 'LIRIK'), null, {
+        lirik: {
+          ...LIVE,
+          gameName: 'Dungeons and Dragons Online: Stormreach Anniversary Edition',
+          title:
+            'day 412 of asking chat to stop backseating while I attempt the impossible ' +
+            'no-hit run with viewer-chosen handicaps !commands !socials !merch',
+        },
+      }),
+  },
+  {
+    id: 'meta-no-avatar',
+    label: 'Missing avatar',
+    hint: 'No image at all, and a broken one. Both must leave the head intact.',
+    build: () =>
+      world([...crowd(2, 'LIRIK'), ...crowd(1, 'xQc', 2)], null, {
+        lirik: { ...LIVE, avatar: 'missing' },
+        xqc: { live: 'live', displayName: 'xQc', avatar: 'broken', gameName: 'Just Chatting' },
+      }),
+  },
+  {
+    id: 'meta-mixed',
+    label: 'Mixed live / offline',
+    hint: 'Live, offline and unknown together. Only the offline one is demoted.',
+    build: () =>
+      world([...crowd(4, 'LIRIK'), ...crowd(2, 'xQc', 4), ...crowd(1, 'shroud', 6)], null, {
+        lirik: { live: 'offline', displayName: 'LIRIK' },
+        xqc: { live: 'live', displayName: 'xQc', gameName: 'Just Chatting', viewerCount: 40_120 },
+        // shroud deliberately has no entry: an unknown destination must rank
+        // with the live ones, not with the offline one.
+      }),
+  },
+  {
+    id: 'meta-casing',
+    label: 'Authoritative casing',
+    hint: 'Nobody here has opened LVNDMARK. Only metadata can spell it.',
+    build: () =>
+      world([...crowd(2, 'lvndmark')], null, {
+        lvndmark: { live: 'live', displayName: 'LVNDMARK', gameName: 'Escape from Tarkov' },
+      }),
+  },
+  {
+    id: 'meta-here',
+    label: 'HERE, stream ended',
+    hint: 'You are on it, three friends with you, and Twitch says it stopped.',
+    build: () =>
+      world(crowd(3, 'LIRIK'), 'LIRIK', { lirik: { live: 'offline', displayName: 'LIRIK' } }),
+  },
+
   {
     id: 'requests',
     label: 'Requests + strangers',

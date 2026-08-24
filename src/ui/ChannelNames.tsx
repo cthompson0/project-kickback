@@ -1,6 +1,7 @@
 import { createContext, useContext, useMemo } from 'react'
 import { resolveChannelName } from '../core/channelNames'
 import type { NamedTwitchUser } from '../core/channelNames'
+import type { ChannelMetadata } from '../core/twitchMetadata'
 
 /**
  * One place that decides how a channel is spelled on screen.
@@ -19,12 +20,15 @@ const ChannelNameContext = createContext<(channel: string) => string>((channel) 
 export function ChannelNameProvider({
   people,
   seen,
+  metadata,
   children,
 }: {
   /** Everyone whose Twitch display name Kickback already holds. */
   people: readonly NamedTwitchUser[]
   /** login -> casing, learned from pages this browser has opened. */
   seen: Readonly<Record<string, string>>
+  /** login -> Twitch's own record. Outranks both of the above. */
+  metadata?: Readonly<Record<string, ChannelMetadata>>
   children: React.ReactNode
 }) {
   const resolve = useMemo(() => {
@@ -39,9 +43,18 @@ export function ChannelNameProvider({
 
     return (channel: string) => {
       const login = channel.trim().toLowerCase()
+      /*
+       * Metadata first, then the pre-built map of people, then titles.
+       *
+       * The people map is a lookup rather than a scan, which is why it is not
+       * simply handed to resolveChannelName - but it must not therefore beat
+       * the authoritative answer, so metadata is asked before it.
+       */
+      const authoritative = resolveChannelName(channel, { metadata })
+      if (authoritative !== login) return authoritative
       return byLogin.get(login) ?? resolveChannelName(channel, { seen })
     }
-  }, [people, seen])
+  }, [people, seen, metadata])
 
   return <ChannelNameContext.Provider value={resolve}>{children}</ChannelNameContext.Provider>
 }

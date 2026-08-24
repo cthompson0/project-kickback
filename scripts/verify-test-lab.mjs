@@ -51,6 +51,14 @@ function readPanel() {
       here: card.classList.contains('kb-gravity-card-here'),
       join: Boolean(card.querySelector('.kb-join')),
       people: [...card.querySelectorAll('.kb-cluster-name')].map((el) => el.textContent),
+      live: Boolean(card.querySelector('.kb-live')),
+      offline: Boolean(card.querySelector('.kb-offline-badge')),
+      game: card.querySelector('.kb-gravity-game')?.textContent ?? null,
+      viewers: card.querySelector('.kb-gravity-viewers')?.textContent ?? null,
+      streamTitle: card.querySelector('.kb-gravity-title')?.textContent ?? null,
+      avatar: Boolean(card.querySelector('.kb-gravity-avatar')),
+      /* Whether anything overflows the card at the panel's narrowest. */
+      overflows: card.scrollWidth > card.clientWidth + 1,
     })),
     quiet: [...document.querySelectorAll('.kb-section-label')].map((el) => el.textContent),
     events: [...document.querySelectorAll('.lab-log li strong')].map((el) => el.textContent),
@@ -193,6 +201,64 @@ async function main() {
       'the invisible friend did not appear as Offline',
     )
 
+    // --- metadata -------------------------------------------------------
+
+    await page.evaluate(clickPreset, 'Live creator')
+    await settle(page)
+    const liveCard = (await page.evaluate(readPanel)).cards[0] ?? {}
+    check(liveCard.live === true, 'live creator drew no LIVE badge')
+    check(liveCard.avatar === true, 'live creator drew no avatar')
+    check(liveCard.game === 'Escape from Tarkov', `category read "${liveCard.game}"`)
+    check(liveCard.viewers === '18K', `viewers read "${liveCard.viewers}"`)
+    check(Boolean(liveCard.streamTitle), 'live creator drew no title')
+    check(liveCard.count === 3, 'metadata changed the friend count')
+    check(liveCard.join === true, 'metadata removed the JOIN')
+
+    await page.evaluate(clickPreset, 'Offline creator')
+    await settle(page)
+    const offlineView = await page.evaluate(readPanel)
+    check(
+      offlineView.cards[0]?.channel === 'xQc' && offlineView.cards[0]?.live === true,
+      'an ended stream was not demoted below a live one',
+    )
+    check(
+      offlineView.cards[1]?.offline === true && offlineView.cards[1]?.count === 3,
+      'the ended destination lost its mark or its friends',
+    )
+    check(offlineView.cards[1]?.join === true, 'the ended destination lost its JOIN')
+
+    await page.evaluate(clickPreset, 'Metadata unavailable')
+    await settle(page)
+    const unavailable = await page.evaluate(readPanel)
+    check(
+      unavailable.cards[0]?.live === false && unavailable.cards[0]?.offline === false,
+      'an unavailable answer was drawn as though it were an answer',
+    )
+    check(unavailable.cards[0]?.count === 3, 'the plain card lost its friends')
+
+    await page.evaluate(clickPreset, 'Authoritative casing')
+    await settle(page)
+    check(
+      (await page.evaluate(readPanel)).cards[0]?.channel === 'LVNDMARK',
+      'metadata did not supply the authoritative casing',
+    )
+
+    /*
+     * The narrowest panel a user can produce, with the longest text a creator
+     * can write. Nothing may overflow the card - which is a layout question,
+     * so it is measured rather than asserted from CSS.
+     */
+    await page.evaluate(clickPreset, 'Long title + category')
+    await settle(page)
+    await page.evaluate(() => {
+      const panel = document.querySelector('.kb-panel')
+      panel.style.setProperty('--kb-w', '260px')
+    })
+    await settle(page, 300)
+    const narrow = await page.evaluate(readPanel)
+    check(narrow.cards[0]?.overflows === false, 'a long title or category overflowed the card')
+    check(narrow.cards[0]?.join === true, 'a long title pushed JOIN off the card')
+
     // --- JOIN, up to the navigation boundary -----------------------------
 
     await page.evaluate(clickPreset, '5-friend Gravity')
@@ -232,6 +298,7 @@ async function main() {
   }
 
   console.log('Test Lab boots, renders the real panel, and drives Gravity 1/2/3/5/10.')
+  console.log('Metadata states render: live, offline+demoted, unavailable, casing, long text.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
 }
 

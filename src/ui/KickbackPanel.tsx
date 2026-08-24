@@ -146,8 +146,16 @@ export function KickbackPanel({
         view.localActivity,
         undefined,
         view.identity?.userId ?? null,
+        /*
+         * What Twitch says about each destination.
+         *
+         * The selector applies the freshness rule, so a record old enough to
+         * have stopped being evidence reports `unknown` - which ranks and
+         * renders exactly as no metadata at all.
+         */
+        view.channelMetadata,
       ),
-    [view.friends, view.localActivity, view.identity?.userId],
+    [view.friends, view.localActivity, view.identity?.userId, view.channelMetadata],
   )
 
   /*
@@ -198,6 +206,16 @@ export function KickbackPanel({
               channel: section.channel,
               friendCount: section.count,
               rank: section.rank,
+              /*
+               * Whether the destination we showed was actually streaming.
+               *
+               * The one metadata field analytics carries. It answers "are we
+               * sending people to streams that have ended", which is a
+               * question about whether the map is worth acting on. Titles,
+               * viewer counts, categories and avatars are deliberately not
+               * here: none of them answers a question we have.
+               */
+              live: section.live,
             }))
           : [],
     }
@@ -298,7 +316,11 @@ export function KickbackPanel({
   return (
     // One resolver for the whole panel, so a channel is spelled the same way
     // in the activity line, a friend row and a group cluster.
-    <ChannelNameProvider people={knownPeople} seen={view.channelNames}>
+    <ChannelNameProvider
+      people={knownPeople}
+      seen={view.channelNames}
+      metadata={view.channelMetadata}
+    >
     <AnalyticsProvider client={client}>
     <div
       // A height the user chose is what the panel is, not a ceiling: otherwise
@@ -516,6 +538,7 @@ export function KickbackPanel({
                     onRemove={removeFriend}
                     client={client}
                     cardContext={cardContext}
+                    metadata={view.channelMetadata}
                   />
                 ) : (
                   /* The control arm keeps the flat list it always had. */

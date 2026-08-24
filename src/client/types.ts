@@ -7,6 +7,8 @@
  */
 
 import type { Presence, User } from '../core/types'
+import type { LiveState } from '../core/twitchMetadata'
+import type { ChannelMetadata } from '../core/twitchMetadata'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -130,6 +132,18 @@ export interface KickbackState {
    * browser has opened. Presentation only; every lookup is by login.
    */
   channelNames: Record<string, string>
+
+  /**
+   * Twitch login -> public metadata about that channel.
+   *
+   * Enrichment for the social map: who the creator is, whether they are live,
+   * and what of. Absent for a channel nobody has asked about yet, and absent
+   * whenever the metadata service could not answer - which the UI renders as
+   * the plain card it drew before this existed.
+   *
+   * Keyed by login, like everything else. Nothing in here is identity.
+   */
+  channelMetadata: Record<string, ChannelMetadata>
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -156,6 +170,7 @@ export const INITIAL_STATE: KickbackState = {
   groupsLoading: false,
   groupsError: null,
   channelNames: {},
+  channelMetadata: {},
 }
 
 export interface KickbackClient {
@@ -258,7 +273,13 @@ export interface KickbackClient {
       state: 'watching_with_you' | 'watching_elsewhere'
     }>
     gatherings: Array<{ channel: string; friendCount: number; rank: number }>
-    gravity: Array<{ channel: string; friendCount: number; rank: number }>
+    gravity: Array<{
+      channel: string
+      friendCount: number
+      rank: number
+      /** Whether Twitch said the destination was streaming. */
+      live?: LiveState
+    }>
   }): void
 }
 

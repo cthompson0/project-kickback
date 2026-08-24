@@ -1,5 +1,6 @@
 import type { KickbackState } from './types'
 import type { AnalyticsEventName, AnalyticsSurface, AnalyticsValue } from '../core/analytics'
+import type { LiveState } from '../core/twitchMetadata'
 
 /**
  * Message protocol between a Twitch tab and the extension service worker.
@@ -113,7 +114,13 @@ export type ClientMessage =
        * the JOIN that follows it cannot disagree about which opportunity they
        * were - and so nothing about the cluster's membership has to travel.
        */
-      gravity: Array<{ channel: string; friendCount: number; rank: number }>
+      gravity: Array<{
+      channel: string
+      friendCount: number
+      rank: number
+      /** Whether Twitch said the destination was streaming. */
+      live?: LiveState
+    }>
     }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 

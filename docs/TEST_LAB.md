@@ -113,11 +113,39 @@ time:
 There is deliberately no fake-clock framework. Presence needed ageing, not a
 fake clock; analytics already had an injection point.
 
+### Metadata
+
+Per-destination controls for what Twitch would say: **live / offline /
+unavailable**, the avatar (present, missing, broken) and the category.
+
+Fed at exactly the boundary production reads it from —
+`KickbackState.channelMetadata` — so the panel cannot tell a simulated record
+from a fetched one. The lab holds **no token, no Helix parsing, no cache and no
+batching**: those belong to the service, and a copy of them here would prove
+nothing about the original.
+
+`unavailable` is modelled as **absence**, not as a state, because that is what
+it is. A metadata outage, a cold cache and a channel nobody has asked about all
+reach the panel as "no record", and all three must draw the plain card. A lab
+that distinguished them would be inventing a state production cannot produce —
+which is why "Metadata loading" and "Metadata error" are one preset here, and
+why a test asserts its output is byte-identical to no metadata at all.
+
+The stand-in avatar is an inline `data:` URI rather than a Twitch CDN URL: the
+lab has no network, so a real URL would simply fail to load and leave the
+avatar slot untested. A `data:` URI is not a request, so the seal is untouched.
+The real host check lives in `core/twitchMetadata.ts` and is tested there
+against actual URLs.
+
 ### Presets
 
 Empty · 1 friend watching · 2/3/5-friend Gravity · 10-friend stress · Two
 competing clusters · Watching with you · Privacy mix · Around + offline mix ·
 Cluster split/reform · Casing mix · Stale heartbeat · Requests + strangers.
+
+Metadata: Live creator · Offline creator · Metadata unavailable · Long title +
+category · Missing avatar · Mixed live/offline · Authoritative casing · HERE
+with the stream ended.
 
 A preset configures **people**, never an expected outcome. They are pure
 functions, so a bug is reproducible by name.
@@ -207,6 +235,7 @@ browser, a real extension and a real account:
 | MV3 worker lifecycle, eviction, alarms | There is no service worker in the lab |
 | Browser close / crash behaviour | Same |
 | Emote fetching from 7TV | No network |
+| The metadata service itself — token, Helix, cache, batching | The lab supplies records; it does not fetch them |
 | Groups and group chat | Not simulated yet |
 
 Everything else — clustering, ranking, HERE, privacy combinations, large

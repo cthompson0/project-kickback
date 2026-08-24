@@ -1995,6 +1995,120 @@ a.kb-ghost-btn {
   gap: 6px;
 }
 
+/*
+ * Twitch metadata on a Gravity card.
+ *
+ * The rule everything below obeys: the card is about WHO IS THERE. Metadata
+ * answers "what is this" second, and must never grow so loud, so tall or so
+ * wide that it competes with the friend count or pushes JOIN off a 260px
+ * panel. Every one of these rows is optional and absent by default, so a card
+ * with no metadata is exactly the card that shipped before it existed.
+ */
+
+.kb-gravity-avatar {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
+  /* Twitch avatars are photographs; a hairline keeps light ones off the card
+     background without drawing a ring around dark ones. */
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+/* One line for category, live state and viewers. */
+.kb-gravity-stream {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 11px;
+  min-width: 0;
+}
+
+.kb-gravity-game {
+  color: var(--kb-dim);
+  /* The flexible half: the badge and the count are fixed and must survive. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.kb-gravity-status {
+  flex: none;
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.kb-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--kb-here);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.kb-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--kb-here);
+}
+
+/*
+ * OFFLINE is stated, not shouted.
+ *
+ * It is the reason the card sank to the bottom of the map, so it has to be
+ * legible - but it is also a card the viewer's friends are still on, and
+ * making it alarming would suggest something is broken when nothing is.
+ */
+.kb-offline-badge {
+  color: var(--kb-faint);
+  font-weight: 700;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.kb-gravity-viewers {
+  color: var(--kb-faint);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The stream title.
+ *
+ * Somebody else's free text, so it is clamped to one line and given the full
+ * value on hover. Two lines were tried in the head and rejected: at ten
+ * friends the card is already tall, and the title is the least important thing
+ * on it.
+ */
+.kb-gravity-title {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--kb-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * A destination whose stream has ended.
+ *
+ * Dimmed, not hidden. The friends on it are real and presence is the authority
+ * on where people are - so the card keeps its people, its count and its JOIN,
+ * and only stops claiming to be somewhere worth going first.
+ */
+.kb-gravity-card-offline {
+  opacity: 0.72;
+}
+
 .kb-gravity-flame {
   font-size: 12px;
   line-height: 1;

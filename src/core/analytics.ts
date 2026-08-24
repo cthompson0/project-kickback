@@ -87,6 +87,14 @@ export interface AnalyticsEventMap {
     visible_clusters: number
     /** Reserved, as on join_clicked: which opportunity was shown. */
     opportunity_key?: string
+    /**
+     * Whether Twitch said the destination was streaming when it was shown.
+     *
+     * Absent when nothing told us, which is a third state and not a false.
+     * Answers "are we showing people streams that have ended", and nothing
+     * else about the stream is recorded.
+     */
+    destination_live?: boolean
   }
 
   // --------------------------------------------------------------------- join
@@ -202,7 +210,13 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
 
   friend_presence_impression: ['state', 'visible_count'],
   gathering_impression: ['friend_count', 'rank', 'visible_count'],
-  gravity_cluster_impression: ['friend_count', 'rank', 'visible_clusters', 'opportunity_key'],
+  gravity_cluster_impression: [
+    'friend_count',
+    'rank',
+    'visible_clusters',
+    'opportunity_key',
+    'destination_live',
+  ],
 
   join_clicked: [
     'social_count',

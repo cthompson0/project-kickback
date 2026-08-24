@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { socialGravity, isGravity } from '../../core/socialGravity'
 import type { GravitySection } from '../../core/socialGravity'
+import { formatViewers } from '../../core/twitchMetadata'
+import type { ChannelMetadata } from '../../core/twitchMetadata'
 import type { Activity } from '../../core/types'
 import type { Friend, KickbackClient } from '../../client/types'
 import { useChannelName } from '../ChannelNames'
@@ -48,6 +50,43 @@ interface SocialGravityProps {
   onRemove?: (userId: string) => void
   client: KickbackClient
   cardContext: UserCardContext
+  /** login -> public Twitch metadata. Absent is normal and always safe. */
+  metadata?: Readonly<Record<string, ChannelMetadata>>
+}
+
+/**
+ * The creator's Twitch avatar.
+ *
+ * Its own component rather than the shared Avatar, which is built around a
+ * Kickback User. A channel is not one: it has a login and possibly a picture,
+ * and no id to derive a fallback tint from.
+ *
+ * The URL is host-checked before it ever reaches state (see
+ * core/twitchMetadata.ts), and `onError` covers the rest - a deleted image, a
+ * blocked request, a CSP that disagrees. Failure removes the picture and
+ * nothing else moves, because the slot is only rendered when there is
+ * something to put in it.
+ */
+function ChannelAvatar({ src, name }: { src: string | null; name: string }) {
+  const [failed, setFailed] = useState(false)
+  if (!src || failed) return null
+
+  return (
+    <img
+      className="kb-gravity-avatar"
+      src={src}
+      alt=""
+      // Decorative: the channel name is right beside it, so a screen reader
+      // announcing the picture too would just say everything twice.
+      aria-hidden="true"
+      loading="lazy"
+      decoding="async"
+      width={22}
+      height={22}
+      title={name}
+      onError={() => setFailed(true)}
+    />
+  )
 }
 
 /**
@@ -97,12 +136,14 @@ function GravityPerson({
 
 function DestinationCard({
   section,
+  meta,
   client,
   cardContext,
   openCardId,
   onToggleCard,
 }: {
   section: GravitySection<Friend>
+  meta?: ChannelMetadata
   client: KickbackClient
   cardContext: UserCardContext
   openCardId: string | null
@@ -112,10 +153,23 @@ function DestinationCard({
   const here = section.kind === 'here'
   const heavy = isGravity(section)
 
+  /*
+   * Three states, and only two of them say anything.
+   *
+   * `live` earns the badge and the stream line. `offline` earns the word
+   * OFFLINE, because a stream that has ended is worth knowing about before
+   * clicking JOIN. `unknown` earns SILENCE - no badge, no line, no placeholder
+   * - so a cold cache or a metadata outage produces exactly the card this
+   * panel drew before metadata existed.
+   */
+  const live = section.live === 'live'
+  const offline = section.live === 'offline'
+
   const className = [
     'kb-gravity-card',
     here ? 'kb-gravity-card-here' : '',
     heavy ? 'kb-gravity-card-strong' : '',
+    offline ? 'kb-gravity-card-offline' : '',
   ]
     .filter(Boolean)
     .join(' ')
@@ -123,6 +177,8 @@ function DestinationCard({
   return (
     <div className={className}>
       <div className="kb-gravity-head">
+        <ChannelAvatar src={meta?.profileImageUrl ?? null} name={channelName(section.channel ?? '')} />
+
         {/*
          * The flame marks a gathering, not a stream. It appears at two friends
          * and does not grow with the count - the number beside it already says
@@ -165,6 +221,58 @@ function DestinationCard({
         )}
       </div>
 
+      {/*
+       * The stream line.
+       *
+       * One row, whatever it has to say. Category leads because it is the
+       * fastest answer to "what is this"; the live badge and viewer count sit
+       * at the end where they cannot push it out of the card. Viewer count is
+       * context - it is deliberately the smallest, dimmest thing here, and it
+       * has no influence whatsoever on where this card sits.
+       */}
+      {(live || offline) && (
+        <div className="kb-gravity-stream">
+          {live && meta?.gameName && (
+            <span className="kb-gravity-game" title={meta.gameName}>
+              {meta.gameName}
+            </span>
+          )}
+
+          <span className="kb-gravity-status">
+            {live ? (
+              <span className="kb-live" title="Streaming now">
+                <span className="kb-live-dot" aria-hidden="true" />
+                LIVE
+              </span>
+            ) : (
+              <span className="kb-offline-badge" title="Twitch says this stream has ended">
+                OFFLINE
+              </span>
+            )}
+
+            {live && meta?.viewerCount !== null && meta?.viewerCount !== undefined && (
+              <span className="kb-gravity-viewers" title={`${meta.viewerCount} viewers`}>
+                {formatViewers(meta.viewerCount)}
+              </span>
+            )}
+          </span>
+        </div>
+      )}
+
+      {/*
+       * The title, clamped to one line.
+       *
+       * Worth having and easy to let ruin the card: titles are long, arbitrary
+       * and written by somebody else. One line, ellipsised, with the whole
+       * thing on hover. We care first that friends are there, and only then
+       * what they are watching.
+       */}
+      {live && meta?.title && (
+        <div className="kb-gravity-title" title={meta.title}>
+          {meta.title}
+        </div>
+      )}
+
       {here && (
         <div className="kb-gravity-with-you">
           {section.count === 1 ? '1 friend watching with you' : `${section.count} friends watching with you`}
@@ -193,6 +301,7 @@ export function SocialGravity({
   onRemove,
   client,
   cardContext,
+  metadata,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
 
@@ -210,8 +319,11 @@ export function SocialGravity({
         undefined,
         // "Where is everyone else" - the viewer is never one of them.
         cardContext.selfId,
+        // The selector applies the freshness rule, so a record too old to
+        // be evidence reports `unknown` and ranks and renders as none at all.
+        metadata,
       ),
-    [friends, localActivity, cardContext.selfId],
+    [friends, localActivity, cardContext.selfId, metadata],
   )
 
   if (friends.length === 0) {
@@ -228,6 +340,7 @@ export function SocialGravity({
             <DestinationCard
               key={key}
               section={section}
+              meta={section.channel ? metadata?.[section.channel] : undefined}
               client={client}
               cardContext={cardContext}
               openCardId={openCardId}

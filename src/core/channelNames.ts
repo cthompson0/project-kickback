@@ -12,25 +12,30 @@
  * and `LIRIK` are unguessable - so this module only ever *looks names up*, and
  * falls back to the login unchanged rather than inventing one.
  *
- * Two sources, both already in hand and neither needing a Twitch API call:
+ * Three sources, in order of authority:
  *
- *   1. People Kickback already knows. A Twitch channel is a Twitch user, so if
+ *   1. The Twitch Metadata Service. Twitch's own `display_name`, for the
+ *      channel itself, fetched with an app token. Nothing can beat it, and it
+ *      is the only source that can spell a channel this browser has never
+ *      opened and nobody here is friends with.
+ *   2. People Kickback already knows. A Twitch channel is a Twitch user, so if
  *      a friend or group member's login matches the channel, their stored
  *      Twitch display name IS the channel's display name.
- *   2. Channels this browser has actually opened. The content script reads the
+ *   3. Channels this browser has actually opened. The content script reads the
  *      casing off the page title, which is Twitch telling us directly.
  *
- * Both are keyed by login and hold one value per channel, so the answer cannot
- * depend on who happens to be watching it - a destination with six friends on
- * it resolves exactly as it would with one. Sources are tried in the order
- * above; a person Kickback knows outranks a title it read, because the first
- * came from Twitch's own record of that user and the second from a string.
+ * All three are keyed by login and hold one value per channel, so the answer
+ * cannot depend on who happens to be watching it - a destination with six
+ * friends on it resolves exactly as it would with one.
  *
- * A third source belongs here later: the Twitch Metadata Service's
- * authoritative `display_name`, which would take precedence over both and give
- * a spelling to channels this browser has never opened. It drops in as another
- * lookup in resolveChannelName and improves every call site at once - nothing
- * upstream has ever been permitted to treat display text as identity.
+ * The order is about provenance, not freshness. (1) is the creator's own
+ * account record; (2) is a copy of that record taken when someone signed in;
+ * (3) is a string parsed out of a page title. Each is a step further from the
+ * source, so each yields to the one above it.
+ *
+ * Every source is still only TEXT. The login stays canonical for equality,
+ * clustering, JOIN, analytics and opportunity keys, and no amount of
+ * authority changes that - see docs/ANALYTICS.md.
  */
 
 /** Anything with a Twitch login and the display name that goes with it. */
@@ -40,6 +45,13 @@ export interface NamedTwitchUser {
 }
 
 export interface ChannelNameSources {
+  /**
+   * login -> Twitch's own display_name, from the metadata service.
+   *
+   * Highest authority: it is the creator's account record rather than a copy
+   * of it or a parse of a page title.
+   */
+  metadata?: Readonly<Record<string, { displayName?: string | null }>>
   /** Friends, group members - anyone whose Twitch name we already hold. */
   people?: readonly NamedTwitchUser[]
   /** login -> display, learned from pages this browser has opened. */
@@ -63,6 +75,12 @@ export function resolveChannelName(
 ): string {
   const login = channel.trim().toLowerCase()
   if (!login) return channel
+
+  // Twitch's own answer about this channel. Checked the same way as every
+  // other source: a name that is a different word is a rename, not a spelling,
+  // and identity is never allowed to come from display text.
+  const authoritative = sources.metadata?.[login]?.displayName?.trim()
+  if (authoritative && isSameChannel(login, authoritative)) return authoritative
 
   // A person we know, whose Twitch name is by definition the channel's name.
   for (const person of sources.people ?? []) {

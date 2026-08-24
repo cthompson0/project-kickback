@@ -31,6 +31,8 @@
 import { clusterMembers } from './groupPresence'
 import type { MemberLike } from './groupPresence'
 import type { Activity } from './types'
+import { liveStateOf } from './twitchMetadata'
+import type { ChannelMetadata, LiveState } from './twitchMetadata'
 
 /**
  * What a section of the map is.
@@ -47,6 +49,14 @@ export const GRAVITY_THRESHOLD = 2
 
 export interface GravitySection<T> {
   kind: GravityKind
+  /**
+   * Whether Twitch says this destination is streaming.
+   *
+   * `unknown` whenever nothing told us, which is the default and the state
+   * every section is in when metadata is absent, slow or broken. It is not a
+   * synonym for offline and is never presented as one.
+   */
+  live: LiveState
   /** Lowercase Twitch login for `here` and `destination`; null otherwise. */
   channel: string | null
   friends: T[]
@@ -121,6 +131,27 @@ export function isGravity<T>(section: GravitySection<T>): boolean {
  *   3. around        - on Twitch, nothing to join.
  *   4. offline
  *
+ * WHAT METADATA IS AND IS NOT ALLOWED TO DO TO THAT ORDER
+ *
+ * It may do exactly one thing: move a destination Twitch says has STOPPED
+ * STREAMING below the ones that have not. It may not do anything else, and in
+ * particular viewer count, category and popularity have no influence here at
+ * all - a fifty-viewer stream with five friends on it outranks a
+ * fifty-thousand-viewer stream with one, and always will. Friend count is why
+ * a destination matters; metadata only says whether it is still there.
+ *
+ * Demoting an ended stream is not ranking by Twitch data, it is declining to
+ * put a JOIN that leads nowhere at the top of the map. The card is kept, with
+ * its friends and its count, because presence is the authority on where
+ * people are and a destination that vanished would be a worse lie than one
+ * marked OFFLINE.
+ *
+ * `unknown` ranks with `live`, deliberately. A metadata outage, a cold cache
+ * and a channel we have simply not asked about yet all produce `unknown`, and
+ * if that demoted anything then a backend blip would silently reorder the
+ * whole map. With no metadata at all the order is byte-for-byte what it was
+ * before metadata existed.
+ *
  * Ties between destinations break alphabetically by channel login, and
  * NOT by recency. Recency looks appealing and is quietly awful here: presence
  * heartbeats land every 45 seconds, so a freshness tie-break would reorder the
@@ -134,32 +165,80 @@ export function socialGravity<T>(
   localActivity: Activity,
   now?: number,
   selfId: string | null = null,
+  /**
+   * What Twitch says about each channel, keyed by login.
+   *
+   * The MAP rather than a lookup function, so the freshness check happens in
+   * here where the clock already lives. Callers are React render paths, and a
+   * render that reads the clock is a render that can disagree with itself.
+   *
+   * Omitting it produces exactly the map this function produced before
+   * metadata existed.
+   */
+  metadata?: Readonly<Record<string, ChannelMetadata>>,
 ): Array<GravitySection<T>> {
   const clusters = clusterMembers(friends, localActivity, now, selfId)
 
-  let rank = 0
-  return clusters.map((cluster) => {
+  /*
+   * One clock reading for the whole map.
+   *
+   * Same reason clusterMembers takes `now`: two destinations evaluated a
+   * millisecond apart must not be able to land on opposite sides of the
+   * staleness boundary.
+   */
+  const at = now ?? Date.now()
+  const liveOf = (channel: string): LiveState =>
+    metadata ? liveStateOf(metadata[channel], at) : 'unknown'
+
+  const sections = clusters.map((cluster) => {
     const destination = cluster.kind === 'channel' && cluster.channel !== null
-    if (destination) rank += 1
 
     return {
-      kind:
-        cluster.kind === 'here'
-          ? 'here'
-          : cluster.kind === 'channel'
-            ? 'destination'
-            : cluster.kind === 'browsing'
-              ? 'around'
-              : 'offline',
+      kind: (cluster.kind === 'here'
+        ? 'here'
+        : cluster.kind === 'channel'
+          ? 'destination'
+          : cluster.kind === 'browsing'
+            ? 'around'
+            : 'offline') as GravityKind,
+      // `here` is asked too: the viewer deserves to know the stream they are
+      // watching has ended, even though there is nowhere for them to go.
+      live: cluster.channel ? liveOf(cluster.channel) : ('unknown' as LiveState),
       channel: cluster.channel,
       friends: cluster.members,
       count: cluster.members.length,
-      rank: destination ? rank : null,
+      rank: null as number | null,
       // Never for `here`: the viewer is already on that channel, and offering
       // to take them there would reload the stream they are watching.
       canJoin: destination,
     }
   })
+
+  /*
+   * Sink the ended streams, and change nothing else.
+   *
+   * A stable partition rather than a sort: everything keeps clusterMembers'
+   * ordering within its group, so friend count still decides and the
+   * alphabetical tie-break still holds. Only the live/not-live boundary moves,
+   * and only for destinations - `here`, `around` and `offline` sections stay
+   * exactly where they were.
+   */
+  const ordered = [
+    ...sections.filter((section) => section.kind !== 'destination' || section.live !== 'offline'),
+    ...sections.filter((section) => section.kind === 'destination' && section.live === 'offline'),
+  ]
+
+  /*
+   * Rank AFTER ordering, so rank 1 is the top card on screen.
+   *
+   * Analytics joins impressions to clicks on rank, so a rank that disagreed
+   * with what the user saw would quietly corrupt the funnel rather than break
+   * anything visible.
+   */
+  let rank = 0
+  return ordered.map((section) =>
+    section.canJoin ? { ...section, rank: (rank += 1) } : section,
+  )
 }
 
 /**

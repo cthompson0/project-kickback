@@ -5,6 +5,7 @@ import type { FriendsBackend } from './friends'
 import type { PresenceBackend } from './presence'
 import type { GroupsBackend } from './groups'
 import type { AnalyticsBackend } from './analytics'
+import type { MetadataFetcher } from './metadata'
 import type { AnalyticsEvent } from '../core/analytics'
 import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
@@ -565,6 +566,30 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
 // the recorder's whole design is retry-with-backoff and it needs to know the
 // difference between "stored" and "did not store". Nothing above the recorder
 // ever sees that rejection.
+
+/**
+ * Kickback's Twitch metadata endpoint.
+ *
+ * An Edge Function rather than an RPC, because it needs the Twitch client
+ * secret and outbound HTTP - neither of which belongs in Postgres. Invoked
+ * with the caller's own session, so the function sees a verified user id and
+ * there is no actor for a modified client to supply.
+ *
+ * Returns raw JSON. Validation happens in core/twitchMetadata.ts, against the
+ * same parser the cache uses, because the values in it came from a third party
+ * and passing through our server does not make them ours.
+ */
+export function createSupabaseMetadataBackend(supabase: SupabaseClient): MetadataFetcher {
+  return {
+    async fetch(logins: string[]): Promise<unknown> {
+      const { data, error } = await supabase.functions.invoke('twitch-metadata', {
+        body: { logins },
+      })
+      if (error) throw new Error(describe(error))
+      return data
+    },
+  }
+}
 
 export function createSupabaseAnalyticsBackend(supabase: SupabaseClient): AnalyticsBackend {
   return {

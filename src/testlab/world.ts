@@ -1,4 +1,5 @@
 import { isSameChannel } from '../core/channelNames'
+import type { ChannelMetadata } from '../core/twitchMetadata'
 
 /**
  * The simulated social world.
@@ -80,9 +81,37 @@ export interface SimObserver {
   visibility: SimVisibility
 }
 
+/**
+ * What Twitch would say about a channel.
+ *
+ * Fed at exactly the boundary production consumes metadata at -
+ * `KickbackState.channelMetadata` - so the panel cannot tell the difference
+ * between this and a real response. The lab does NOT reimplement the metadata
+ * service: there is no token here, no Helix parsing, no cache and no batching,
+ * because those are the service's job and testing a copy of them would prove
+ * nothing about the original.
+ *
+ * `unavailable` is modelled as ABSENCE rather than as a state, because that is
+ * what it really is: a metadata outage, a cold cache and a channel nobody has
+ * asked about yet all reach the panel as "no record", and all three must
+ * render as the plain card. If they looked different here, the lab would be
+ * inventing a state production cannot produce.
+ */
+export interface SimChannelMeta {
+  live: 'live' | 'offline' | 'unavailable'
+  /** Twitch casing. Must be the same word as the login, as Twitch's is. */
+  displayName?: string
+  gameName?: string
+  title?: string
+  viewerCount?: number
+  avatar?: 'twitch' | 'missing' | 'broken'
+}
+
 export interface SimWorld {
   observer: SimObserver
   users: SimUser[]
+  /** login -> what Twitch would say. Absent means nothing is known. */
+  metadata?: Record<string, SimChannelMeta>
   /**
    * How far lab time has been pushed forward.
    *
@@ -181,6 +210,71 @@ export function channelNames(world: SimWorld): Record<string, string> {
   }
 
   return names
+}
+
+/**
+ * A stand-in avatar that needs no network.
+ *
+ * An inline SVG rather than a Twitch CDN URL, because the lab has no network
+ * and a real URL would simply fail to load - leaving the avatar slot untested.
+ * A `data:` URI is not a request, so the seal is untouched.
+ *
+ * The real host check lives in core/twitchMetadata.ts and is tested there
+ * against actual URLs; this is about the slot rendering, not about what is
+ * allowed into it.
+ */
+export const LAB_AVATAR =
+  'data:image/svg+xml,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40">' +
+      '<rect width="40" height="40" rx="20" fill="#9147ff"/>' +
+      '<circle cx="20" cy="16" r="7" fill="#fff" opacity=".9"/>' +
+      '<path d="M6 40c0-8 6-13 14-13s14 5 14 13z" fill="#fff" opacity=".9"/>' +
+      '</svg>',
+  )
+
+/** A URL that resolves to nothing, so onError is exercised for real. */
+const BROKEN_AVATAR = 'data:image/png;base64,not-an-image'
+
+/**
+ * The metadata map the panel receives.
+ *
+ * Built into the production `ChannelMetadata` shape and handed over as-is.
+ * Channels marked `unavailable`, and channels with no entry at all, are simply
+ * absent - which is the only way production can express "we do not know".
+ */
+export function channelMetadata(world: SimWorld, now: number): Record<string, ChannelMetadata> {
+  const out: Record<string, ChannelMetadata> = {}
+
+  for (const [rawLogin, meta] of Object.entries(world.metadata ?? {})) {
+    const login = canonicalChannel(rawLogin)
+    if (!login || meta.live === 'unavailable') continue
+
+    const live = meta.live === 'live'
+    const displayName = meta.displayName?.trim()
+
+    out[login] = {
+      login,
+      userId: null,
+      // Casing only, checked the same way production checks it.
+      displayName: displayName && isSameChannel(login, displayName) ? displayName : null,
+      profileImageUrl:
+        meta.avatar === 'missing'
+          ? null
+          : meta.avatar === 'broken'
+            ? BROKEN_AVATAR
+            : LAB_AVATAR,
+      live: live ? 'live' : 'offline',
+      gameName: live ? (meta.gameName ?? null) : null,
+      title: live ? (meta.title ?? null) : null,
+      viewerCount: live ? (meta.viewerCount ?? null) : null,
+      startedAt: live ? now - 42 * 60_000 : null,
+      // Stamped now, so the freshness rule treats it as current evidence.
+      fetchedAt: now,
+    }
+  }
+
+  return out
 }
 
 /** Everyone whose presence the observer is entitled to see: their friends. */

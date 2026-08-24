@@ -32,6 +32,10 @@ dist-ssr
 # Generated SQL bundle for pasting into the Supabase SQL editor
 supabase/.generated
 
+# Supabase CLI scratch state. The CLI is only needed to deploy Edge Functions;
+# see docs/TWITCH_METADATA.md.
+supabase/.temp
+
 # Extension signing key. The public half lives in the manifest; the private
 # half never leaves this machine.
 .keys

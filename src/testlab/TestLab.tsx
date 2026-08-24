@@ -5,7 +5,7 @@ import { createTestLabClient } from './client'
 import type { LabRecord } from './client'
 import { CHANNELS, PRESETS, person, preset } from './presets'
 import { advance, canonicalChannel, updateUser } from './world'
-import type { SimUser, SimWorld } from './world'
+import type { SimChannelMeta, SimUser, SimWorld } from './world'
 
 /**
  * The Test Lab surface.
@@ -98,6 +98,24 @@ export function TestLab() {
 
   const setWorld = (next: SimWorld) => setLab((lab) => ({ ...lab, world: next }))
   const patch = (id: string, changes: Partial<SimUser>) => setWorld(updateUser(world, id, changes))
+
+  /** Every canonical channel currently on the map, in a stable order. */
+  const destinations = [
+    ...new Set(
+      world.users
+        .filter((user) => user.activity === 'watching' && user.channel.trim())
+        .map((user) => canonicalChannel(user.channel)),
+    ),
+  ].sort()
+
+  const setMeta = (login: string, changes: Partial<SimChannelMeta>) =>
+    setWorld({
+      ...world,
+      metadata: {
+        ...world.metadata,
+        [login]: { live: 'unavailable', ...world.metadata?.[login], ...changes },
+      },
+    })
 
   return (
     <div className="lab">
@@ -233,6 +251,51 @@ export function TestLab() {
           >
             + Add user {world.users.length >= 10 ? '(10 max)' : ''}
           </button>
+        </section>
+
+        <section>
+          <h2>Metadata</h2>
+          <div className="lab-users">
+            {destinations.length === 0 && (
+              <p className="lab-note">No destinations yet - put someone on a channel.</p>
+            )}
+            {destinations.map((login) => (
+              <div className="lab-row" key={login}>
+                <span className="lab-name">{login}</span>
+                <select
+                  value={world.metadata?.[login]?.live ?? 'unavailable'}
+                  onChange={(event) =>
+                    setMeta(login, { live: event.target.value as SimChannelMeta['live'] })
+                  }
+                >
+                  <option value="live">live</option>
+                  <option value="offline">offline</option>
+                  <option value="unavailable">unavailable</option>
+                </select>
+                <select
+                  value={world.metadata?.[login]?.avatar ?? 'twitch'}
+                  onChange={(event) =>
+                    setMeta(login, { avatar: event.target.value as SimChannelMeta['avatar'] })
+                  }
+                >
+                  <option value="twitch">avatar</option>
+                  <option value="missing">no avatar</option>
+                  <option value="broken">broken avatar</option>
+                </select>
+                <input
+                  className="lab-channel"
+                  placeholder="category"
+                  value={world.metadata?.[login]?.gameName ?? ''}
+                  onChange={(event) => setMeta(login, { gameName: event.target.value })}
+                />
+              </div>
+            ))}
+          </div>
+          <p className="lab-note">
+            &quot;unavailable&quot; is absence, not a state: a backend outage, a cold cache and a
+            channel nobody has asked about all reach the panel the same way, and all three must
+            draw the plain card.
+          </p>
         </section>
 
         <section>

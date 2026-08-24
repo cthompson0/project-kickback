@@ -190,8 +190,40 @@ Friends on the same channel become one card; the card is what you act on.
 ### What is recorded
 
 `gravity_cluster_impression` — a destination was visible in the open panel.
-Properties: `friend_count`, `rank`, `visible_clusters`, `opportunity_key`.
-Source `social_gravity`, `destination_channel` set.
+Properties: `friend_count`, `rank`, `visible_clusters`, `opportunity_key`,
+`destination_live`. Source `social_gravity`, `destination_channel` set.
+
+`destination_live` is **absent** when nothing told us, rather than sent as
+"unknown" — a property that is absent reads as absent in every query, whereas a
+literal would have to be excluded by hand in each one, and eventually would not
+be. It is the only Twitch metadata field recorded anywhere: stream titles,
+viewer counts, categories and profile image URLs answer no question we have,
+and a title is free text somebody else wrote.
+
+Added by migration 0017, additively (`on conflict do update`), so events already
+recorded keep their meaning.
+
+```sql
+-- Are we showing people destinations that have stopped streaming?
+select coalesce((properties ->> 'destination_live')::boolean::text, 'unknown') as live,
+       count(*)                                                                as impressions
+from public.analytics_reportable_events_v
+where event_name = 'gravity_cluster_impression'
+group by live;
+
+-- And do JOINs go to live ones? Joined on the opportunity, not on the channel.
+select coalesce((s.properties ->> 'destination_live')::boolean::text, 'unknown') as live,
+       count(distinct (s.actor_id, s.properties ->> 'opportunity_key'))          as shown,
+       count(distinct (c.actor_id, c.properties ->> 'opportunity_key'))          as joined
+from public.analytics_reportable_events_v s
+left join public.analytics_reportable_events_v c
+  on c.event_name = 'join_clicked'
+ and c.source = 'social_gravity'
+ and c.actor_id = s.actor_id
+ and c.properties ->> 'opportunity_key' = s.properties ->> 'opportunity_key'
+where s.event_name = 'gravity_cluster_impression'
+group by live;
+```
 
 Deduped through the same exposure path as everything else: one per channel per
 30-minute window, re-firing after a 5-minute absence. A presence heartbeat
@@ -241,14 +273,16 @@ sent at navigation time carries the *previous* page's title and learns nothing;
 `watchTitle` exists for exactly that correction. Reporting only on channel
 change is what left every destination showing its bare login.
 
-**The slot Twitch metadata fills.** A channel this browser has never opened, and
-that belongs to nobody Kickback knows, has no display spelling and falls back to
-its login. That is correct rather than wrong - the login is a real name Twitch
-canonicalised - but it is plainer than it needs to be. When the Twitch Metadata
-Service arrives, its authoritative `display_name` becomes a third source inside
-`resolveChannelName` and every call site improves at once. Nothing above it
-changes, because no caller has ever been allowed to use display text as
-identity.
+**Twitch metadata now fills that slot.** `resolveChannelName` takes a third
+source, ahead of both of the above: the metadata service's authoritative
+`display_name`. It is the only source that can spell a channel this browser has
+never opened and nobody here is friends with.
+
+The order is provenance, not freshness. Metadata is the creator's own account
+record; a known person is a copy of that record taken when they signed in; a
+page title is a string. Each is a step further from the source, so each yields
+to the one above it — and all three are still only text. See
+docs/TWITCH_METADATA.md.
 
 ### The opportunity key
 
