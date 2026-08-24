@@ -258,7 +258,21 @@ $$;
 -- SECURITY INVOKER: these run as the caller so RLS applies on top of the
 -- explicit scoping, exactly like list_friends.
 
-create or replace function public.list_groups()
+-- Dropped by its exact zero-argument signature before being created.
+--
+-- CREATE OR REPLACE cannot change the columns a set-returning function
+-- declares, and 0009 adds one. Without this drop, re-running the bundle
+-- against a database that already has 0009 fails here with
+--
+--   42P13: cannot change return type of existing function
+--   HINT:  Use DROP FUNCTION list_groups() first.
+--
+-- because this statement meets the seven-column function 0009 left behind and
+-- cannot replace it with a six-column one. The signature is spelled out so
+-- this can never remove an unrelated overload.
+drop function if exists public.list_groups();
+
+create function public.list_groups()
 returns table (
   group_id     uuid,
   name         text,
