@@ -19,5 +19,5 @@
     "erasableSyntaxOnly": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["tests", "vitest.config.ts"]
+  "include": ["tests", "vitest.config.ts", "src/vite-env.d.ts"]
 }

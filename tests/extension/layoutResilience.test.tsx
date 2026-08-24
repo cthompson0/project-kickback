@@ -23,6 +23,9 @@ import type { KickbackClient, KickbackState } from '../../src/client/types'
 
 const CHOSEN = { x: 400, y: 100, width: 360, height: 700 }
 
+/** The build-time constant the bundles and vitest are both configured with. */
+const VERSION = `v${__KICKBACK_VERSION__}`
+
 function installWindow(storage: Record<string, string> = {}) {
   Object.defineProperty(globalThis, 'window', {
     configurable: true,
@@ -194,8 +197,10 @@ describe('the first-run hint', () => {
     // So the panel is exactly the same height with the hint and without it.
     const withHint = render({ status: 'signed_out' }, { hintSeen: false })
     const without = render({ status: 'signed_out' }, { hintSeen: true })
-    expect(withHint).not.toContain('Phase 1')
-    expect(without).toContain('Phase 1')
+    // The footer normally carries the version, which is what a tester reads
+    // back when reporting something.
+    expect(withHint).not.toContain(VERSION)
+    expect(without).toContain(VERSION)
     // Match the whole class token: kb-footer-dot starts the same way.
     const footers = (html: string) => (html.match(/class="kb-footer[" ]/g) ?? []).length
     expect(footers(withHint)).toBe(1)

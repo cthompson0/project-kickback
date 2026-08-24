@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
@@ -47,6 +48,13 @@ describe('production bundle contains no simulated social data', () => {
   it.each(DEMO_MARKERS)('has no trace of %s', (marker) => {
     expect(content).not.toContain(marker)
     expect(background).not.toContain(marker)
+  })
+
+  it('carries no demo wording, not even unreachable', () => {
+    // Gated behind a build-time constant, so the bundler drops the strings.
+    // A production artifact should not merely never show demo wording.
+    expect(content).not.toContain('demo mode')
+    expect(content).not.toContain('DEMO')
   })
 
   it('does not ship the mock module at all', () => {
@@ -175,6 +183,32 @@ describe('manifest', () => {
       'https://7tv.io/*',
       'https://cdn.7tv.app/*',
     ])
+  })
+})
+
+describe('the shipped identity and version', () => {
+  const EXPECTED_ID = 'almhfkicihekhiloapoimglfdoneglni'
+
+  /** Chrome derives an ID from the first 128 bits of SHA-256 over the key. */
+  function extensionIdFromKey(base64Key: string): string {
+    const hash = createHash('sha256').update(Buffer.from(base64Key, 'base64')).digest('hex')
+    return [...hash.slice(0, 32)].map((c) => String.fromCharCode(parseInt(c, 16) + 97)).join('')
+  }
+
+  it('pins the extension ID the OAuth allow-list was configured for', () => {
+    // If this ever changes, every tester's sign-in breaks with a redirect
+    // mismatch, and the fix is a dashboard change rather than a code change.
+    expect(extensionIdFromKey(manifest.key as string)).toBe(EXPECTED_ID)
+  })
+
+  it('agrees with package.json about the version', () => {
+    const pkg = JSON.parse(readFileSync(join(process.cwd(), 'package.json'), 'utf8'))
+    expect(manifest.version).toBe(pkg.version)
+    expect(manifest.version).toMatch(/^\d+\.\d+\.\d+$/)
+  })
+
+  it('ships the version where a tester can read it back to me', () => {
+    expect(content).toContain(manifest.version)
   })
 })
 

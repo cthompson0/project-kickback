@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -10,7 +11,11 @@ import react from '@vitejs/plugin-react'
  *
  * The service worker is built separately - see vite.background.config.ts.
  */
+/** Read from the manifest so the shipped version has exactly one source. */
+const version = JSON.parse(readFileSync('public/manifest.json', 'utf8')).version
+
 export default defineConfig({
+  define: { __KICKBACK_VERSION__: JSON.stringify(version) },
   plugins: [react()],
   build: {
     outDir: 'dist',

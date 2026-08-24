@@ -9,3 +9,6 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv
 }
+
+/** Injected at build time from public/manifest.json. */
+declare const __KICKBACK_VERSION__: string

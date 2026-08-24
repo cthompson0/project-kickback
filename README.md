@@ -111,11 +111,13 @@ The Supabase schema, row level security and RPC layer live in `supabase/` —
 see `supabase/README.md`.
 
 ```bash
-npm test            # 598 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
+npm test            # 602 tests: authorization, auth, presence, groups, emotes, combos, layout, bundle
 npm run test:authz  # proves the authorization suite fails when a safeguard is removed
 npm run test:emotes # same idea for the emote suite: break an invariant, expect red
 npm run test:layout # and for panel geometry: clamps, bounds, drag and resize rules
 npm run test:combos # and for the combo contributor and breaker rules
+npm run verify:groups # asks the hosted database whether the group backend exists
+npm run package:beta  # verified private-beta ZIP into releases/
 npm run db:bundle   # one pasteable .sql for the Supabase SQL editor
 npm run verify:config # asks Supabase whether your .env.local key actually works
 npm run build:demo  # mock-data build into dist-demo/ (never load this as your real extension)
@@ -159,6 +161,32 @@ code — `tests/extension/bundle.test.ts` asserts it — and production **never*
 falls back to mock data when the backend is unreachable. It shows an error.
 
 ---
+
+## Private beta packaging (Phase 3)
+
+```bash
+npm run package:beta
+```
+
+Produces `releases/Kickback-Private-Beta-v<version>.zip`, containing a single
+`Kickback/` folder a tester selects in **Load unpacked**. `releases/` is
+gitignored: a release is reproducible from a commit plus this script, so the
+archive itself is not worth committing.
+
+The command refuses to produce an archive unless everything holds - the
+Supabase key really works, the hosted group backend really exists, the build is
+production rather than demo, the manifest still pins the extension ID, the
+staged files match an allow-list exactly, and neither the staged files nor the
+finished archive contain a secret. A beta that half-works is worse than no
+beta, because the tester then reports on our packaging instead of the product.
+
+**The extension ID is pinned by the `key` field in `public/manifest.json`.**
+Chrome derives an unpacked extension's ID from the SHA-256 of that public key,
+so every machine loading these exact files gets
+`almhfkicihekhiloapoimglfdoneglni` - which is what makes one OAuth redirect
+allow-list work for every tester. The matching *private* key lives in
+`.keys/` and is gitignored; it is only needed to sign a `.crx`, which a
+private beta does not use. Nothing secret ships.
 
 ## Panel layout (Phase 2C)
 

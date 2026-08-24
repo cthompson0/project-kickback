@@ -43,3 +43,7 @@ dist-demo
 *.png
 !public/icons/*.png
 !src/**/*.png
+
+# Private-beta archives. Built by `npm run package:beta`, sent by hand, and
+# never committed - a release is reproducible from a tag plus the script.
+releases

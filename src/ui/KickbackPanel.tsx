@@ -24,6 +24,14 @@ type Tab = 'friends' | 'groups'
 const COLLAPSED_KEY = 'kickback:collapsed'
 
 /**
+ * Build-time constant, so a production build folds this to false and the
+ * bundler drops the demo-only markup entirely - including its strings. A
+ * production artifact should not merely never *show* demo wording; it should
+ * not contain it.
+ */
+const IS_DEMO = import.meta.env.VITE_KICKBACK_MODE === 'demo'
+
+/**
  * Panel open/closed survives navigation. Reading it synchronously (rather than
  * from chrome.storage) means the panel renders in the right state on the very
  * first frame after a page load, so navigating feels continuous.
@@ -166,7 +174,7 @@ export function KickbackPanel({
       <div className="kb-header" onPointerDown={beginDrag}>
         <KickbackMark />
         <span className="kb-wordmark">kickback</span>
-        {view.demo && <span className="kb-demo-badge">DEMO</span>}
+        {IS_DEMO && view.demo && <span className="kb-demo-badge">DEMO</span>}
         <span className="kb-header-spacer" />
 
         {signedIn && identity && (
@@ -390,7 +398,9 @@ export function KickbackPanel({
         <div className="kb-footer">
           <span>Kickback</span>
           <span className="kb-footer-dot" />
-          <span>{view.demo ? 'demo mode — mock data' : 'Phase 1'}</span>
+          <span title="Kickback version">
+            {IS_DEMO && view.demo ? 'demo mode — mock data' : `v${__KICKBACK_VERSION__}`}
+          </span>
         </div>
       )}
 
