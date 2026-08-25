@@ -320,6 +320,48 @@ group by first_day order by first_day;
 is the only definition in the codebase and this document does not invent a
 second one. With a week of data, D14 will be empty and D7 will have one cohort.
 
+## 9a. What people actually said
+
+Feedback is **not** in analytics. It is prose somebody typed, and analytics is
+built on the promise that it never contains free text — so it lives in its own
+table, with its own rules, and analytics records only that a submission
+happened.
+
+```sql
+-- Everything sent, newest first. This is the whole workflow.
+select created_at, category, body, display_name,
+       app_version, environment, browser, surface, channel,
+       friend_count, session_available, social_sync, presence_sync
+from public.feedback_v
+order by created_at desc;
+```
+
+The context columns are what make a one-line report actionable. Somebody writing
+*"my friend didn't appear"* arrives with the channel they were on, how many
+friends they had, whether a session existed, and whether realtime was connected
+at the time — which is most of a first diagnosis.
+
+```sql
+-- Is anybody using it, and what do they reach for it about?
+select category, count(*) as n, count(distinct display_name) as people
+from public.feedback_v
+group by category order by n desc;
+```
+
+`feedback_v` is revoked from every client role, like the analytics views. Run it
+in the SQL editor. There is no in-product read path — not even for the person
+who wrote it.
+
+Cross-check against the analytics counter, which carries the category and
+nothing else:
+
+```sql
+select properties ->> 'category' as category, count(*) as n
+from public.analytics_reportable_events_v
+where environment = 'private_beta' and event_name = 'feedback_submitted'
+group by category;
+```
+
 ## 10. One person's whole story
 
 When somebody reports something, this is the query. One row per JOIN, the entire

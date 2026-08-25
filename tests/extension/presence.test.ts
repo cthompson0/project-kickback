@@ -447,6 +447,9 @@ class QuietFriendsBackend implements FriendsBackend {
   async listBlocked() {
     return { value: [] }
   }
+  async submitFeedback() {
+    return { value: true as const }
+  }
 }
 
 function friendOf(userId: string, name: string): Friend {

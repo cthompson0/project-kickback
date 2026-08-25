@@ -431,6 +431,69 @@ function closeAnyCard() {
   return true
 }
 
+/** Opens or closes the account panel, through the avatar that owns it. */
+function toggleAccount() {
+  const avatar = document.querySelector('.kb-avatar-btn')
+  if (!avatar) return false
+  avatar.click()
+  return true
+}
+
+function openFeedback() {
+  const button = [...document.querySelectorAll('.kb-account .kb-ghost-btn')].find(
+    (element) => element.textContent.trim() === 'Feedback',
+  )
+  button?.click()
+  return Boolean(button)
+}
+
+/** Types into the form the way a person does, so React actually sees it. */
+function writeFeedback(text) {
+  const area = document.querySelector('.kb-feedback-text')
+  if (!area) return false
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLTextAreaElement.prototype,
+    'value',
+  ).set
+  setter.call(area, text)
+  area.dispatchEvent(new Event('input', { bubbles: true }))
+  return true
+}
+
+function readFeedback() {
+  const form = document.querySelector('.kb-feedback')
+  // accountVisible is reported either way: the interesting case is what is
+  // still there once the form has gone.
+  const accountVisible = Boolean(document.querySelector('.kb-account'))
+  if (!form) return { open: false, accountVisible }
+  const send = [...form.querySelectorAll('button')].find((b) =>
+    ['Send', 'Sending…'].includes(b.textContent.trim()),
+  )
+  return {
+    open: true,
+    categories: [...form.querySelectorAll('.kb-feedback-cats button')].map((b) =>
+      b.textContent.trim(),
+    ),
+    text: form.querySelector('.kb-feedback-text')?.value ?? null,
+    sendDisabled: send ? send.disabled : null,
+    sent: form.textContent.includes('feedback sent'),
+    accountVisible,
+  }
+}
+
+function clickSendFeedback() {
+  const send = [...document.querySelectorAll('.kb-feedback button')].find(
+    (b) => b.textContent.trim() === 'Send',
+  )
+  send?.click()
+  return Boolean(send)
+}
+
+function pressEscape() {
+  window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+  return true
+}
+
 /** Collapses the panel to the launcher, through its own control. */
 function minimize() {
   const button = [...document.querySelectorAll('.kb-icon-btn')].find(
@@ -1270,6 +1333,61 @@ async function main() {
     await page.evaluate(shrinkPanel)
     await settle(page)
 
+    // --- feedback, end to end through the real form -----------------------
+
+    check(await page.evaluate(toggleAccount), 'no account control in the header')
+    await settle(page, 300)
+    check(await page.evaluate(openFeedback), 'no Feedback entry in the account panel')
+    await settle(page, 300)
+
+    const form = await page.evaluate(readFeedback)
+    check(form.open, 'the feedback form did not open')
+    check(
+      JSON.stringify(form.categories) === JSON.stringify(['Bug', 'Confusing', 'Idea', 'Other']),
+      `feedback categories read ${JSON.stringify(form.categories)}`,
+    )
+    check(form.sendDisabled === true, 'an empty feedback form could be submitted')
+    check(!form.accountVisible, 'the account panel is still drawn behind the feedback form')
+
+    check(await page.evaluate(writeFeedback, 'my friend did not appear'), 'no feedback field')
+    await settle(page, 200)
+    check(
+      (await page.evaluate(readFeedback)).sendDisabled === false,
+      'Send stayed disabled after typing',
+    )
+
+    check(await page.evaluate(clickSendFeedback), 'no Send control')
+    await settle(page, 500)
+    const submitted = await page.evaluate(readFeedback)
+    check(submitted.sent, 'the form never reached its sent state')
+
+    /*
+     * Escape must unwind ONE layer.
+     *
+     * Nested surfaces closing together is how somebody loses their place: a
+     * stray Escape meant for the form should not also take away the panel it
+     * was opened from.
+     */
+    await page.evaluate(toggleAccount) // close, from the sent state
+    await settle(page, 300)
+    await page.evaluate(toggleAccount) // and open it fresh
+    await settle(page, 300)
+    check(await page.evaluate(openFeedback), 'could not reopen the feedback form')
+    await settle(page, 300)
+
+    await page.evaluate(pressEscape)
+    await settle(page, 300)
+    const afterEscape = await page.evaluate(readFeedback)
+    check(!afterEscape.open, 'Escape did not leave the feedback form')
+    check(afterEscape.accountVisible, 'Escape closed the account panel as well as the form')
+
+    await page.evaluate(pressEscape)
+    await settle(page, 300)
+    check(
+      !(await page.evaluate(() => Boolean(document.querySelector('.kb-account')))),
+      'a second Escape did not close the account panel',
+    )
+
     // --- the collapsed launcher, dragged with a real mouse ---------------
     //
     // Real input rather than synthetic events, because the whole question here
@@ -1345,6 +1463,7 @@ async function main() {
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
   console.log('The user card covers what it is opened over, at content height and grown.')
+  console.log('Feedback opens from the account panel, sends, and Escape unwinds one layer.')
   console.log('The collapsed launcher drags with a real mouse, persists, and still opens on a click.')
 }
 

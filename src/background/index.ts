@@ -683,6 +683,29 @@ const gatheringWatcher = createGatheringWatcher({
   },
 })
 
+/**
+ * Which browser this is, to about the precision a bug report needs.
+ *
+ * Brand and major version only. The full user-agent string is a fingerprinting
+ * surface and answers nothing extra: "Chrome 141" is enough to know whether two
+ * testers are on the same thing, and "Chrome 141.0.7390.55 on Windows NT 10.0;
+ * Win64; x64" is enough to tell them apart from each other.
+ */
+function browserName(): string {
+  const brands = (navigator as Navigator & {
+    userAgentData?: { brands?: Array<{ brand: string; version: string }> }
+  }).userAgentData?.brands
+
+  // The first brand that is not one of Chromium's deliberate decoys.
+  const real = brands?.find(
+    (entry) => !/not.a.brand/i.test(entry.brand) && entry.brand !== 'Chromium',
+  )
+  if (real) return `${real.brand} ${real.version}`.slice(0, 64)
+
+  const match = /(Edg|OPR|Brave|Chrome|Firefox|Safari)\/(\d+)/.exec(navigator.userAgent ?? '')
+  return match ? `${match[1]} ${match[2]}` : 'unknown'
+}
+
 function currentChannel(): string | null {
   const activity: Activity = tabActivity.effective()
   return activity.type === 'watching' ? activity.channel : null
@@ -1209,6 +1232,59 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   unblockUser: async ([userId]) => {
     await friends.unblock(String(userId))
     analytics.track('user_unblocked')
+  },
+
+  /*
+   * Feedback: the client sends what somebody typed, the worker says where they
+   * were.
+   *
+   * Split that way on purpose. The panel knows which tab was open and whether
+   * it was collapsed, and nothing else here; version, environment, browser,
+   * friend count, whether a session existed and whether realtime was healthy
+   * are all facts the WORKER holds. Letting the panel assemble them would mean
+   * a modified extension could report a healthy connection while sitting on a
+   * broken one, which is the opposite of what a diagnostic is for.
+   *
+   * The server whitelists the result again anyway - see 0023.
+   */
+  submitFeedback: async ([raw]) => {
+    const input = (raw ?? {}) as {
+      category?: unknown
+      body?: unknown
+      surface?: unknown
+      collapsed?: unknown
+    }
+    const category = String(input.category ?? 'other')
+    const body = String(input.body ?? '')
+    const channel = currentChannel()
+
+    await friends.sendFeedback({
+      category,
+      body,
+      context: {
+        app_version: __KICKBACK_VERSION__,
+        environment: ANALYTICS_ENVIRONMENT,
+        browser: browserName(),
+        surface: String(input.surface ?? 'friends'),
+        collapsed: input.collapsed === true,
+        /*
+         * The channel, because "my friend did not appear" is unanswerable
+         * without knowing where. One login, at one moment, attached to
+         * something the user chose to send - not a browsing history.
+         */
+        channel,
+        on_channel: channel !== null,
+        friend_count: friendsState.friends.length,
+        session_available: room.snapshot().length > 0,
+        social_sync: socialSync.getStatus(),
+        presence_sync: presenceSync.getStatus(),
+      },
+    })
+
+    // The category, and nothing else. What they wrote is in public.feedback.
+    analytics.track('feedback_submitted', {
+      category: category as 'bug' | 'confusing' | 'idea' | 'other',
+    })
   },
   refreshFriends: () => friends.refresh(),
   createGroup: async ([name, icon]) => {

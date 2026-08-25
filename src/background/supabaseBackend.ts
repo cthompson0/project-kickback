@@ -358,6 +358,21 @@ export function createSupabaseFriendsBackend(supabase: SupabaseClient): FriendsB
     unblockUser: (userId) =>
       call<null, true>('unblock_user', { p_target: userId }, () => true),
 
+    /*
+     * The context is passed straight through, and the server whitelists it.
+     *
+     * Nothing here decides what a diagnostic is - 0023 rebuilds the object key
+     * by key and drops anything it was not asked for, so a future change here
+     * that starts attaching something it should not writes nothing rather than
+     * writing it.
+     */
+    submitFeedback: (input) =>
+      call<string, true>(
+        'submit_feedback',
+        { p_category: input.category, p_body: input.body, p_context: input.context },
+        () => true,
+      ),
+
     listBlocked: () =>
       call<BlockedRow, BlockedUser[]>('list_blocked_users', {}, (rows) =>
         rows.map((row) => ({

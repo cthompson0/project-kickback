@@ -20,6 +20,8 @@
  * the two agree, so the duplication cannot drift.
  */
 
+import type { FeedbackCategory } from '../client/types'
+
 /** Which build produced an event. A property of the build, not a claim about a person. */
 export type AnalyticsEnvironment = 'development' | 'private_beta' | 'production'
 
@@ -240,6 +242,15 @@ export interface AnalyticsEventMap {
    */
   user_blocked: Record<string, never>
   user_unblocked: Record<string, never>
+  /**
+   * Somebody sent in-product feedback.
+   *
+   * The category, and nothing else. What they wrote lives in public.feedback,
+   * which is a different table with different rules - analytics is built on the
+   * promise that it never contains free text, and this event keeps that promise
+   * while still answering "is anybody using this, and what for".
+   */
+  feedback_submitted: { category: FeedbackCategory }
   combo_formed: { count: number }
   combo_broken: { count: number }
 }
@@ -345,6 +356,7 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   group_message_sent: ['length_bucket', 'has_emote'],
   user_blocked: [],
   user_unblocked: [],
+  feedback_submitted: ['category'],
   combo_formed: ['count'],
   combo_broken: ['count'],
 }

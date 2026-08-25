@@ -173,7 +173,14 @@ describe('the generated bundle', () => {
     const [{ version }] = (
       await db.query<{ version: number }>('select public.analytics_schema_version() as version')
     ).rows
-    expect(version).toBe(16)
+    /*
+     * The marker moves with the newest analytics-touching migration.
+     *
+     * It exists so verify:analytics can tell a half-applied schema from a
+     * complete one, and everything else those migrations change is revoked from
+     * clients and therefore invisible to it. 0023 owns it now.
+     */
+    expect(version).toBe(23)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.
@@ -350,6 +357,68 @@ describe('the generated bundle', () => {
       )
       expect(table.rows[0].has).toBe(false)
     }
+    await db.close()
+  })
+
+  it('applies on top of 0022, which is the transition Feedback makes', async () => {
+    /*
+     * 0023 adds a table and a view of its own, and replaces
+     * analytics_schema_version - a function every earlier analytics migration
+     * also defines. Asserted rather than assumed, like every upgrade before it.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0022')
+    await expect(applyBundle(db)).resolves.not.toThrow()
+
+    const columns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'feedback'`,
+    )
+    expect(columns.rows.map((row) => row.column_name).sort()).toEqual([
+      'body',
+      'category',
+      'context',
+      'created_at',
+      'id',
+      'user_id',
+    ])
+    await db.close()
+  })
+
+  it('never lets a client read or edit feedback, however many times it runs', async () => {
+    /*
+     * Feedback is the one table holding text somebody typed. A client that
+     * could read it could read everybody else's; one that could update or
+     * delete could rewrite what they said after the fact.
+     *
+     * RLS is enabled with NO permissive policy, which denies everything - so
+     * this checks the grants directly rather than trusting that a missing
+     * policy stays missing.
+     */
+    const db = await freshDb()
+    await applyBundle(db)
+    await applyBundle(db)
+
+    for (const privilege of ['select', 'insert', 'update', 'delete']) {
+      const table = await db.query<{ has: boolean }>(
+        `select has_table_privilege('authenticated', 'public.feedback', '${privilege}') as has`,
+      )
+      expect(table.rows[0].has).toBe(false)
+
+      const view = await db.query<{ has: boolean }>(
+        `select has_table_privilege('authenticated', 'public.feedback_v', '${privilege}') as has`,
+      )
+      expect(view.rows[0].has).toBe(false)
+    }
+
+    // The one door in stays open.
+    const rpc = await db.query<{ has: boolean }>(`
+      select has_function_privilege('authenticated', p.oid, 'execute') as has
+      from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'submit_feedback'
+    `)
+    expect(rpc.rows).toHaveLength(1)
+    expect(rpc.rows[0].has).toBe(true)
     await db.close()
   })
 

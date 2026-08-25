@@ -164,6 +164,7 @@ describe('resetting the layout', () => {
         onUnmute={() => {}}
         blocked={[]}
         onUnblock={() => {}}
+        onFeedback={() => {}}
         onClose={() => {}}
       onResetLayout={() => {}}
       />,

@@ -827,6 +827,71 @@
   background: var(--kb-faint);
 }
 
+/* ---------- feedback ---------- */
+/*
+ * A sub-view of the account panel, borrowing its box.
+ *
+ * Deliberately built from controls that already exist - the detail header, the
+ * presence-option pills, the ghost buttons - so it reads as part of Kickback
+ * rather than as a form somebody bolted on.
+ */
+.kb-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 10px 10px;
+  padding: 9px 10px;
+  border-radius: 9px;
+  background: var(--kb-bg-raised);
+  border: 1px solid var(--kb-line);
+}
+
+.kb-feedback-cats {
+  display: flex;
+  gap: 4px;
+}
+
+.kb-feedback-text {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--kb-text);
+  background: var(--kb-bg);
+  border: 1px solid var(--kb-line);
+  outline: none;
+  /* Vertical only: a textarea dragged wider than the panel is a broken panel. */
+  resize: vertical;
+  min-height: 76px;
+  max-height: 40vh;
+}
+
+.kb-feedback-text:focus {
+  border-color: rgba(255, 132, 82, 0.55);
+}
+
+.kb-feedback-text::placeholder {
+  color: var(--kb-faint);
+}
+
+.kb-feedback-send {
+  flex: none;
+  width: auto;
+  padding: 6px 14px;
+  font-size: 12px;
+}
+
+.kb-feedback-send:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.kb-feedback-sent {
+  padding: 4px 0 2px;
+}
+
 /* ---------- authentication + empty states (Phase 1) ---------- */
 
 .kb-demo-badge {

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import type {
+  FeedbackCategory,
   KickbackIdentity,
   KickbackPreferences,
   PresenceVisibility,
 } from '../../client/types'
-import { KickbackMark } from './Icons'
+import { BackIcon, KickbackMark } from './Icons'
 
 /**
  * The states the panel can be in before it has any friends to show. Each one is
@@ -175,6 +176,137 @@ function BlockedPeople({
   )
 }
 
+/** How much somebody may write. Long enough for a paragraph and a repro. */
+export const FEEDBACK_MAX_LENGTH = 2000
+
+const CATEGORIES: Array<{ value: FeedbackCategory; label: string }> = [
+  { value: 'bug', label: 'Bug' },
+  { value: 'confusing', label: 'Confusing' },
+  { value: 'idea', label: 'Idea' },
+  { value: 'other', label: 'Other' },
+]
+
+/**
+ * Tell us something, without leaving Twitch.
+ *
+ * Analytics say what people did; this is the only way they can say why. So it
+ * is deliberately the smallest thing that works: pick one of four, type, send.
+ *
+ * Nothing is asked for that we can find out ourselves. No title, no severity,
+ * no browser, no URL, no repro steps, no email - the service worker attaches
+ * the version, the environment, the browser, the friend count, the channel and
+ * whether realtime was healthy, which is most of what a first look needs and
+ * none of what a person should have to type.
+ */
+export function FeedbackForm({
+  onSubmit,
+  onBack,
+}: {
+  onSubmit: (category: FeedbackCategory, body: string) => Promise<void>
+  onBack: () => void
+}) {
+  const [category, setCategory] = useState<FeedbackCategory>('bug')
+  const [body, setBody] = useState('')
+  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle')
+  const [error, setError] = useState<string | null>(null)
+
+  const trimmed = body.trim()
+
+  const send = async () => {
+    // One at a time. Without this, a slow network plus an impatient second
+    // press is two identical reports.
+    if (state === 'sending' || trimmed.length === 0) return
+    setState('sending')
+    setError(null)
+    try {
+      await onSubmit(category, trimmed)
+      /*
+       * The text is cleared only once it is definitely gone.
+       *
+       * On failure it stays exactly as typed - somebody who has just written
+       * three paragraphs about a bug must not lose them to a dropped
+       * connection, which is the moment they are most likely to be writing.
+       */
+      setBody('')
+      setState('sent')
+    } catch (cause: unknown) {
+      setState('idle')
+      setError(cause instanceof Error ? cause.message : 'Could not send that. Try again.')
+    }
+  }
+
+  if (state === 'sent') {
+    return (
+      <div className="kb-feedback">
+        <div className="kb-detail-head">
+          <button type="button" className="kb-back" onClick={onBack} title="Back to account">
+            <BackIcon />
+          </button>
+          <div className="kb-group-name">Feedback</div>
+        </div>
+        {/* Small and done. A celebration would be a second thing to dismiss. */}
+        <div className="kb-quiet-sub kb-feedback-sent">Thanks — feedback sent.</div>
+        <button type="button" className="kb-ghost-btn" onClick={() => setState('idle')}>
+          Send something else
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="kb-feedback">
+      <div className="kb-detail-head">
+        <button type="button" className="kb-back" onClick={onBack} title="Back to account">
+          <BackIcon />
+        </button>
+        <div className="kb-group-name">Feedback</div>
+      </div>
+
+      <div className="kb-feedback-cats" role="group" aria-label="What kind of feedback">
+        {CATEGORIES.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={`kb-presence-option${
+              category === option.value ? ' kb-presence-option-active' : ''
+            }`}
+            aria-pressed={category === option.value}
+            onClick={() => setCategory(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+
+      <textarea
+        className="kb-feedback-text"
+        value={body}
+        maxLength={FEEDBACK_MAX_LENGTH}
+        rows={5}
+        placeholder="What happened?"
+        aria-label="Your feedback"
+        onChange={(event) => setBody(event.target.value)}
+      />
+
+      {error && <div className="kb-inline-note">{error}</div>}
+
+      <div className="kb-usercard-actions">
+        <button
+          type="button"
+          className="kb-signin-btn kb-feedback-send"
+          disabled={state === 'sending' || trimmed.length === 0}
+          onClick={() => void send()}
+        >
+          {state === 'sending' ? 'Sending…' : 'Send'}
+        </button>
+        <button type="button" className="kb-ghost-btn kb-ghost-btn-inline" onClick={onBack}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function AccountCard({
   identity,
   onSignOut,
@@ -188,6 +320,7 @@ export function AccountCard({
   blocked,
   onUnblock,
   onClose,
+  onFeedback,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
@@ -210,6 +343,8 @@ export function AccountCard({
    * view should be the one action in it that cannot cost you anything.
    */
   onClose: () => void
+  /** Opens the feedback form. Secondary action, so it lives here. */
+  onFeedback: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -321,6 +456,18 @@ export function AccountCard({
 
       <button type="button" className="kb-ghost-btn" onClick={onResetLayout}>
         Reset layout
+      </button>
+
+      {/*
+        * Feedback lives here rather than on Gravity or in the nav.
+        *
+        * It is a secondary action people reach for occasionally, and a
+        * permanent button on the main surface would take space from the thing
+        * the product is actually for. The account panel is where the other
+        * "about Kickback rather than about your friends" controls already are.
+        */}
+      <button type="button" className="kb-ghost-btn" onClick={onFeedback}>
+        Feedback
       </button>
 
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>

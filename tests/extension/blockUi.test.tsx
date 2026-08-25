@@ -126,6 +126,7 @@ function account(blocked: { user: { id: string; displayName: string } }[], muted
       onUnmute={() => {}}
       blocked={blocked}
       onUnblock={() => {}}
+      onFeedback={() => {}}
       onClose={() => {}}
       onResetLayout={() => {}}
     />,

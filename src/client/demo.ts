@@ -207,6 +207,7 @@ export function createDemoClient(): KickbackClient {
     removeFriend: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     blockUser: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     unblockUser: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+    submitFeedback: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
     refreshFriends: () => Promise.resolve(),
     // Demo mode has no worker, so it keeps the learned channel casing itself.
     // Same resolution path as production, just a shorter one.

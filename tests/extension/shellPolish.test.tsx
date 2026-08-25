@@ -125,6 +125,7 @@ function account(
       onUnmute={() => calls.push('unmute')}
       blocked={blocked}
       onUnblock={() => calls.push('unblock')}
+      onFeedback={() => {}}
       onClose={() => calls.push('close')}
       onResetLayout={() => calls.push('reset')}
     />,

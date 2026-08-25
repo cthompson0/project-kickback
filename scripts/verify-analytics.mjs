@@ -37,8 +37,9 @@ import { pathToFileURL } from 'node:url'
 
 const ENV_PATH = '.env.local'
 
-/** Must match supabase/migrations/0013 through 0016 exactly. */
+/** Must match supabase/migrations/0013 through 0023 exactly. */
 const TABLES = [
+  'feedback',
   'analytics_events',
   'analytics_actors',
   'analytics_event_names',
@@ -46,6 +47,7 @@ const TABLES = [
 ]
 
 const VIEWS = [
+  'feedback_v',
   'analytics_reportable_events_v',
   'analytics_production_events_v',
   'analytics_sessions_v',
@@ -71,6 +73,16 @@ const FUNCTIONS = [
    * a database that had stopped at 0014 would report as fully healthy.
    */
   ['analytics_schema_version', {}],
+  /*
+   * Feedback, from 0023.
+   *
+   * Granted to authenticated and revoked from anon, so an anonymous probe gets
+   * 42501 when it exists and PGRST202 when it does not - the same distinction
+   * everything else here relies on. It is checked because a packaged build with
+   * a Feedback button and no RPC behind it is exactly the kind of half-applied
+   * schema this script exists to catch.
+   */
+  ['submit_feedback', { p_category: 'other', p_body: 'x', p_context: {} }],
 ]
 
 function readEnv() {

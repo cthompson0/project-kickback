@@ -168,6 +168,9 @@ export function createPortClient(): KickbackClient {
     unblockUser: async (userId) => {
       await rpc('unblockUser', userId)
     },
+    submitFeedback: async (input) => {
+      await rpc('submitFeedback', input)
+    },
     refreshFriends: async () => {
       await rpc('refreshFriends')
     },

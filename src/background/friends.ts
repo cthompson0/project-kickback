@@ -46,6 +46,18 @@ export interface FriendsBackend {
   blockUser(userId: string): Promise<BackendResult<true>>
   unblockUser(userId: string): Promise<BackendResult<true>>
   listBlocked(): Promise<BackendResult<BlockedUser[]>>
+  /**
+   * Send one piece of feedback.
+   *
+   * It lives on this backend rather than getting one of its own because this is
+   * already the authenticated-RPC surface and feedback is one call. A second
+   * backend interface for a single method would be ceremony, not structure.
+   */
+  submitFeedback(input: {
+    category: string
+    body: string
+    context: Record<string, unknown>
+  }): Promise<BackendResult<true>>
 }
 
 export interface FriendsState {
@@ -115,6 +127,20 @@ export interface FriendsService {
    */
   block(userId: string): Promise<void>
   unblock(userId: string): Promise<void>
+  /**
+   * Send feedback, with the diagnostics its caller assembled.
+   *
+   * Deliberately NOT routed through mutate(): every other call here changes the
+   * social graph and is followed by a re-read, and feedback changes nothing the
+   * panel draws. Re-reading the friends list because somebody sent a note would
+   * be a round trip for no reason, and a transient list error would turn a
+   * successful submission into a visible failure.
+   */
+  sendFeedback(input: {
+    category: string
+    body: string
+    context: Record<string, unknown>
+  }): Promise<void>
 }
 
 /** Turns a backend failure into something a person can read. */
@@ -134,6 +160,8 @@ function friendlyError(context: string): string {
       return 'Could not block that user.'
     case 'unblock':
       return 'Could not unblock that user.'
+    case 'feedback':
+      return 'Could not send that. Your text is still here - try again.'
     default:
       return "Kickback can't reach its server right now."
   }
@@ -300,6 +328,16 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
 
     async unblock(userId) {
       await mutate('unblock', () => deps.backend.unblockUser(userId))
+    },
+
+    async sendFeedback(input) {
+      const result = await deps.backend.submitFeedback(input)
+      if (result.error) {
+        deps.onError?.('feedback', result.error)
+        // Thrown rather than swallowed: the form keeps what they typed and
+        // offers a retry, which it can only do if it learns this failed.
+        throw new Error(friendlyError('feedback'))
+      }
     },
   }
 }

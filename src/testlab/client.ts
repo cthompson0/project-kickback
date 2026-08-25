@@ -547,6 +547,19 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
      * tests/db/blocks.test.ts. A lab imitation would prove nothing about the
      * original and could disagree with it, so the lab declines instead.
      */
+    /*
+     * The lab accepts feedback and throws it away.
+     *
+     * Unlike Block, there is nothing here a fake could get WRONG: what the
+     * server does with a submission is tested against real Postgres, and what
+     * the panel needs to be exercised for is the form - typing, submitting, the
+     * success state, and the failure state keeping your text. Refusing would
+     * make the lab unable to check the one half it is good at.
+     */
+    async submitFeedback() {
+      await new Promise((resolve) => setTimeout(resolve, 0))
+    },
+
     async blockUser() {
       throw new Error('Blocking is not available in the Test Lab.')
     },

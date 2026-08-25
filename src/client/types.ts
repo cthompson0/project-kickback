@@ -294,6 +294,24 @@ export interface KickbackClient {
   blockUser(userId: string): Promise<void>
   /** Remove a block. Restores nothing else - see docs/checkpoints. */
   unblockUser(userId: string): Promise<void>
+
+  // --- feedback ------------------------------------------------------------
+
+  /**
+   * Tell us something.
+   *
+   * Takes a category, a body, and where they were - and nothing else. Version,
+   * environment, friend count, realtime health and the current channel are
+   * added by the service worker, because it is the only party that actually
+   * knows them and because a client that assembled its own diagnostics could
+   * report anything it liked.
+   */
+  submitFeedback(input: {
+    category: FeedbackCategory
+    body: string
+    surface: FeedbackSurface
+    collapsed: boolean
+  }): Promise<void>
   refreshFriends(): Promise<void>
 
   // --- presence ------------------------------------------------------------
@@ -449,6 +467,24 @@ export interface BlockedUser {
   /** ISO timestamp, for ordering the management list. */
   blockedAt: string
 }
+
+/**
+ * What kind of thing somebody is telling us.
+ *
+ * Four, deliberately. Enough to sort a week of beta reports into piles worth
+ * reading in different orders; few enough that nobody has to think about which
+ * one before they can start typing.
+ */
+export type FeedbackCategory = 'bug' | 'confusing' | 'idea' | 'other'
+
+/**
+ * Which Kickback surface somebody was looking at when they wrote it.
+ *
+ * The one piece of context the panel knows and the service worker does not.
+ * Everything else in a feedback submission's diagnostics is assembled by the
+ * worker, which is what stops a modified extension fabricating them.
+ */
+export type FeedbackSurface = 'friends' | 'groups' | 'session' | 'find' | 'account'
 
 export interface ChatMessage {
   id: string

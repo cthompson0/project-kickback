@@ -18,6 +18,7 @@ import { usePanelLayout } from './layout/usePanelLayout'
 import { useLayoutHint } from './layout/useLayoutHint'
 import {
   AccountCard,
+  FeedbackForm,
   EmptyFriends,
   ErrorState,
   LoadingState,
@@ -118,6 +119,8 @@ export function KickbackPanel({
   const [collapsed, setCollapsed] = useState(readCollapsed)
 
   const [accountOpen, setAccountOpen] = useState(false)
+  /** The feedback form, which is a sub-view of the account panel. */
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [finding, setFinding] = useState(false)
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
   /*
@@ -171,11 +174,14 @@ export function KickbackPanel({
     if (!accountOpen) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
-      setAccountOpen(false)
+      // Innermost first, here too: Escape out of the feedback form returns to
+      // the account panel rather than closing both and losing where you were.
+      if (feedbackOpen) setFeedbackOpen(false)
+      else setAccountOpen(false)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [accountOpen])
+  }, [accountOpen, feedbackOpen])
 
   /**
    * Choose a tab, and tell the worker when that choice is a session.
@@ -527,7 +533,10 @@ export function KickbackPanel({
             type="button"
             className="kb-avatar-btn"
             title={`Signed in as ${identity.displayName}`}
-            onClick={() => setAccountOpen((open) => !open)}
+            onClick={() => {
+              setAccountOpen((open) => !open)
+              setFeedbackOpen(false)
+            }}
           >
             <Avatar
               user={{
@@ -566,8 +575,30 @@ export function KickbackPanel({
         )}
       </div>
 
-      {signedIn && identity && accountOpen && (
+      {signedIn && identity && accountOpen && feedbackOpen && (
+        <FeedbackForm
+          onBack={() => setFeedbackOpen(false)}
+          onSubmit={(category, body) =>
+            client.submitFeedback({
+              category,
+              body,
+              /*
+               * Where they were, not where the form is.
+               *
+               * Everybody who sends feedback is technically "in the account
+               * panel" - that is the only way in. What is worth knowing is what
+               * they were looking at before they went looking for this.
+               */
+              surface: finding ? 'find' : tab,
+              collapsed,
+            })
+          }
+        />
+      )}
+
+      {signedIn && identity && accountOpen && !feedbackOpen && (
         <AccountCard
+          onFeedback={() => setFeedbackOpen(true)}
           identity={identity}
           onSignOut={() => {
             setAccountOpen(false)
@@ -587,7 +618,10 @@ export function KickbackPanel({
           knownPeople={knownPeople}
           onUnmute={(userId) => client.setUserMuted(userId, false)}
           blocked={view.blockedUsers}
-          onClose={() => setAccountOpen(false)}
+          onClose={() => {
+            setAccountOpen(false)
+            setFeedbackOpen(false)
+          }}
           onUnblock={(userId) => {
             setActionError(null)
             client.unblockUser(userId).catch((cause: unknown) => {

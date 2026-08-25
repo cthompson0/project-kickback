@@ -73,6 +73,7 @@ class FakeBackend implements FriendsBackend {
   sendOutcome: SendRequestOutcome = 'requested'
 
   blocked: BlockedUser[] = []
+  feedback: Array<{ category: string; body: string; context: Record<string, unknown> }> = []
 
   failListWith: string | null = null
   failBlockedListWith: string | null = null
@@ -152,6 +153,17 @@ class FakeBackend implements FriendsBackend {
     this.calls.push(`unblock:${userId}`)
     if (this.failMutationWith) return { value: null, error: this.failMutationWith }
     this.blocked = this.blocked.filter((entry) => entry.user.id !== userId)
+    return { value: true }
+  }
+
+  async submitFeedback(input: {
+    category: string
+    body: string
+    context: Record<string, unknown>
+  }): Promise<BackendResult<true>> {
+    this.calls.push(`feedback:${input.category}`)
+    if (this.failMutationWith) return { value: null, error: this.failMutationWith }
+    this.feedback.push(input)
     return { value: true }
   }
 

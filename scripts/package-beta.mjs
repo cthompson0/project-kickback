@@ -37,6 +37,7 @@ import { join, relative } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listZip, writeZip } from './zip.mjs'
 import { verifyGroupSchema } from './verify-group-schema.mjs'
+import { verifyAnalyticsSchema } from './verify-analytics.mjs'
 
 const DIST = 'dist'
 const RELEASES = 'releases'
@@ -212,6 +213,22 @@ async function main() {
   // ---------------------------------------------------------- preflight
   step('Verifying Supabase configuration')
   run('node', ['scripts/verify-supabase-config.mjs'])
+
+  /*
+   * Analytics and feedback, before anything is built.
+   *
+   * A tester's report has to be about the product rather than about our
+   * deployment, and a Feedback button whose RPC does not exist would produce
+   * exactly the wrong kind of first impression. This is also what catches a
+   * half-applied schema: everything 0013-0023 add is revoked from clients, so
+   * "permission denied" is the healthy answer and absence is the signal.
+   */
+  step('Verifying the hosted analytics and feedback schema')
+  const analytics = await verifyAnalyticsSchema()
+  if (!analytics.ok) {
+    console.error('\nRefusing to package: telemetry or feedback would be broken for testers.')
+    return 1
+  }
 
   step('Verifying the hosted group backend')
   const groups = await verifyGroupSchema()
