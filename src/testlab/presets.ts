@@ -74,14 +74,30 @@ function world(
   users: SimUser[],
   observerChannel: string | null = null,
   metadata?: Record<string, SimChannelMeta>,
+  edges?: Array<[string, string]>,
 ): SimWorld {
   return {
     observer: { ...OBSERVER, channel: observerChannel },
     users,
     metadata,
+    edges,
     clockOffsetMs: 0,
   }
 }
+
+/**
+ * A person who is on the channel but NOT the observer's friend.
+ *
+ * The whole point of a connected component: they can still be in the room, if
+ * a real social path reaches them. Presence for them never arrives - they are
+ * a stranger as far as presence is concerned - so the roster names them from
+ * room membership alone, which is exactly the production situation.
+ */
+const distant = (index: number, channel: string): SimUser =>
+  person(index, { activity: 'watching', channel, relationship: 'stranger' })
+
+/** The simulated roster's ids, so edges can be written readably. */
+const ID = ROSTER.map(([id]) => `sim-${id}`)
 
 /** A plausible live stream, so metadata presets read like the real thing. */
 const LIVE: SimChannelMeta = {
@@ -275,6 +291,137 @@ export const PRESETS: Preset[] = [
     hint: 'You are on it, three friends with you, and Twitch says it stopped.',
     build: () =>
       world(crowd(3, 'LIRIK'), 'LIRIK', { lirik: { live: 'offline', displayName: 'LIRIK' } }),
+  },
+
+  // ------------------------------------------------ connected-component rooms
+  //
+  // The graphs two Twitch accounts cannot build. Every one of these is a claim
+  // about who is in the ROOM, which production computes from the friendship
+  // graph and presence - the lab supplies both and never the answer.
+  {
+    id: 'room-ab',
+    label: 'Room · A↔B',
+    hint: 'You and one direct friend. The smallest room there is.',
+    build: () => world(crowd(1, 'LIRIK'), 'LIRIK'),
+  },
+  {
+    id: 'room-abc',
+    label: 'Room · A↔B↔C',
+    hint: 'C is Bianca\'s friend, not yours. You should still see them.',
+    build: () =>
+      world([person(0, { activity: 'watching', channel: 'LIRIK' }), distant(1, 'LIRIK')], 'LIRIK', undefined, [
+        [ID[0], ID[1]],
+      ]),
+  },
+  {
+    id: 'room-abcd',
+    label: 'Room · A↔B↔C↔D',
+    hint: 'Three hops. D is at the limit and reachable; nobody is beyond it.',
+    build: () =>
+      world(
+        [
+          person(0, { activity: 'watching', channel: 'LIRIK' }),
+          distant(1, 'LIRIK'),
+          distant(2, 'LIRIK'),
+        ],
+        'LIRIK',
+        undefined,
+        [
+          [ID[0], ID[1]],
+          [ID[1], ID[2]],
+        ],
+      ),
+  },
+  {
+    id: 'room-split-graphs',
+    label: 'Room · two clusters',
+    hint: 'You+Bianca, and Dana↔Eli who know neither of you. Two rooms; you see one.',
+    build: () =>
+      world(
+        [
+          person(0, { activity: 'watching', channel: 'LIRIK' }),
+          distant(2, 'LIRIK'),
+          distant(3, 'LIRIK'),
+        ],
+        'LIRIK',
+        undefined,
+        [[ID[2], ID[3]]],
+      ),
+  },
+  {
+    id: 'room-bridge-gone',
+    label: 'Room · bridge left',
+    hint: 'A↔B↔C↔D with B gone. You are alone; C and D are still each other\'s.',
+    build: () =>
+      world(
+        [
+          // Bianca (the bridge) has moved to another stream.
+          person(0, { activity: 'watching', channel: 'xQc' }),
+          distant(1, 'LIRIK'),
+          distant(2, 'LIRIK'),
+        ],
+        'LIRIK',
+        undefined,
+        [
+          [ID[0], ID[1]],
+          [ID[1], ID[2]],
+        ],
+      ),
+  },
+  {
+    id: 'room-merged',
+    label: 'Room · clusters merged',
+    hint: 'The same two clusters, now bridged by Bianca↔Dana. One room of four.',
+    build: () =>
+      world(
+        [
+          person(0, { activity: 'watching', channel: 'LIRIK' }),
+          distant(2, 'LIRIK'),
+          distant(3, 'LIRIK'),
+        ],
+        'LIRIK',
+        undefined,
+        [
+          [ID[2], ID[3]],
+          // The bridge that merges them.
+          [ID[0], ID[2]],
+        ],
+      ),
+  },
+  {
+    id: 'room-stranger',
+    label: 'Room · unrelated stranger',
+    hint: 'Faye is on LIRIK and connected to nobody. Invisible to the room.',
+    build: () =>
+      world([person(0, { activity: 'watching', channel: 'LIRIK' }), distant(4, 'LIRIK')], 'LIRIK'),
+  },
+  {
+    id: 'room-fof-left',
+    label: 'Room · friend-of-friend left',
+    hint: 'C moved to xQc. Contextual visibility of them disappears.',
+    build: () =>
+      world(
+        [person(0, { activity: 'watching', channel: 'LIRIK' }), distant(1, 'xQc')],
+        'LIRIK',
+        undefined,
+        [[ID[0], ID[1]]],
+      ),
+  },
+  {
+    id: 'room-ten',
+    label: 'Room · 10 people',
+    hint: 'A chain of ten. Only three hops are reachable, by design.',
+    build: () =>
+      world(
+        Array.from({ length: 9 }, (_, index) =>
+          index === 0
+            ? person(0, { activity: 'watching', channel: 'LIRIK' })
+            : distant(index, 'LIRIK'),
+        ),
+        'LIRIK',
+        undefined,
+        Array.from({ length: 8 }, (_, index) => [ID[index], ID[index + 1]] as [string, string]),
+      ),
   },
 
   // ---------------------------------------------------- automatic together

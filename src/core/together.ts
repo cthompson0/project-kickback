@@ -1,62 +1,56 @@
-import { COMBO_MIN_DISPLAY } from './combos'
+import { EMOTES } from './emotes'
+import type { KickbackEmote, KickbackEmoteId } from './emotes'
+import type { ComboMessage } from './combos'
 
 /**
- * Automatic Together: the last step of Presence → Gravity → JOIN → Together.
+ * Automatic Stream Rooms: the last step of Presence → Gravity → JOIN → Together.
  *
- * WHAT IT IS NOT
+ * WHAT A ROOM IS
  *
- * It is not a room. Nothing is created, named, owned, joined, invited to or
- * deleted. There is no membership list to administer and no lifecycle to get
- * out of sync with reality, because there is no record: a Together is simply
- * the fact that you and some friends are on the same channel right now, which
- * presence already knows.
+ * The connected component of the friendship graph, restricted to people whose
+ * presence says they are on this destination, right now. `A ↔ B ↔ C ↔ D` all
+ * watching lvndmark is ONE room of four, even though A and D have never met.
+ * An unrelated E on the same stream is not in it.
+ *
+ * WHAT A ROOM IS NOT
+ *
+ * A record. Nothing is created, named, owned, joined, invited to or deleted.
+ * Membership is computed by the server on demand (see stream_room_members in
+ * 0020) and never stored, which is why merging and splitting need no
+ * ceremony: they are what recomputation looks like.
  *
  * Kickback has persistent private spaces already - Groups, with intentional
- * membership and a conversation that is still there tomorrow. This is the
- * opposite of that on every axis, and the two must not be confused. They share
- * transport, identity and UI primitives; they share no product semantics.
+ * membership and a conversation that is still there tomorrow. These share
+ * transport, identity, combo semantics and UI primitives with that, and no
+ * product semantics at all.
  *
- * WHERE THE PARTICIPANTS COME FROM
+ * WHY REACTIONS ARE KICKBACK EMOTES
  *
- * `clusterMembers`, unchanged - the same `here` cluster the panel has drawn
- * since Social Gravity. That means Together inherits, for free and without a
- * second interpretation:
+ * Because Kickback already has a combo engine, and it speaks emotes.
  *
- *   - multi-tab effective activity (one person, not one per tab);
- *   - the 90-second staleness rule (a closed laptop leaves on its own);
- *   - write-time privacy redaction (someone hiding their activity is simply
- *     not on a channel, so they are not here);
- *   - self-exclusion (you are never one of the people you are with).
- *
- * There is deliberately no participant list in this file. Deriving one would
- * be a second answer to a question presence has already answered.
- *
- * DESTINATION IDENTITY
- *
- * The canonical lowercase login, the same value presence, Gravity, JOIN,
- * `destination_channel` and `opportunity_key` all use. Conceptually
- * `twitch:lvndmark`; the platform is implicit while Twitch is the only one.
- * Not display casing, not the stream id - a stream ending and restarting is
- * the same people in the same place, and tying the social context to a stream
- * id would dissolve it mid-conversation. Metadata stays enrichment.
+ * The first version of this file invented a second one - a parallel palette of
+ * unicode emoji with its own burst aggregator - and it rendered every burst
+ * side by side instead of counting one in place, which is the emoji-stacking
+ * that was reported. Rather than fix a duplicate, the duplicate is gone: a
+ * reaction IS one of Kickback's own emotes, so `scanCombos` counts it,
+ * `ComboBadge` draws the ×N, and `EmoteImage` draws the artwork. One engine,
+ * one currency, two surfaces.
  */
 
 /**
  * The reactions a person may send.
  *
- * A fixed, tiny palette rather than free emoji entry. Three reasons, in order
- * of how much they matter:
+ * Five of Kickback's own emotes rather than free entry. A closed set cannot
+ * carry a payload, so nothing arbitrary reaches another person's screen; and
+ * combos only mean anything when people can collide on the same symbol, which
+ * unlimited choice makes almost impossible.
  *
- *   1. It is a couch, not a keyboard. Five things you can hit without looking
- *      is the whole interaction.
- *   2. A closed set is trivially safe: the server validates against this exact
- *      list, so no arbitrary text ever reaches another person's screen.
- *   3. Combos only mean anything when people can collide on the same symbol.
- *      With unlimited emoji, three people almost never pick the same one.
+ * Kept in step with the `p_reaction in (...)` check in 0020 by a test that
+ * reads both.
  */
-export const REACTIONS = ['😂', '❤️', '🔥', '😭', '👀'] as const
+export const REACTIONS: readonly KickbackEmoteId[] = ['lol', 'heart', 'fire', 'sad', 'eyes']
 
-export type Reaction = (typeof REACTIONS)[number]
+export type Reaction = KickbackEmoteId
 
 const REACTION_SET: ReadonlySet<string> = new Set(REACTIONS)
 
@@ -64,66 +58,48 @@ export function isReaction(value: unknown): value is Reaction {
   return typeof value === 'string' && REACTION_SET.has(value)
 }
 
+/** The artwork for a reaction, for the buttons and the combo badge. */
+export function reactionEmote(reaction: Reaction): KickbackEmote {
+  const emote = EMOTES.find((entry) => entry.id === reaction)
+  // The palette is a subset of EMOTES, so this cannot miss - but a lookup that
+  // silently returned undefined would surface as a blank button.
+  if (!emote) throw new Error(`together: no emote for ${reaction}`)
+  return emote
+}
+
 /**
  * How long a reaction stays on screen.
  *
- * Reactions are ephemeral by design - there is no history, no inbox and no
- * transcript, because they exist to say "did you SEE that" about something
- * happening on the stream right now. Eight seconds is long enough to notice
- * one that landed while you were looking at the video, and short enough that
- * the surface is empty again before the moment has passed.
+ * Reactions are ephemeral by design - no history, no inbox, no transcript -
+ * because they exist to say "did you SEE that" about something happening on
+ * the stream right now. Eight seconds is long enough to notice one that landed
+ * while you were looking at the video, and short enough that the surface is
+ * empty again before the moment has passed.
  */
 export const REACTION_TTL_MS = 8_000
-
-/**
- * How close together two reactions have to be to count as the same moment.
- *
- * Shorter than the TTL: reactions linger a little after they stop combining,
- * so a burst finishes as a stable "×3" rather than growing while it fades.
- */
-export const COMBO_WINDOW_MS = 4_000
 
 /** The most reactions worth keeping. A burst is a burst; a flood is noise. */
 export const MAX_REACTIONS = 60
 
 export interface TogetherReaction {
+  /** The row id. Different per recipient; unique within one client. */
   id: string
-  userId: string
-  /** Canonical lowercase login the reaction was sent on. */
+  senderId: string
+  /** Canonical lowercase login it was sent on. */
   channel: string
   reaction: Reaction
   /** Epoch ms, from the server, so everybody orders them the same way. */
   at: number
 }
 
-/**
- * A run of the same reaction from DIFFERENT people, close together.
- *
- * The one product rule: a combo is several people agreeing, not one person
- * pressing a button repeatedly. Somebody spamming 😂 five times is one 😂 -
- * which is also what stops the surface being a clicker game, without needing
- * any scoring, streaks, points or leaderboards to prevent it.
- */
-export interface ReactionBurst {
-  reaction: Reaction
-  /** Distinct people, so this is the number the UI shows. */
-  count: number
-  /** Everyone in the run, in arrival order, for avatars or a tooltip. */
-  userIds: string[]
-  /** The newest contribution, so the UI can age the whole burst out. */
-  at: number
-}
-
-/** Reactions still worth showing, oldest first. */
+/** Reactions still worth showing on this channel, oldest first. */
 export function liveReactions(
   reactions: readonly TogetherReaction[],
   channel: string | null,
   /*
-   * Defaulted here rather than at the call site.
-   *
-   * Reaction freshness is a clock question, and render paths in this project
-   * do not read the clock - a render that did could disagree with itself. The
-   * same arrangement clusterMembers and socialGravity use.
+   * Defaulted here rather than at the call site: freshness is a clock
+   * question, and render paths in this project do not read the clock - a
+   * render that did could disagree with itself.
    */
   now: number = Date.now(),
   ttl = REACTION_TTL_MS,
@@ -136,71 +112,38 @@ export function liveReactions(
 }
 
 /**
- * Collapse a stream of reactions into what should actually be drawn.
+ * The reaction stream, as the combo engine reads it.
  *
- * Consecutive identical reactions inside the window become one burst. A
- * different reaction starts a new one - joining in with something else is
- * participation, not interruption, which is the same judgement the chat combo
- * scanner makes about a different emote.
+ * This is the whole of the convergence. `scanCombos` walks ordered messages
+ * whose body is a single emote and counts runs from DIFFERENT senders - which
+ * is exactly what a reaction stream is. Handing it the same shape means
+ * reactions get the existing rules for free: two voices to show a count, the
+ * same person twice in a row adds nothing, a different emote starts its own
+ * run rather than breaking one.
  *
- * Deliberately NOT `scanCombos`. That models a CHAT: ordinary prose closes a
- * run, and a closing message can earn breaker credit. Neither concept exists
- * here - there is no prose in this stream and nothing to break - so reusing it
- * would mean feeding it synthetic messages and discarding half its output. The
- * threshold and the "×N" language are shared; the rules are not the same rules.
+ * A combo BREAKER cannot occur here, and that is correct rather than missing:
+ * a breaker is an ordinary message interrupting a run, and this stream has no
+ * ordinary messages in it. The rule is preserved, not removed - it simply has
+ * nothing to fire on until a room has text, which v1 deliberately does not.
  */
-export function reactionBursts(
+export function reactionMessages(
   reactions: readonly TogetherReaction[],
-  windowMs = COMBO_WINDOW_MS,
-): ReactionBurst[] {
-  const bursts: ReactionBurst[] = []
-
-  for (const entry of reactions) {
-    const open = bursts[bursts.length - 1]
-
-    const extends_ =
-      open &&
-      open.reaction === entry.reaction &&
-      entry.at - open.at <= windowMs &&
-      // The same person again is enthusiasm, not a second voice.
-      !open.userIds.includes(entry.userId)
-
-    if (extends_) {
-      open.userIds.push(entry.userId)
-      open.count = open.userIds.length
-      open.at = entry.at
-      continue
-    }
-
-    // A repeat from someone already in the open run still refreshes it, so a
-    // burst does not age out early while people are still reacting.
-    if (open && open.reaction === entry.reaction && entry.at - open.at <= windowMs) {
-      open.at = entry.at
-      continue
-    }
-
-    bursts.push({
-      reaction: entry.reaction,
-      count: 1,
-      userIds: [entry.userId],
-      at: entry.at,
-    })
-  }
-
-  return bursts
-}
-
-/** Whether a burst has enough voices to be worth a counter. */
-export function isCombo(burst: ReactionBurst): boolean {
-  return burst.count >= COMBO_MIN_DISPLAY
+  displayName: (userId: string) => string,
+): ComboMessage[] {
+  return reactions.map((entry) => ({
+    id: entry.id,
+    userId: entry.senderId,
+    displayName: displayName(entry.senderId),
+    body: reactionEmote(entry.reaction).token,
+  }))
 }
 
 /**
  * Fold a new reaction into the buffer.
  *
  * Bounded and de-duplicated: realtime can redeliver, and a buffer that grew
- * without limit would be a memory leak in a service worker that is meant to
- * be evicted and restored cheaply.
+ * without limit would be a memory leak in a service worker meant to be
+ * evicted and restored cheaply.
  */
 export function withReaction(
   reactions: readonly TogetherReaction[],
@@ -225,27 +168,27 @@ export function pruneReactions(
  *
  * It arrives over realtime from a table other people write to, so it is parsed
  * rather than cast - and an unknown reaction is dropped entirely rather than
- * rendered, which is what keeps arbitrary text off somebody's screen even if
- * the server's own validation were ever loosened.
+ * rendered, which keeps anything arbitrary off somebody's screen even if the
+ * server's own validation were ever loosened.
  */
 export function parseReaction(value: unknown): TogetherReaction | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
 
   const id = raw.id
-  const userId = raw.user_id
+  const senderId = raw.sender_id
   const channel = raw.channel
   const reaction = raw.reaction
   const at = raw.created_at
 
-  if (typeof id !== 'string' || typeof userId !== 'string') return null
+  if (typeof id !== 'string' || typeof senderId !== 'string') return null
   if (typeof channel !== 'string' || !/^[a-z0-9_]{3,25}$/.test(channel)) return null
   if (!isReaction(reaction)) return null
 
   const time = typeof at === 'string' ? Date.parse(at) : NaN
   return {
     id,
-    userId,
+    senderId,
     channel,
     reaction,
     at: Number.isFinite(time) ? time : Date.now(),

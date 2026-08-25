@@ -29,6 +29,7 @@ import {
   canonicalChannel,
   channelMetadata,
   channelNames,
+  roomMembers,
   friendsOf,
   presenceRow,
   updateUser,
@@ -259,7 +260,7 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
 
     reactions = withReaction(pruneReactions(reactions, Date.now()), {
       id: `lab-${reactionSeq++}`,
-      userId,
+      senderId: userId,
       channel: here,
       reaction,
       at,
@@ -326,6 +327,9 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       // cannot tell a simulated record from a fetched one.
       channelMetadata: channelMetadata(world, now),
       togetherReactions: pruneReactions(reactions, now),
+      // Computed by the lab because production computes it in SQL, which the
+      // lab has no access to. Checked against that SQL by a test.
+      roomMembers: roomMembers(world, now),
       attention: attention.getState().items,
       unread: attention.getState().unread,
     }

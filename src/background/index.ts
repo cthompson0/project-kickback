@@ -31,6 +31,8 @@ import { createPreferences } from './preferences'
 import { createAnalyticsHub } from './analyticsHub'
 import { createMetadataService } from './metadata'
 import { createTogetherReactions } from './togetherReactions'
+import { createStreamRoom } from './streamRoom'
+import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
 import { isPersistedLifecycle } from './togetherStore'
@@ -54,6 +56,7 @@ import {
 import {
   createSupabaseAnalyticsBackend,
   createSupabaseMetadataBackend,
+  createSupabaseRoomBackend,
   createSupabaseTogetherBackend,
   createSupabaseBackend,
   createSupabaseClient,
@@ -326,38 +329,38 @@ const groupSync = createGroupSync({
  * seconds of "did you see that" - restoring a stale one after a wake-up would
  * show somebody laughing at a moment that has passed.
  */
+const room = createStreamRoom({
+  backend: createSupabaseRoomBackend(supabase),
+  onChange: () => broadcast(),
+  onError: logError,
+})
+
 const together = createTogetherReactions({
   channel: createSupabaseTogetherChannel(supabase),
   backend: createSupabaseTogetherBackend(supabase),
   onChange: () => broadcast(),
-  onReceived: (reaction) => {
-    // Only what somebody else sent: a viewer's own reaction comes back through
-    // the same realtime path, and counting it as received would double every
-    // interaction.
-    if (reaction.userId === authState.identity?.userId) return
+  onReaction: (reaction, mine) => {
+    /*
+     * One event for both directions, with a property saying which.
+     *
+     * Sent and received are the same interaction seen from two sides, and the
+     * viewer's own reaction arrives back through the same realtime path as
+     * everyone else's - so recording it here, once, is the only way the two
+     * cannot disagree about how many there were.
+     */
     analytics.track(
-      'together_reaction_received',
-      { participant_count: togetherCount() },
+      'automatic_room_reaction',
+      { participant_count: roomSize(), direction: mine ? 'sent' : 'received' },
       { source: 'together', channel: reaction.channel },
     )
   },
   onError: logError,
 })
 
-/**
- * How many friends the viewer is watching with, right now.
- *
- * findGatherings with no exclusion, restricted to the viewer's own channel -
- * the same interpretation the panel's `here` cluster uses, rather than a
- * second count that could disagree with the one on screen.
- */
-function togetherCount(): number {
-  const here = currentChannel()
-  if (!here) return 0
-  return friendsState.friends.filter((friend) => {
-    const activity = friend.presence?.activity
-    return activity?.type === 'watching' && activity.channel.toLowerCase() === here
-  }).length
+/** Everyone in the room, including the viewer. Zero when there is no room. */
+function roomSize(): number {
+  const members = room.snapshot().length
+  return members === 0 ? 0 : members + 1
 }
 
 /**
@@ -376,9 +379,9 @@ let togetherShownFor: string | null = null
 
 function noteTogetherSurface(): void {
   const here = currentChannel()
-  const count = togetherCount()
+  const members = room.snapshot()
 
-  if (!here || count === 0) {
+  if (!here || members.length === 0) {
     togetherShownFor = null
     return
   }
@@ -386,8 +389,14 @@ function noteTogetherSurface(): void {
 
   togetherShownFor = here
   analytics.track(
-    'together_surface_shown',
-    { participant_count: count },
+    'automatic_room_entered',
+    {
+      participant_count: members.length + 1,
+      // The question the connected-component model exists to answer: is
+      // friend-of-friend exposure actually happening, or is every room just
+      // the viewer's own friends?
+      direct_friend_count: directCount(members),
+    },
     { source: 'together', channel: here },
   )
 }
@@ -666,12 +675,14 @@ function pushActivity(): void {
   /*
    * Follow the viewer, and only the viewer.
    *
-   * One subscription, for the channel they are actually on, closed the moment
-   * they leave. Driven from the same effective activity presence reports, so
-   * multi-tab behaviour is inherited rather than re-derived: two tabs on one
-   * channel are one subscription, and a background tab does not open a second.
+   * The inbox subscription is per USER and lives as long as the session; what
+   * changes here is only which channel's reactions are worth showing, and
+   * which room to ask about. Driven from the same effective activity presence
+   * reports, so multi-tab behaviour is inherited rather than re-derived.
    */
-  together.setChannel(authState.status === 'signed_in' ? currentChannel() : null)
+  const here = authState.status === 'signed_in' ? currentChannel() : null
+  together.setChannel(here)
+  room.want(here)
 
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
@@ -743,6 +754,7 @@ function currentState(): KickbackState {
     channelNames: { ...channelNames },
     channelMetadata: { ...metadata.snapshot() },
     togetherReactions: together.snapshot(),
+    roomMembers: room.snapshot(),
   }
 }
 
@@ -778,6 +790,14 @@ auth.subscribe((next) => {
     }
     // start() is idempotent for the same user and swaps cleanly for a new one.
     socialSync.start(next.identity.userId)
+    /*
+     * The reaction inbox, for as long as the session lasts.
+     *
+     * Per USER rather than per channel - which is what gives every row exactly
+     * one interested subscriber and is the whole of the one-way reaction fix.
+     * Idempotent for the same id, so this is safe on every auth update.
+     */
+    together.setUser(next.identity.userId)
   } else {
     socialSync.stop()
     presenceSync.stop()
@@ -788,6 +808,7 @@ auth.subscribe((next) => {
     attention.clear()
     gatheringWatcher.reset()
     together.reset()
+    room.reset()
     /*
      * Public data, but still dropped on sign-out.
      *
@@ -1063,14 +1084,10 @@ chrome.runtime.onConnect.addListener((port) => {
          * list - but a tab is not a trusted caller, and there is no reason to
          * spend a round trip discovering that.
          */
-        if (isReaction(raw.reaction)) {
-          together.send(raw.reaction)
-          analytics.track(
-            'together_reaction_sent',
-            { participant_count: togetherCount() },
-            { source: 'together', channel: currentChannel() },
-          )
-        }
+        // Recorded when it is DELIVERED, not when it is asked for - see the
+        // onReaction handler. A send that fails should not appear as an
+        // interaction that happened.
+        if (isReaction(raw.reaction)) together.send(raw.reaction)
         break
       case 'seen':
         if (Array.isArray(raw.keys)) attention.markSeen(raw.keys)

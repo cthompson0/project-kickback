@@ -114,14 +114,36 @@ export interface AnalyticsEventMap {
   // No reaction CONTENT anywhere. Which of five emoji somebody pressed
   // answers no question we have, and "what did this person react to" is a
   // surveillance-shaped fact rather than a product one.
-  together_surface_shown: {
+  automatic_room_entered: {
+    /** Everyone in the connected component, including the viewer. */
     participant_count: number
-    /** Whether a JOIN brought them here, rather than arriving organically. */
-    from_join?: boolean
+    /**
+     * How many of them the viewer actually knows.
+     *
+     * Beside the total because it is the question the connected-component
+     * model exists to answer: is friend-of-friend exposure really happening,
+     * or is every room just the viewer's own friends? The totals alone cannot
+     * tell us.
+     */
+    direct_friend_count: number
   }
-  together_reaction_sent: { participant_count: number }
-  together_reaction_received: { participant_count: number }
-  together_combo_formed: {
+  automatic_room_opened: {
+    participant_count: number
+    direct_friend_count: number
+  }
+  automatic_room_reaction: {
+    participant_count: number
+    /**
+     * Sent or received.
+     *
+     * One event with a direction rather than two events: they are the same
+     * interaction seen from two sides, and the viewer's own reaction arrives
+     * back through the same realtime path as everyone else's - so recording it
+     * once is the only way the two cannot disagree about how many there were.
+     */
+    direction: 'sent' | 'received'
+  }
+  automatic_room_combo: {
     /** Distinct people who reacted the same way at the same moment. */
     combo_size: number
     participant_count: number
@@ -248,10 +270,10 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'destination_live',
   ],
 
-  together_surface_shown: ['participant_count', 'from_join'],
-  together_reaction_sent: ['participant_count'],
-  together_reaction_received: ['participant_count'],
-  together_combo_formed: ['combo_size', 'participant_count'],
+  automatic_room_entered: ['participant_count', 'direct_friend_count'],
+  automatic_room_opened: ['participant_count', 'direct_friend_count'],
+  automatic_room_reaction: ['participant_count', 'direction'],
+  automatic_room_combo: ['combo_size', 'participant_count'],
 
   join_clicked: [
     'social_count',

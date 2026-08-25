@@ -2,37 +2,45 @@ import { parseReaction, pruneReactions, withReaction } from '../core/together'
 import type { Reaction, TogetherReaction } from '../core/together'
 
 /**
- * The reaction stream for the channel the viewer is currently on.
+ * The viewer's reaction inbox.
  *
- * ONE SUBSCRIPTION, AND ONLY WHILE IT MATTERS
+ * ONE SUBSCRIPTION, PER USER, NOT PER CHANNEL
  *
- * Reactions are only interesting on the channel you are watching, so exactly
- * one subscription is open at a time and none at all when you are not on a
- * channel. Moving to another stream closes the old one and opens a new one;
- * leaving Twitch closes it. That is what keeps this from being "subscribe to
- * everywhere my friends might be".
+ * This is the fix for the one-way reaction bug, and it is a shape rather than
+ * a patch.
  *
- * WHO IS FILTERED, AND WHERE
+ * The first version subscribed every viewer on a stream to the SAME topic with
+ * the SAME filter, so one inserted row matched MANY subscriptions - which is
+ * the exact condition for a documented hosted-only Supabase defect where only
+ * the most recently created subscription receives it. Whoever subscribed last
+ * got reactions; the other side got nothing. It was never about friendship
+ * direction.
  *
- * The channel filter is on the subscription. The FRIENDSHIP filter is not:
- * it is the row-level policy in 0019, re-checked by the server for each
- * subscriber. Nothing in this file decides who may see what, which is the
- * point - a client-side privacy filter is a privacy filter an attacker
- * controls.
+ * Presence never hit that because it binds one subscription per friend, so
+ * every presence row has exactly one interested subscriber. Reactions now have
+ * the same property: the server writes one row PER RECIPIENT, and each viewer
+ * subscribes to `recipient_id = <themselves>` on a topic named after
+ * themselves - matching every other realtime topic in this codebase.
+ *
+ * WHERE AUTHORIZATION LIVES
+ *
+ * Entirely on the write side. `send_together_reaction` computes the connected
+ * component and addresses a row to each member, so the read policy is a single
+ * equality and nothing here decides who may see what. A client-side privacy
+ * filter is one the attacker controls; there isn't one.
  *
  * WHAT IT DOES NOT DO
  *
- * It does not decide who is in a Together. Presence already answers that, and
- * the panel reads it from the same `here` cluster it has drawn since Social
- * Gravity. This is a buffer for one kind of event and nothing more.
+ * It does not decide who is in the room. That is `stream_room_members`, via
+ * streamRoom.ts. This is a buffer for one kind of event.
  */
 
 export interface ReactionChannelHandlers {
   /**
    * One inserted row, exactly as realtime delivered it.
    *
-   * Deliberately `unknown`: the transport hands over what the database sent,
-   * and parsing happens in one place - so a row that does not validate is
+   * Deliberately `unknown`: the transport hands over what the database sent
+   * and parsing happens in one place, so a row that does not validate is
    * dropped by the same code whether it came from realtime, a test or the
    * Test Lab.
    */
@@ -41,12 +49,13 @@ export interface ReactionChannelHandlers {
 }
 
 export interface ReactionChannel {
-  /** Subscribe to one channel's reactions. Returns an unsubscribe function. */
-  open(channel: string, handlers: ReactionChannelHandlers): Promise<() => void>
+  /** Subscribe to one user's inbox. Returns an unsubscribe function. */
+  open(userId: string, handlers: ReactionChannelHandlers): Promise<() => void>
 }
 
 export interface ReactionBackend {
-  send(channel: string, reaction: Reaction): Promise<void>
+  /** Resolves to how many people it reached. Rejects on refusal. */
+  send(channel: string, reaction: Reaction): Promise<number>
 }
 
 export interface TogetherReactionsDeps {
@@ -54,18 +63,25 @@ export interface TogetherReactionsDeps {
   backend: ReactionBackend
   /** Something changed and the panel should be told. */
   onChange?: () => void
-  /** A reaction arrived from somebody else, for analytics. */
-  onReceived?: (reaction: TogetherReaction) => void
+  /** A reaction was delivered, for analytics. Includes the viewer's own. */
+  onReaction?: (reaction: TogetherReaction, mine: boolean) => void
   now?: () => number
   onError?: (context: string, error: unknown) => void
 }
 
 export interface TogetherReactions {
   /**
-   * The channel the viewer is on, or null.
+   * Who the inbox belongs to, or null when signed out.
    *
-   * Idempotent: safe to call on every presence tick. Re-subscribes only when
-   * the channel actually changes.
+   * Idempotent: safe to call on every auth tick. Re-subscribes only when the
+   * user actually changes.
+   */
+  setUser(userId: string | null): void
+  /**
+   * Where the viewer is watching, or null.
+   *
+   * Not a subscription boundary any more - only a display one. Reactions do
+   * not travel between channels, so moving clears the buffer.
    */
   setChannel(channel: string | null): void
   /** Send one. Fire-and-forget; failure is logged and never surfaced. */
@@ -75,70 +91,66 @@ export interface TogetherReactions {
   /** Sign-out, or a different account. */
   reset(): void
   /** For tests and diagnostics. */
-  channel(): string | null
+  subscribedTo(): string | null
 }
 
 export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherReactions {
   const now = deps.now ?? (() => Date.now())
 
-  let current: string | null = null
+  let userId: string | null = null
+  let channel: string | null = null
   let close: (() => void) | null = null
   let reactions: TogetherReaction[] = []
-  /** Guards against a slow open landing after the channel moved on again. */
+  /** Guards a slow open landing after the subscription was replaced. */
   let generation = 0
 
-  function publish(): void {
-    deps.onChange?.()
-  }
-
-  function receive(row: unknown, forChannel: string, mine: number): void {
-    // A subscription that has already been replaced must not write into the
-    // buffer for the channel that replaced it.
-    if (mine !== generation || current !== forChannel) return
+  function receive(row: unknown, mine: number): void {
+    if (mine !== generation) return
 
     const reaction = parseReaction(row)
-    if (!reaction || reaction.channel !== forChannel) return
+    if (!reaction) return
+
+    /*
+     * A reaction for a channel the viewer has already left is dropped.
+     *
+     * The inbox is per user and outlives any one stream, so a row can arrive
+     * moments after they moved. Showing it would be a friend laughing at
+     * something they can no longer see.
+     */
+    if (reaction.channel !== channel) return
 
     const before = reactions.length
     reactions = withReaction(pruneReactions(reactions, now()), reaction)
     if (reactions.length === before && before !== 0) return
 
-    deps.onReceived?.(reaction)
-    publish()
+    deps.onReaction?.(reaction, reaction.senderId === userId)
+    deps.onChange?.()
   }
 
   return {
-    setChannel(next): void {
-      const channel = next ? next.trim().toLowerCase() : null
-      if (channel === current) return
+    setUser(next): void {
+      const id = next || null
+      if (id === userId) return
 
       generation += 1
       const mine = generation
 
       close?.()
       close = null
-      current = channel
-      /*
-       * Reactions do not travel between channels.
-       *
-       * They are about what just happened on THIS stream, so carrying them to
-       * the next one would show a friend laughing at something the viewer
-       * cannot see.
-       */
+      userId = id
       reactions = []
-      publish()
+      deps.onChange?.()
 
-      if (!channel) return
+      if (!id) return
 
       void deps.channel
-        .open(channel, {
-          onReaction: (row) => receive(row, channel, mine),
+        .open(id, {
+          onReaction: (row) => receive(row, mine),
           onStatus: (status) => {
             if (status === 'error') deps.onError?.('together.subscribe', status)
           },
         })
         .then((unsubscribe) => {
-          // The channel changed while the subscription was opening.
           if (mine !== generation) {
             unsubscribe()
             return
@@ -147,22 +159,31 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
         })
         .catch((error) => {
           /*
-           * Realtime is down. Presence is not, so the Together surface still
-           * shows who is here - it simply has no reactions in it. Enrichment
-           * failing must never take the social map with it.
+           * Realtime is down. Presence is not, so the room still shows who is
+           * in it - there is simply nothing landing. Enrichment failing must
+           * never take the social map with it.
            */
           deps.onError?.('together.subscribe', error)
         })
     },
 
-    send(reaction): void {
-      const channel = current
-      if (!channel) return
+    setChannel(next): void {
+      const login = next ? next.trim().toLowerCase() : null
+      if (login === channel) return
+      channel = login
+      // Reactions are about what just happened on THIS stream.
+      reactions = []
+      deps.onChange?.()
+    },
 
-      void deps.backend.send(channel, reaction).catch((error) => {
-        // Nothing is shown optimistically, so a failed send simply does not
-        // appear - for the sender as well as for everyone else. One path, and
-        // no way for the sender to see a reaction their friends did not get.
+    send(reaction): void {
+      const here = channel
+      if (!here) return
+
+      void deps.backend.send(here, reaction).catch((error) => {
+        // Nothing is drawn optimistically, so a failed send simply does not
+        // appear - for the sender as well as everyone else. One path, and no
+        // way for the sender to see a reaction the room did not get.
         deps.onError?.('together.send', error)
       })
     },
@@ -177,12 +198,12 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
       generation += 1
       close?.()
       close = null
-      current = null
+      userId = null
+      channel = null
       reactions = []
-      publish()
+      deps.onChange?.()
     },
 
-    channel: () => current,
+    subscribedTo: () => userId,
   }
 }
-

@@ -7,6 +7,7 @@ import type { GroupsBackend } from './groups'
 import type { AnalyticsBackend } from './analytics'
 import type { MetadataFetcher } from './metadata'
 import type { ReactionBackend } from './togetherReactions'
+import type { RoomBackend } from './streamRoom'
 import type { Reaction } from '../core/together'
 import type { AnalyticsEvent } from '../core/analytics'
 import { IDLE } from '../core/types'
@@ -579,12 +580,31 @@ export function createSupabaseGroupsBackend(supabase: SupabaseClient): GroupsBac
  */
 export function createSupabaseTogetherBackend(supabase: SupabaseClient): ReactionBackend {
   return {
-    async send(channel: string, reaction: Reaction): Promise<void> {
-      const { error } = await supabase.rpc('send_together_reaction', {
+    async send(channel: string, reaction: Reaction): Promise<number> {
+      const { data, error } = await supabase.rpc('send_together_reaction', {
         p_channel: channel,
         p_reaction: reaction,
       })
       if (error) throw new Error(describe(error))
+      return typeof data === 'number' ? data : 0
+    },
+  }
+}
+
+/**
+ * Who is in the viewer's room on a channel.
+ *
+ * The connected component containing the caller, computed server-side. There
+ * is no user parameter: the walk is seeded at `auth.uid()`, so this cannot be
+ * asked about anybody else, and it returns nothing at all unless the caller's
+ * own presence says they are on that channel.
+ */
+export function createSupabaseRoomBackend(supabase: SupabaseClient): RoomBackend {
+  return {
+    async members(channel: string): Promise<unknown> {
+      const { data, error } = await supabase.rpc('stream_room_members', { p_channel: channel })
+      if (error) throw new Error(describe(error))
+      return data
     },
   }
 }

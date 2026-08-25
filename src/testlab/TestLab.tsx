@@ -109,6 +109,9 @@ export function TestLab() {
     ),
   ].sort()
 
+  /** The room the panel is showing, so the lab can react as its members. */
+  const roster = handle.client.getState().roomMembers
+
   /** Friends on the observer's channel: exactly who a Together is with. */
   const together = world.observer.channel
     ? world.users.filter(
@@ -311,7 +314,7 @@ export function TestLab() {
         </section>
 
         <section>
-          <h2>Together</h2>
+          <h2>Stream Room</h2>
           {!world.observer.channel && (
             <p className="lab-note">
               Put the observer on a channel - Together only exists where you are.
@@ -322,7 +325,8 @@ export function TestLab() {
               <div className="lab-users">
                 {together.length === 0 && (
                   <p className="lab-note">
-                    No friends on {canonicalChannel(world.observer.channel)} yet.
+                    Nobody connected on {canonicalChannel(world.observer.channel)} yet. Room holds{" "}
+                    {roster.length}.
                   </p>
                 )}
                 {together.map((user) => (
@@ -350,25 +354,26 @@ export function TestLab() {
                   onClick={() => {
                     // Everyone at once: the combo case, which needs distinct
                     // people rather than one person pressing repeatedly.
-                    for (const user of together) handle.react(user.id, '😂')
+                    for (const user of together) handle.react(user.id, 'lol')
                   }}
                 >
-                  Combo 😂 (all)
+                  Combo lol (all)
                 </button>
                 <button
                   type="button"
                   disabled={together.length === 0}
                   onClick={() => {
                     // A burst from ONE person, which must NOT become a combo.
-                    for (let i = 0; i < 5; i += 1) handle.react(together[0].id, '🔥')
+                    for (let i = 0; i < 5; i += 1) handle.react(together[0].id, 'fire')
                   }}
                 >
-                  Burst 🔥 (one person ×5)
+                  Burst fire (one person ×5)
                 </button>
               </div>
               <p className="lab-note">
-                Reactions land in the same state field production reads from. The lab holds no
-                subscription, no rate limit and no row policy - those belong to the service.
+                Room holds {roster.length} · {roster.filter((m) => m.hops === 1).length} direct.
+                Reactions land in the same state field production reads from; the lab holds no
+                subscription, no rate limit and no row policy, because those belong to the service.
               </p>
             </>
           )}

@@ -10,6 +10,7 @@ import type { Presence, User } from '../core/types'
 import type { LiveState } from '../core/twitchMetadata'
 import type { ChannelMetadata } from '../core/twitchMetadata'
 import type { Reaction, TogetherReaction } from '../core/together'
+import type { RoomMember } from '../core/streamRoom'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -162,6 +163,20 @@ export interface KickbackState {
    * answer to a question presence has answered.
    */
   togetherReactions: TogetherReaction[]
+
+  /**
+   * Who is in the automatic Stream Room on the channel the viewer is watching.
+   *
+   * The connected component of the friendship graph among people present
+   * there, computed by the server - so it can contain somebody the viewer has
+   * never met, reached through a friend. Empty when the viewer is not on a
+   * channel, when nobody connected is there, or when the call failed.
+   *
+   * Deliberately NOT the participant count the HERE card draws: that comes
+   * from presence and is the viewer's own direct friends. This is the wider
+   * social truth, and only the room surface uses it.
+   */
+  roomMembers: RoomMember[]
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -190,6 +205,7 @@ export const INITIAL_STATE: KickbackState = {
   channelNames: {},
   channelMetadata: {},
   togetherReactions: [],
+  roomMembers: [],
 }
 
 export interface KickbackClient {

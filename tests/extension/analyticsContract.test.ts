@@ -84,8 +84,43 @@ describe('the event contract matches the database', () => {
     expect(sql.get('join_clicked')).toContain('opportunity_key')
   })
 
-  it('registers exactly the events the client can emit', () => {
-    expect([...sql.keys()].sort()).toEqual([...ANALYTICS_EVENT_NAMES].sort())
+  /**
+   * Events the database still registers that the client no longer sends.
+   *
+   * They cannot simply be deleted: `analytics_events.event_name` has a foreign
+   * key to this table, and rows recorded under these names are real - dropping
+   * the contract row would either fail the migration or orphan history.
+   *
+   * Listed explicitly so retiring an event stays a deliberate act. A name that
+   * drifts out of the client without appearing here is still a failure.
+   */
+  const RETIRED = [
+    // Superseded by the automatic_room_* vocabulary in 0020, when Automatic
+    // Together became connected-component Stream Rooms.
+    'together_surface_shown',
+    'together_reaction_sent',
+    'together_reaction_received',
+    'together_combo_formed',
+  ]
+
+  it('registers every event the client can emit', () => {
+    for (const name of ANALYTICS_EVENT_NAMES) {
+      expect(sql.has(name), `${name} is not registered in SQL`).toBe(true)
+    }
+  })
+
+  it('registers nothing the client cannot emit, except deliberately retired names', () => {
+    const unexpected = [...sql.keys()].filter(
+      (name) => !ANALYTICS_EVENT_NAMES.includes(name as never) && !RETIRED.includes(name),
+    )
+    expect(unexpected).toEqual([])
+  })
+
+  it('has no retired name the client still tries to send', () => {
+    // The other direction: a name cannot be both retired and live.
+    for (const name of RETIRED) {
+      expect(ANALYTICS_EVENT_NAMES).not.toContain(name)
+    }
   })
 
   for (const name of ANALYTICS_EVENT_NAMES) {

@@ -152,30 +152,37 @@ export function createSupabasePresenceChannel(supabase: SupabaseClient): Presenc
  * we act on, they just mean "re-read the group list".
  */
 /**
- * Automatic Together reactions, for the one channel the viewer is on.
+ * The viewer's reaction inbox.
  *
- * Filtered by CHANNEL here and by FRIENDSHIP by the server: 0019's row policy
- * is re-checked per subscriber, so two of my friends who are not friends with
- * each other never see one another, and a stranger on the same stream receives
- * nothing. The filter below is context; the policy is authorization. Doing it
- * the other way round - a broadcast channel named after the stream - would
- * deliver forty thousand strangers' reactions and then ask the client to be
- * discreet about them.
+ * ONE ROW, ONE SUBSCRIBER - which is the whole of the one-way reaction fix.
  *
- * Inserts only. There is no history to load and no update to apply; a
- * reaction happens once and is gone in eight seconds.
+ * 0019 gave every viewer on a stream the SAME topic and the SAME filter, so a
+ * single inserted row matched MANY subscriptions. That is the exact condition
+ * for a documented hosted-only Supabase defect where only the most recently
+ * created subscription receives the row: whoever subscribed last got
+ * reactions, and the other side got nothing.
+ *
+ * Presence never hit it because it binds one subscription per friend, so every
+ * presence row has exactly one interested subscriber. This now has the same
+ * property - the server writes one row per recipient (0020) and each viewer
+ * subscribes only to their own, on a topic named after themselves, matching
+ * every other realtime topic in this file.
+ *
+ * Authorization moved with it: the row policy is `recipient_id = auth.uid()`,
+ * because who may see a reaction was decided when it was written.
+ *
+ * Inserts only. There is no history to load and no update to apply.
  */
 export function createSupabaseTogetherChannel(supabase: SupabaseClient): ReactionChannel {
   return {
-    async open(channel: string, handlers: ReactionChannelHandlers): Promise<() => void> {
+    async open(userId: string, handlers: ReactionChannelHandlers): Promise<() => void> {
       const { data } = await supabase.auth.getSession()
       const accessToken = data.session?.access_token
       if (accessToken) {
         await supabase.realtime.setAuth(accessToken)
       }
 
-      const topic = `${TOGETHER_PREFIX}:${channel}`
-      const subscription = supabase.channel(topic)
+      const subscription = supabase.channel(`${TOGETHER_PREFIX}:${userId}`)
 
       subscription.on(
         'postgres_changes',
@@ -183,7 +190,7 @@ export function createSupabaseTogetherChannel(supabase: SupabaseClient): Reactio
           event: 'INSERT',
           schema: 'public',
           table: 'together_reactions',
-          filter: `channel=eq.${channel}`,
+          filter: `recipient_id=eq.${userId}`,
         },
         (payload: { new?: unknown }) => {
           if (payload.new) handlers.onReaction(payload.new)

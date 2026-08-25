@@ -62,8 +62,13 @@ function readPanel() {
       /* Automatic Together, which lives inside the card the viewer is on. */
       together: Boolean(card.querySelector('.kb-together')),
       reactionButtons: card.querySelectorAll('.kb-together-react').length,
-      bursts: [...card.querySelectorAll('.kb-together-burst')].map((el) => el.textContent.trim()),
-      combos: card.querySelectorAll('.kb-together-count').length,
+      bursts: card.querySelectorAll('.kb-together-burst').length,
+      combos: [...card.querySelectorAll('.kb-together-count')].map((el) => el.textContent.trim()),
+      roster: [...card.querySelectorAll('.kb-room-person .kb-cluster-name')].map((el) =>
+        el.textContent.trim(),
+      ),
+      via: [...card.querySelectorAll('.kb-room-via')].map((el) => el.textContent.trim()),
+      roomButton: Boolean(card.querySelector('.kb-together-open')),
       /* The row must not grow when a reaction lands. */
       barHeight: Math.round(
         card.querySelector('.kb-together-bar')?.getBoundingClientRect().height ?? 0,
@@ -76,17 +81,34 @@ function readPanel() {
   }
 }
 
-/** Makes a simulated friend react, through the lab's own controls. */
+/**
+ * Makes a simulated person react, through the lab's own controls.
+ *
+ * The lab's buttons carry the reaction id in their title, because a Kickback
+ * emote renders as inline SVG and has no text to match on.
+ */
 function labReact(index, reaction) {
   const rows = [...document.querySelectorAll('.lab-users .lab-row')].filter((row) =>
-    [...row.querySelectorAll('button')].some((b) => b.textContent.trim() === reaction),
+    [...row.querySelectorAll('button')].some((b) => (b.title ?? '').includes(reaction)),
   )
   const row = rows[index]
-  if (!row) throw new Error('no Together control for person ' + index)
-  const button = [...row.querySelectorAll('button')].find(
-    (b) => b.textContent.trim() === reaction,
-  )
+  if (!row) throw new Error('no room control for person ' + index)
+  const button = [...row.querySelectorAll('button')].find((b) => (b.title ?? '').includes(reaction))
   button.click()
+  return true
+}
+
+/**
+ * Opens the room roster inside the HERE card, idempotently.
+ *
+ * The Together component keeps its own open/closed state and survives a preset
+ * change - the card is the same element on the same channel - so clicking
+ * blindly would close a roster that was already showing.
+ */
+function openRoom() {
+  const button = document.querySelector('.kb-together-open')
+  if (!button) throw new Error('no ROOM control on the card')
+  if (button.getAttribute('aria-expanded') !== 'true') button.click()
   return true
 }
 
@@ -336,19 +358,20 @@ async function main() {
 
     // --- automatic together ----------------------------------------------
 
-    await page.evaluate(clickPreset, 'Together · 2 friends')
+    await page.evaluate(clickPreset, 'Room · A↔B')
     await settle(page)
 
     const together = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(together.here === true, 'Together did not form on the channel the viewer is on')
-    check(together.join === false, 'the Together card still offered a JOIN')
-    check(together.count === 2, `Together counted ${together.count} friends, expected 2`)
-    check(together.together === true, 'no Together surface inside the HERE card')
+    check(together.here === true, 'the room did not form on the channel the viewer is on')
+    check(together.join === false, 'the room card still offered a JOIN')
+    check(together.count === 1, `room counted ${together.count} friends, expected 1`)
+    check(together.together === true, 'no room surface inside the HERE card')
+    check(together.roomButton === true, 'no ROOM control')
     check(
       together.reactionButtons === 5,
       `drew ${together.reactionButtons} reaction buttons, expected 5`,
     )
-    check(together.bursts.length === 0, 'reactions appeared before anybody reacted')
+    check(together.bursts === 0, 'reactions appeared before anybody reacted')
 
     /*
      * One card, not two. The whole UX claim is that Gravity BECOMES Together
@@ -362,12 +385,12 @@ async function main() {
     const before = together.cardHeight
     const beforeBar = together.barHeight
 
-    // One friend reacts.
-    await page.evaluate(labReact, 0, '😂')
+    // The friend reacts.
+    await page.evaluate(labReact, 0, 'lol')
     await settle(page, 300)
     const one = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(one.bursts.length === 1, `expected one reaction, saw ${one.bursts.length}`)
-    check(one.combos === 0, 'a single reaction was drawn as a combo')
+    check(one.bursts === 1, `expected one reaction, saw ${one.bursts}`)
+    check(one.combos.length === 0, 'a single reaction was drawn as a combo')
     check(
       one.barHeight === beforeBar,
       `the reaction row grew from ${beforeBar}px to ${one.barHeight}px`,
@@ -377,63 +400,101 @@ async function main() {
       `the card jumped from ${before}px to ${one.cardHeight}px when a reaction landed`,
     )
 
-    // The second friend agrees: a combo.
-    await page.evaluate(labReact, 1, '😂')
+    /*
+     * The viewer agrees: a combo, drawn as ONE badge.
+     *
+     * The stacking bug in one assertion - two people reacting the same way
+     * must collapse to a single ×2, not two symbols side by side.
+     */
+    await page.evaluate(() => {
+      document.querySelector('.kb-together-react').click()
+    })
     await settle(page, 300)
     const combo = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(combo.combos === 1, `expected one combo counter, saw ${combo.combos}`)
-    check(
-      combo.bursts.some((text) => text.includes('×2')),
-      `combo did not read ×2: ${JSON.stringify(combo.bursts)}`,
-    )
+    check(combo.combos.length === 1, `expected one combo counter, saw ${combo.combos.length}`)
+    check(combo.combos[0] === '×2', `combo read "${combo.combos[0]}", expected ×2`)
+    check(combo.bursts === 1, `combo drew ${combo.bursts} symbols, expected one badge`)
 
     // One person hammering a button is not a combo.
-    await page.evaluate(clickPreset, 'Together · 2 friends')
+    await page.evaluate(clickPreset, 'Room · A↔B')
     await settle(page)
-    for (let i = 0; i < 4; i += 1) await page.evaluate(labReact, 0, '🔥')
+    await settle(page, 8500)
+    for (let i = 0; i < 4; i += 1) await page.evaluate(labReact, 0, 'fire')
     await settle(page, 300)
     const burst = (await page.evaluate(readPanel)).cards[0] ?? {}
-    /*
-     * Asserted on the FIRE burst specifically, not on the combo count.
-     *
-     * Reactions live for eight seconds and switching preset does not change
-     * the channel, so the previous step's combo can still be on screen - which
-     * is correct behaviour and would make a total count lie about this claim.
-     */
     check(
-      !burst.bursts.some((text) => text.includes(String.fromCodePoint(0x1f525)) && text.includes('×')),
-      'one person pressing a button repeatedly formed a combo: ' + JSON.stringify(burst.bursts),
+      burst.combos.length === 0,
+      'one person pressing a button repeatedly formed a combo: ' + JSON.stringify(burst.combos),
     )
 
-    // Competing social graphs: strangers on the same channel are not here.
-    await page.evaluate(clickPreset, 'Together · competing graphs')
-    await settle(page)
-    const graphs = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(graphs.count === 2, `competing graphs counted ${graphs.count}, expected 2`)
-    check(graphs.people.length === 2, 'a stranger appeared in the Together')
+    // --- the graphs two Twitch accounts cannot build ---------------------
 
-    // Nobody there: no surface at all.
-    await page.evaluate(clickPreset, 'Together · nobody yet')
+    await page.evaluate(clickPreset, 'Room · A↔B↔C')
     await settle(page)
-    const alone = await page.evaluate(readPanel)
+    await page.evaluate(openRoom)
+    await settle(page, 300)
+    const chain = (await page.evaluate(readPanel)).cards[0] ?? {}
     check(
-      alone.cards.every((card) => card.together === false),
-      'a Together surface appeared with nobody to be together with',
+      chain.roster.length === 2,
+      `A↔B↔C room held ${chain.roster.length} people, expected 2`,
+    )
+    check(
+      chain.via.some((text) => text.startsWith('Friend of')),
+      `no connecting-friend context for the two-hop person: ${JSON.stringify(chain.via)}`,
     )
 
-    // Ten friends at the narrowest panel: the reaction bar must still fit.
-    await page.evaluate(clickPreset, 'Together · 10 friends')
+    await page.evaluate(clickPreset, 'Room · two clusters')
     await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 300)
+    const split = (await page.evaluate(readPanel)).cards[0] ?? {}
+    check(
+      split.roster.length === 1,
+      `an unrelated cluster leaked in: ${JSON.stringify(split.roster)}`,
+    )
+
+    await page.evaluate(clickPreset, 'Room · clusters merged')
+    await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 300)
+    const merged = (await page.evaluate(readPanel)).cards[0] ?? {}
+    check(
+      merged.roster.length === 3,
+      `merged room held ${merged.roster.length} people, expected 3`,
+    )
+
+    await page.evaluate(clickPreset, 'Room · bridge left')
+    await settle(page)
+    const bridged = await page.evaluate(readPanel)
+    check(
+      bridged.cards.every((card) => card.together === false),
+      'the room survived the bridge leaving',
+    )
+
+    await page.evaluate(clickPreset, 'Room · unrelated stranger')
+    await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 300)
+    const stranger = (await page.evaluate(readPanel)).cards[0] ?? {}
+    check(
+      stranger.roster.length === 1,
+      `a stranger on the same stream joined the room: ${JSON.stringify(stranger.roster)}`,
+    )
+
+    // Ten in a chain at the narrowest panel: three hops, and the bar still fits.
+    await page.evaluate(clickPreset, 'Room · 10 people')
+    await settle(page)
+    await page.evaluate(openRoom)
     await page.evaluate(() => {
       document.querySelector('.kb-panel').style.setProperty('--kb-w', '260px')
     })
     await settle(page, 300)
     const tightTogether = (await page.evaluate(readPanel)).cards[0] ?? {}
     check(tightTogether.reactionButtons === 5, 'reaction buttons were lost at 260px')
-    check(tightTogether.overflows === false, 'the Together card overflowed at 260px')
+    check(tightTogether.overflows === false, 'the room card overflowed at 260px')
     check(
-      tightTogether.people.length === 10,
-      `drew ${tightTogether.people.length} people, expected 10`,
+      tightTogether.roster.length === 3,
+      `the hop limit let ${tightTogether.roster.length} people in, expected 3`,
     )
 
     // --- the user card opened from a Gravity member ----------------------
@@ -518,7 +579,7 @@ async function main() {
 
   console.log('Test Lab boots, renders the real panel, and drives Gravity 1/2/3/5/10.')
   console.log('Metadata states render: live, offline+demoted, unavailable, casing, long text.')
-  console.log('Automatic Together forms in place, reacts, combos, and respects social graphs.')
+  console.log('Automatic Stream Rooms form in place: connected components, combos, hop limits.')
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
 }

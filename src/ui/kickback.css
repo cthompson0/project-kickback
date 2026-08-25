@@ -2077,10 +2077,12 @@ a.kb-ghost-btn {
  */
 .kb-together-react {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 24px;
   height: 24px;
   padding: 0;
-  font-size: 13px;
   line-height: 1;
   border: 1px solid transparent;
   border-radius: 7px;
@@ -2127,9 +2129,8 @@ a.kb-ghost-btn {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-size: 13px;
   line-height: 1;
-  animation: kb-together-fade linear forwards;
+  animation: kb-together-fade 8s linear forwards;
 }
 
 @keyframes kb-together-fade {
@@ -2149,9 +2150,94 @@ a.kb-ghost-btn {
   }
 }
 
-/* Two or more people agreeing. The count, not the emoji, is the news. */
+/*
+ * The ROOM button, and the people it opens.
+ *
+ * The button sits at the end of the reaction row so the row keeps one height
+ * whether or not anything is landing. Small, because the reactions are the
+ * thing you reach for and the roster is the thing you occasionally check.
+ */
+.kb-together-open {
+  flex: none;
+  margin-left: 4px;
+  padding: 2px 7px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  color: var(--kb-dim);
+  background: transparent;
+  border: 1px solid var(--kb-line);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.kb-together-open:hover {
+  color: var(--kb-text);
+  background: var(--kb-bg-hover);
+}
+
+/*
+ * The roster.
+ *
+ * A column rather than the wrapping row the destination card uses, because a
+ * room can contain somebody the viewer has never met and those people need a
+ * line of context under their name. Positioned relative so a user card opened
+ * from here is measured against the whole panel-width card above it - the same
+ * rule every other surface follows.
+ */
+.kb-room {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.kb-room-person {
+  min-width: 0;
+}
+
+/*
+ * Somebody Kickback has no identity for.
+ *
+ * A room can reach two hops, and presence for a person you are not friends
+ * with never arrives - so the roster names them from the room membership and
+ * draws a neutral mark rather than inventing an avatar.
+ */
+.kb-room-unknown {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--kb-faint);
+  background: var(--kb-bg-raised);
+  box-shadow: inset 0 0 0 1px var(--kb-line);
+}
+
+/*
+ * One hop of context, and no more.
+ *
+ * "Friend of Jake" is what turns a name you do not recognise into somebody who
+ * arrived through a person you trust. Indented under the name so it reads as
+ * a caption rather than a second person.
+ */
+.kb-room-via {
+  display: block;
+  margin-left: 26px;
+  font-size: 10.5px;
+  color: var(--kb-faint);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Two or more people agreeing. The count, not the artwork, is the news. */
 .kb-together-combo {
-  font-size: 14px;
+  padding: 0 2px;
 }
 
 .kb-together-count {

@@ -1,5 +1,7 @@
 import { isSameChannel } from '../core/channelNames'
 import type { ChannelMetadata } from '../core/twitchMetadata'
+import { MAX_HOPS, MAX_MEMBERS, sortMembers } from '../core/streamRoom'
+import type { RoomMember } from '../core/streamRoom'
 
 /**
  * The simulated social world.
@@ -110,6 +112,18 @@ export interface SimChannelMeta {
 export interface SimWorld {
   observer: SimObserver
   users: SimUser[]
+  /**
+   * Friendships BETWEEN simulated people, as unordered pairs of ids.
+   *
+   * The observer's own edges stay on `SimUser.relationship`, because that is
+   * what presence visibility depends on. These are the edges the observer
+   * cannot see and would never be sent - Jake knowing Sarah - and they exist
+   * so the lab can build the graphs an automatic Stream Room is defined by.
+   *
+   * Mirrored automatically: a pair is an edge, not a direction, exactly as
+   * link_friendship writes both rows.
+   */
+  edges?: Array<[string, string]>
   /** login -> what Twitch would say. Absent means nothing is known. */
   metadata?: Record<string, SimChannelMeta>
   /**
@@ -275,6 +289,80 @@ export function channelMetadata(world: SimWorld, now: number): Record<string, Ch
   }
 
   return out
+}
+
+/**
+ * The connected component containing the observer, among people present on
+ * their channel.
+ *
+ * This is the LAB's stand-in for `stream_room_members`, and it is the one
+ * place the lab computes something production also computes. It has to: the
+ * production version is SQL running inside Postgres, which the lab has no
+ * access to, and the alternative would be no graph testing at all - which is
+ * the entire reason the lab exists.
+ *
+ * What keeps it honest is that it is checked AGAINST the SQL by a test that
+ * reads both, in the same way the reaction palette is. The rules it
+ * implements are stated once here and asserted twice.
+ */
+export function roomMembers(world: SimWorld, now: number): RoomMember[] {
+  const here = world.observer.channel ? canonicalChannel(world.observer.channel) : null
+  if (!here) return []
+
+  /*
+   * Who is present, by the same rules the server applies: online, on this
+   * channel, and not stale. A user hiding their activity has no channel on
+   * their row at all, so presenceRow already removed them.
+   */
+  const present = new Set<string>()
+  for (const user of world.users) {
+    const row = presenceRow(user, now)
+    if (row.status !== 'online' || row.channel !== here) continue
+    if (now - Date.parse(row.last_seen_at) > 90_000) continue
+    present.add(user.id)
+  }
+
+  /** Every edge, mirrored, including the observer's own friendships. */
+  const neighbours = new Map<string, Set<string>>()
+  const link = (a: string, b: string) => {
+    if (!neighbours.has(a)) neighbours.set(a, new Set())
+    if (!neighbours.has(b)) neighbours.set(b, new Set())
+    neighbours.get(a)!.add(b)
+    neighbours.get(b)!.add(a)
+  }
+
+  for (const user of world.users) {
+    if (user.relationship === 'friend') link(world.observer.id, user.id)
+  }
+  for (const [a, b] of world.edges ?? []) link(a, b)
+
+  // Breadth-first from the observer, through people who are actually here.
+  const seen = new Map<string, RoomMember>()
+  let frontier: Array<{ id: string; hops: number; via: string | null }> = [
+    { id: world.observer.id, hops: 0, via: null },
+  ]
+
+  while (frontier.length > 0) {
+    const next: typeof frontier = []
+    for (const step of frontier) {
+      if (step.hops >= MAX_HOPS) continue
+      for (const other of neighbours.get(step.id) ?? []) {
+        if (other === world.observer.id || seen.has(other)) continue
+        if (!present.has(other)) continue
+        const hops = step.hops + 1
+        seen.set(other, {
+          userId: other,
+          hops,
+          // The connecting friend, and only at two hops.
+          viaUserId: hops === 2 ? (step.id === world.observer.id ? other : step.id) : null,
+        })
+        next.push({ id: other, hops, via: step.hops === 0 ? other : step.via })
+      }
+    }
+    frontier = next
+  }
+
+  return sortMembers([...seen.values()]).slice(0, MAX_MEMBERS)
 }
 
 /** Everyone whose presence the observer is entitled to see: their friends. */

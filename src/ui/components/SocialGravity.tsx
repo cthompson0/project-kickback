@@ -6,6 +6,7 @@ import type { ChannelMetadata } from '../../core/twitchMetadata'
 import type { Activity } from '../../core/types'
 import type { Friend, KickbackClient } from '../../client/types'
 import type { TogetherReaction } from '../../core/together'
+import type { RoomMember } from '../../core/streamRoom'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
 import { Together } from './Together'
@@ -62,6 +63,15 @@ interface SocialGravityProps {
    * surface still shows who is here, because that comes from presence.
    */
   reactions?: readonly TogetherReaction[]
+  /**
+   * The connected social component on the channel the viewer is on.
+   *
+   * Wider than the HERE count, which is the viewer's own direct friends: this
+   * can include somebody two hops away who arrived through a friend. Empty
+   * whenever the server has not answered, which renders as the card that
+   * shipped before rooms existed.
+   */
+  roomMembers?: readonly RoomMember[]
 }
 
 /**
@@ -182,6 +192,8 @@ function DestinationCard({
   section,
   meta,
   reactions,
+  roomMembers,
+  friends,
   client,
   cardContext,
   openCardId,
@@ -190,6 +202,8 @@ function DestinationCard({
   section: GravitySection<Friend>
   meta?: ChannelMetadata
   reactions?: readonly TogetherReaction[]
+  roomMembers?: readonly RoomMember[]
+  friends: readonly Friend[]
   client: KickbackClient
   cardContext: UserCardContext
   openCardId: string | null
@@ -337,11 +351,23 @@ function DestinationCard({
         </div>
       )}
 
-      {here && section.channel && section.count > 0 && (
+      {/*
+       * The room, for the channel the viewer is standing on.
+       *
+       * Shown when presence says somebody is here OR the server found a
+       * connected component - the two usually agree, and when they do not it
+       * is because the component reaches somebody the viewer is not directly
+       * friends with, which is exactly the case this exists for.
+       */}
+      {here && section.channel && (section.count > 0 || (roomMembers?.length ?? 0) > 0) && (
         <Together
           channel={section.channel}
-          participantCount={section.count}
+          members={roomMembers ?? []}
+          friends={friends}
           reactions={reactions ?? []}
+          selfId={cardContext.selfId}
+          client={client}
+          cardContext={cardContext}
           onReact={(reaction) => client.sendReaction(reaction)}
         />
       )}
@@ -370,6 +396,7 @@ export function SocialGravity({
   cardContext,
   metadata,
   reactions,
+  roomMembers,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
 
@@ -410,6 +437,8 @@ export function SocialGravity({
               section={section}
               meta={section.channel ? metadata?.[section.channel] : undefined}
               reactions={section.kind === 'here' ? reactions : undefined}
+              roomMembers={section.kind === 'here' ? roomMembers : undefined}
+              friends={friends}
               client={client}
               cardContext={cardContext}
               openCardId={openCardId}

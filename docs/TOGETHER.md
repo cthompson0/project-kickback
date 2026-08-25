@@ -1,4 +1,16 @@
-# Automatic Together
+# Automatic Stream Rooms
+
+> **Superseded.** This document described the direct-friend Automatic Together
+> prototype (migration 0019). It was converged onto connected-component Stream
+> Rooms in migration 0020 - see
+> [the convergence architecture](checkpoints/automatic-stream-room-convergence.md)
+> and [the implementation report](checkpoints/automatic-stream-room-implementation.md).
+>
+> What changed: a room is now the connected component of the friendship graph
+> among people present on a destination, not the viewer's direct friends;
+> reaction recipients are decided at write time rather than by read-time RLS;
+> and reactions are Kickback emotes counted by the existing combo engine rather
+> than a second implementation.
 
 The last step of **Presence → Social Gravity → JOIN → Together**.
 
