@@ -2500,53 +2500,38 @@ a.kb-ghost-btn {
 }
 
 /*
- * The combo, and the way in, in the status lane on the right.
+ * The active combo, on its own line under LIVE and the viewer count.
  *
- * This is the one thing the session leaks outward, and it is a CONTROL: a
- * combo means something is happening right now, so the useful thing to offer
- * beside it is a way to join it. It lives here rather than on the left because
- * the left is identity - who is streaming, what they are playing, who is there
- * - and that must not move.
+ * This is the one thing the session leaks outward, and it is a SIGNAL rather
+ * than a control - it briefly had a "Join Room" button attached and the
+ * invitation cost more attention than the thing it was inviting you to. The
+ * contextual streamer tab is the way in, and it is always there.
  *
- * It appears and vanishes within eight seconds, so everything about it is
- * built not to shift its neighbours: `flex: none`, tabular digits, and a
- * fixed-height row. There is no permanent button here to leave a hole behind.
+ * Right-aligned, in the status column: the left of this card is identity - who
+ * is streaming, what they are playing, who is there - and must not move. This
+ * appears and vanishes within eight seconds, so `flex: none` and tabular
+ * digits keep ×2 growing to ×9 without shifting anything, and the row keeps
+ * its own height so the friends below it never jump.
  */
+.kb-gravity-activity {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  min-height: 16px;
+  margin-top: 1px;
+}
+
 .kb-gravity-combo {
   display: inline-flex;
   align-items: center;
   gap: 3px;
   flex: none;
   line-height: 1;
-  padding: 1px 5px 1px 3px;
-  border: 1px solid var(--kb-line);
-  border-radius: 999px;
-  background: var(--kb-bg-raised);
-  cursor: pointer;
   animation: kb-together-fade 8s linear forwards;
-}
-
-.kb-gravity-combo:hover {
-  background: var(--kb-bg-hover);
-  border-color: var(--kb-accent);
-}
-
-.kb-gravity-combo:focus-visible {
-  outline: 2px solid var(--kb-accent);
-  outline-offset: 1px;
 }
 
 .kb-gravity-combo .kb-together-count {
   font-size: 10px;
-}
-
-/* The invitation. Small, and the only words on this side of the card. */
-.kb-gravity-cta {
-  font-size: 9.5px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  color: var(--kb-accent);
-  white-space: nowrap;
 }
 
 .kb-gravity-viewers {

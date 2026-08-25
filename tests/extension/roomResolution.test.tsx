@@ -131,7 +131,6 @@ function drawCard(
         reactions={reactions}
         roomMessages={[]}
         mutedUserIds={[]}
-        onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
   )
@@ -336,12 +335,12 @@ describe('the card offers a way in only while something is happening', () => {
     expect(html).not.toContain('Join Room')
   })
 
-  it('offers Join Room once a real combo is running', () => {
+  it('shows the combo, and still offers no way in', () => {
     const at = Date.now()
     const html = drawCard([NOW_REACTION('friend-1', at), NOW_REACTION('me', at + 100)])
 
     expect(html).toContain('kb-gravity-combo')
     expect(html).toContain('×2')
-    expect(html).toContain('Join Room')
+    expect(html).not.toContain('Join Room')
   })
 })

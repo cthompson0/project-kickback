@@ -69,15 +69,6 @@ interface SocialGravityProps {
   /** The conversation, for the activity preview only. Never rendered as text. */
   roomMessages?: readonly RoomMessage[]
   mutedUserIds?: readonly string[]
-  /**
-   * Ask the panel to open the Stream Room for a channel.
-   *
-   * The map does not own that view - the room takes over the panel body, the
-   * way a group conversation does - so this reports the intent and the panel
-   * decides. Absent when there is nowhere to go, which is how the control arm
-   * and the tests that predate rooms keep working unchanged.
-   */
-  onOpenRoom?: (channel: string) => void
 }
 
 /**
@@ -204,7 +195,6 @@ function DestinationCard({
   cardContext,
   openCardId,
   onToggleCard,
-  onOpenRoom,
 }: {
   section: GravitySection<Friend>
   meta?: ChannelMetadata
@@ -215,7 +205,6 @@ function DestinationCard({
   cardContext: UserCardContext
   openCardId: string | null
   onToggleCard: (userId: string) => void
-  onOpenRoom?: (channel: string) => void
 }) {
   const channelName = useChannelName()
   const here = section.kind === 'here'
@@ -343,7 +332,7 @@ function DestinationCard({
        * context - it is deliberately the smallest, dimmest thing here, and it
        * has no influence whatsoever on where this card sits.
        */}
-      {(live || offline || combo) && (
+      {(live || offline) && (
         <div className="kb-gravity-stream">
           {live && meta?.gameName && (
             <span className="kb-gravity-game" title={meta.gameName}>
@@ -352,41 +341,6 @@ function DestinationCard({
           )}
 
           <span className="kb-gravity-status">
-            {/*
-             * Right side, with the status and the viewer count.
-             *
-             * The left half of this card is identity - who is streaming, what
-             * they are playing, who is there - and it must not move. Ephemeral
-             * social activity sits with the other ephemeral numbers, compact
-             * enough that it appears and disappears without shifting anything.
-             */}
-            {combo && section.channel && onOpenRoom && (
-              /*
-               * The contextual doorway, and the ONLY one on this card.
-               *
-               * A permanent ROOM button used to live on the left. It was
-               * redundant - the streamer tab is the persistent way in and owns
-               * the unread count - and it competed with the destination and
-               * the friends for the eye.
-               *
-               * This is the other job: something is happening RIGHT NOW, jump
-               * into it. So it exists only while a real combo does, disappears
-               * with it, and carries no unread of its own. A button rather
-               * than a decorated span, because it is a thing you can press.
-               */
-              <button
-                type="button"
-                className="kb-gravity-combo"
-                key={`${combo.emote.id}:${combo.count}`}
-                title="Join the conversation"
-                onClick={() => onOpenRoom(section.channel!)}
-              >
-                <EmoteImage emote={combo.emote} size={15} />
-                <span className="kb-together-count">×{combo.count}</span>
-                <span className="kb-gravity-cta">Join Room →</span>
-              </button>
-            )}
-
             {live ? (
               <span className="kb-live" title="Streaming now">
                 <span className="kb-live-dot" aria-hidden="true" />
@@ -403,6 +357,30 @@ function DestinationCard({
                 {formatViewers(meta.viewerCount)}
               </span>
             )}
+          </span>
+        </div>
+      )}
+
+      {/*
+       * The activity line, directly under LIVE and the viewer count.
+       *
+       * A line of its own rather than another item in the status row: the row
+       * is already carrying a category, a badge and a number at the narrowest
+       * panel, and squeezing a fifth thing in made it crowded. Underneath, it
+       * reads as what it is - an ephemeral note about the destination's
+       * current state, in the same column as the rest of that state.
+       *
+       * IT IS NOT A CONTROL, and that is the correction. It briefly carried a
+       * "Join Room →" button, and in real use the invitation was more visually
+       * expensive than the signal it was attached to. The combo alone already
+       * says everything: something is happening right now. The contextual
+       * streamer tab is the way in, and it is always there.
+       */}
+      {combo && (
+        <div className="kb-gravity-activity" aria-live="polite">
+          <span className="kb-gravity-combo" key={`${combo.emote.id}:${combo.count}`}>
+            <EmoteImage emote={combo.emote} size={15} />
+            <span className="kb-together-count">×{combo.count}</span>
           </span>
         </div>
       )}
@@ -436,16 +414,17 @@ function DestinationCard({
       )}
 
       {/*
-       * THE PERMANENT ROOM BUTTON USED TO BE HERE.
+       * NO WAY IN LIVES ON THIS CARD.
        *
-       * It was a second, always-present way into a session the contextual
-       * streamer tab already offers - and it carried a duplicate unread badge,
-       * so one waiting message was announced twice in the same panel.
+       * A permanent ROOM button used to, carrying a duplicate unread badge, so
+       * one waiting message was announced twice in the same panel. Then the
+       * combo above briefly carried a "Join Room →" invitation, and in real
+       * use that cost more attention than the signal it was attached to.
        *
-       * Unread belongs to the tab, because unread is content waiting for you.
-       * The card's job is the live social signal, and that is the combo CTA in
-       * the status lane above: it appears only while something is happening
-       * and leaves with it.
+       * The contextual streamer tab is the doorway, it owns the unread count,
+       * and it is there whether or not anything is happening. This card's job
+       * is to say where everybody is - and, for eight seconds at a time, that
+       * something is going on.
        */}
 
       <div className="kb-gravity-people">
@@ -474,7 +453,6 @@ export function SocialGravity({
   reactions,
   roomMessages,
   mutedUserIds,
-  onOpenRoom,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
 
@@ -523,7 +501,6 @@ export function SocialGravity({
               onToggleCard={(userId) =>
                 setOpenCardId((open) => (open === userId ? null : userId))
               }
-              onOpenRoom={section.kind === 'here' ? onOpenRoom : undefined}
             />
           )
         }

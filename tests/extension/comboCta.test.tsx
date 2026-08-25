@@ -13,16 +13,19 @@ import type { Friend, KickbackClient } from '../../src/client/types'
 import type { Activity, Presence } from '../../src/core/types'
 
 /**
- * The two doorways, and why they are not redundant.
+ * One doorway, and one signal.
  *
- * The contextual streamer tab is the PERSISTENT way in: it exists while the
- * session does, owns the unread count, and is there whether or not anything is
- * happening. The card's combo is the EPHEMERAL one - something is going on
- * right now, jump into it - so it exists only while the combo does and carries
- * no unread of its own.
+ * The contextual streamer tab is the ONLY way into a session: it exists while
+ * the session does, owns the unread count, and is there whether or not
+ * anything is happening.
  *
- * The card used to also carry a permanent ROOM button with its own unread
- * badge, which announced one waiting message twice in the same panel.
+ * The card's combo is not a second doorway. It is a signal - several people
+ * agreeing at once, for about eight seconds - and it says everything it needs
+ * to by existing. Two earlier versions of this card disagreed: a permanent
+ * ROOM button with its own unread badge, which announced one waiting message
+ * twice in the same panel; and then a "Join Room →" invitation on the combo
+ * itself, which in real use cost more attention than the signal it was
+ * attached to. Both are asserted gone.
  */
 
 const CHANNEL = 'lirik'
@@ -78,7 +81,6 @@ function card(
   reactions: TogetherReaction[] = [],
   messages: RoomMessage[] = [],
   live: 'live' | 'offline' = 'live',
-  onOpenRoom: (channel: string) => void = () => {},
 ) {
   return renderToStaticMarkup(
     <ChannelNameProvider people={[]} seen={{}}>
@@ -96,7 +98,6 @@ function card(
         reactions={reactions}
         roomMessages={messages}
         mutedUserIds={[]}
-        onOpenRoom={onOpenRoom}
       />
     </ChannelNameProvider>,
   )
@@ -144,41 +145,55 @@ describe('A — a single emote stays in the conversation', () => {
   })
 })
 
-describe('B — a real combo offers the way in', () => {
-  it('draws the emote, the count and the invitation', () => {
+describe('B — a real combo shows the emote and the count, and nothing else', () => {
+  it('draws exactly that', () => {
     const at = Date.now()
     const html = card([emote('jake', at), emote('me', at + 100)])
 
     expect(html).toContain('kb-gravity-combo')
     expect(html).toContain('×2')
-    expect(html).toContain('Join Room')
+    expect(html).not.toContain('Join Room')
+    expect(html).not.toContain('ROOM')
   })
 
-  it('puts them in the status region, never among the friends', () => {
+  it('sits on its own line under the status, never among the friends', () => {
     /*
-     * Semantic ownership rather than pixels: the left half of the card is
-     * identity and social information and must not move, so the combo lives
-     * with the other ephemeral numbers on the right.
+     * Semantic ownership rather than pixels. The left half of the card is
+     * identity and social information and must not move, so the combo lives in
+     * the status column - and on its own line, because that row already
+     * carries a category, a badge and a viewer count at the narrowest panel.
      */
     const at = Date.now()
     const html = card([emote('jake', at), emote('me', at + 100)])
 
-    const status = html.slice(
-      html.indexOf('kb-gravity-status'),
+    const rightColumn = html.slice(
+      html.indexOf('kb-gravity-stream'),
       html.indexOf('kb-gravity-with-you'),
     )
-    expect(status).toContain('kb-gravity-combo')
-    expect(status).toContain('Join Room')
+    expect(rightColumn).toContain('kb-gravity-activity')
+    expect(rightColumn).toContain('kb-gravity-combo')
+    // Under the status, not inside it.
+    expect(html.indexOf('kb-gravity-activity')).toBeGreaterThan(
+      html.indexOf('kb-gravity-status'),
+    )
 
     const people = html.slice(html.indexOf('kb-gravity-people'))
     expect(people).not.toContain('kb-gravity-combo')
-    expect(people).not.toContain('Join Room')
   })
 
-  it('is a real control, not a decorated label', () => {
+  it('is not a control, and does not become one', () => {
+    /*
+     * The correction. It briefly carried a "Join Room →" button; real use
+     * showed the invitation was more visually expensive than the signal. The
+     * combo alone already says something is happening, and the streamer tab is
+     * always there.
+     */
     const at = Date.now()
     const html = card([emote('jake', at), emote('me', at + 100)])
-    expect(html).toMatch(/<button[^>]*class="kb-gravity-combo"/)
+
+    expect(html).not.toMatch(/<button[^>]*class="kb-gravity-combo"/)
+    expect(html).not.toMatch(/<a[^>]*class="kb-gravity-combo"/)
+    expect(html).toMatch(/<span[^>]*class="kb-gravity-combo"/)
   })
 })
 
@@ -194,7 +209,7 @@ describe('C — the count grows with the combo', () => {
 })
 
 describe('D — it leaves when the moment does', () => {
-  it('takes the whole CTA with it, not just the count', () => {
+  it('disappears completely, emote and count together', () => {
     const stale = Date.now() - ACTIVITY_TTL_MS - 1_000
     const html = card([emote('jake', stale), emote('me', stale + 100)])
 
@@ -206,30 +221,38 @@ describe('D — it leaves when the moment does', () => {
   })
 })
 
-describe('E — Join Room selects the session that already exists', () => {
-  it('asks the panel for the channel it is on, and nothing else', () => {
-    /*
-     * No Twitch navigation, no second room, no membership change - the panel
-     * selects a tab. Asserted through the callback rather than by clicking,
-     * because what matters is what it asks for.
-     */
+describe('E — the card is not a way into anything', () => {
+  it('offers no session control, of any kind', () => {
     const at = Date.now()
-    const asked: string[] = []
-    card([emote('jake', at), emote('me', at + 100)], [], 'live', (channel) => asked.push(channel))
+    const html = card([emote('jake', at), emote('me', at + 100)])
 
-    // Rendering asks for nothing; the callback is only invoked on click.
-    expect(asked).toEqual([])
+    expect(html).not.toContain('Join Room')
+    expect(html).not.toContain('kb-together-open')
+    expect(html).not.toContain('kb-gravity-cta')
+  })
 
+  it('does not ask the panel to open anything', () => {
+    /*
+     * The card stopped taking a callback at all, which is the strongest form
+     * of "it cannot open a session": there is nothing to call.
+     */
     const source = readFileSync('src/ui/components/SocialGravity.tsx', 'utf8')
-    const cta = source.slice(source.indexOf('className="kb-gravity-combo"'))
-    expect(cta.slice(0, 400)).toContain('onOpenRoom(section.channel!)')
+    expect(source).not.toContain('onOpenRoom')
     expect(source).not.toContain('window.location')
     expect(source).not.toContain('channelUrl')
   })
 
-  it('is wired to the same tab selection the streamer tab uses', () => {
+  it('leaves the streamer tab as the only doorway', () => {
     const panel = readFileSync('src/ui/KickbackPanel.tsx', 'utf8')
-    expect(panel).toContain(`onOpenRoom={() => chooseTab('session')}`)
+    expect(panel).toContain('<SessionTab')
+    expect(panel).toContain(`chooseTab('session')`)
+  })
+
+  it('keeps JOIN and the user card working elsewhere on the map', () => {
+    // Nothing here touched the destination affordances the map has always had.
+    const source = readFileSync('src/ui/components/SocialGravity.tsx', 'utf8')
+    expect(source).toContain('JoinButton')
+    expect(source).toContain('UserCard')
   })
 })
 
@@ -272,7 +295,7 @@ describe('G — WATCHING TOGETHER counts everybody', () => {
 })
 
 describe('H — offline changes the label, not the activity', () => {
-  it('still offers the combo CTA on a channel that has stopped streaming', () => {
+  it('still shows the combo on a channel that has stopped streaming', () => {
     /*
      * A combo is social-session activity, not evidence of live viewing. The
      * shared-watch analytics lifecycle is what live status gates, and it is
@@ -283,7 +306,7 @@ describe('H — offline changes the label, not the activity', () => {
 
     expect(html).toContain('OFFLINE')
     expect(html).toContain('kb-gravity-combo')
-    expect(html).toContain('Join Room')
+    expect(html).not.toContain('Join Room')
     expect(html).not.toContain('kb-live-dot')
   })
 })

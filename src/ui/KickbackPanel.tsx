@@ -723,7 +723,6 @@ export function KickbackPanel({
                     reactions={view.togetherReactions}
                     roomMessages={view.roomMessages}
                     mutedUserIds={view.mutedUserIds}
-                    onOpenRoom={() => chooseTab('session')}
                   />
                 ) : (
                   /* The control arm keeps the flat list it always had. */

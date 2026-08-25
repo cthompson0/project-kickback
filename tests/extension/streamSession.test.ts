@@ -577,8 +577,11 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
     expect(PANEL).toContain(`requestedTab === 'session' && !sessionAvailable`)
   })
 
-  it('lets the HERE affordance select the tab', () => {
-    expect(PANEL).toContain(`onOpenRoom={() => chooseTab('session')}`)
+  it('makes the streamer tab the only way in', () => {
+    // The card had a permanent button, then a combo CTA. Both are gone: the
+    // tab is the doorway and the card's combo is only a signal.
+    expect(PANEL).toContain(`chooseTab('session')`)
+    expect(PANEL).not.toContain('onOpenRoom')
   })
 
   it('checks eligibility again before honouring a remembered selection', () => {

@@ -108,7 +108,6 @@ function render(
         reactions={reactions}
         roomMessages={messages}
         mutedUserIds={[]}
-        onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
   )
@@ -231,9 +230,8 @@ describe('the activity preview', () => {
     )
     expect((html.match(/kb-gravity-combo/g) ?? []).length).toBe(1)
     expect(html).toContain('×2')
-    // A combo means something is happening; the useful thing to offer beside
-    // it is a way to join it.
-    expect(html).toContain('Join Room')
+    // The signal, and nothing attached to it: the streamer tab is the way in.
+    expect(html).not.toContain('Join Room')
   })
 
   it('counts an emote-only message alongside a reaction', () => {

@@ -62,7 +62,6 @@ function draw(world: SimWorld): string {
         reactions={state.togetherReactions}
         roomMessages={state.roomMessages}
         mutedUserIds={state.mutedUserIds}
-        onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
   )
@@ -334,8 +333,7 @@ describe('reactions in the lab', () => {
           reactions={state.togetherReactions}
           roomMessages={state.roomMessages}
           mutedUserIds={state.mutedUserIds}
-          onOpenRoom={() => {}}
-        />
+          />
       </ChannelNameProvider>,
     )
     // On the card's status line, beside LIVE - not on the left where it would

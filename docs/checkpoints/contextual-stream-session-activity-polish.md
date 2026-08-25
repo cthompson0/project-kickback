@@ -66,6 +66,11 @@ reactions + emote-only messages
 There is no Gravity-specific scan. A test asserts `SocialGravity` contains
 neither `scanCombos` nor `activeCombo` — it may only ask `roomActivity`.
 
+> **Superseded in part by §13 below.** The `Join Room →` invitation described
+> in §3–§5 was removed after a further real-browser pass. Everything else in
+> this report - the clock fix, the canonical propagation, the removal of the
+> permanent ROOM button, unread ownership and the participant count - stands.
+
 ## 3. Gravity combo CTA
 
 ```
@@ -191,6 +196,56 @@ Reload the extension.
 
 One commit. Full diff reviewed; no mutation residue (the verifier was not run),
 no secrets, no `.env.local`, no dist or release artefacts.
+
+---
+
+## 13. Final note: the CTA came back out
+
+**Date:** 2026-08-25, after another two-account pass.
+
+The combo pipeline was confirmed working end to end - single emote silent, ×2
+appearing on both surfaces, growing, and expiring. Looking at it in a real
+panel, the `Join Room →` attached to it was the wrong call: the invitation was
+more visually expensive than the signal it was attached to, and it competed
+with the destination for attention every time three people laughed at once.
+
+The combo already says everything it needs to by existing. Something is
+happening, right now, among the people you are watching with. Somebody who
+wants to join has a doorway that is always there and already tells them how
+much they have missed:
+
+```
+Friends │ TheBurntPeanut [2] │ Groups
+```
+
+So the card now shows the mark and nothing else, on its own line directly under
+the status:
+
+```
+TheBurntPeanut · 1                         HERE
+How To Fish                       ● LIVE 41K
+                                      🐸 ×4
+
+1 friend watching with you
+AnoterosTV
+```
+
+Its own line rather than a fifth item in the status row, which at the narrowest
+panel already carries a category, a badge and a viewer count. It is a `<span>`
+and deliberately **not** clickable - making the mark itself the doorway would
+have been the same mistake in quieter clothes.
+
+**What this changed:** the CTA markup, its styling, and the tests and gate
+checks that asserted it. Combo semantics, the `receivedAt` clock fix, session
+lifecycle, unread and the room architecture are all untouched, and the suites
+covering them ran unchanged.
+
+**Asserted now:** the combo is a `<span>`, never a `<button>` or an `<a>`; it
+sits inside `.kb-gravity-activity` below `.kb-gravity-status` (checked
+geometrically in the browser gate); `SocialGravity` no longer takes an
+`onOpenRoom` callback at all, which is the strongest form of "this card cannot
+open a session"; and JOIN and the user card still work everywhere else on the
+map.
 
 ---
 

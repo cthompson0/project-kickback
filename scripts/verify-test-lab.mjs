@@ -77,9 +77,7 @@ function readPanel() {
        * the friends and shoved them around every time somebody sent an emote.
        * `comboOnLeft` is asserted to stay zero.
        */
-      combos: [...card.querySelectorAll('.kb-gravity-status .kb-gravity-combo')].map((el) =>
-        el.textContent.trim(),
-      ),
+      combos: [...card.querySelectorAll('.kb-gravity-combo')].map((el) => el.textContent.trim()),
       comboOnLeft: card.querySelectorAll('.kb-together .kb-gravity-combo, .kb-gravity-people .kb-gravity-combo').length,
       comboWidth: Math.round(
         card.querySelector('.kb-gravity-combo')?.getBoundingClientRect().width ?? 0,
@@ -90,9 +88,22 @@ function readPanel() {
        */
       roomButton: Boolean(card.querySelector('.kb-together-open')),
       cardUnread: card.querySelector('.kb-together-unread')?.textContent?.trim() ?? null,
-      /* The ephemeral one: it exists only while a combo does. */
-      cta: card.querySelector('.kb-gravity-combo .kb-gravity-cta')?.textContent?.trim() ?? null,
-      ctaIsButton: card.querySelector('button.kb-gravity-combo') !== null,
+      /*
+       * The signal, on its own line under the status - and NOT a control.
+       *
+       * It briefly carried a "Join Room →" button; real use showed the
+       * invitation cost more attention than the thing it was inviting you to.
+       * The streamer tab is the doorway, and it is always there.
+       */
+      cta: card.querySelector('.kb-gravity-cta') !== null,
+      comboIsControl: card.querySelector('button.kb-gravity-combo, a.kb-gravity-combo') !== null,
+      comboOnOwnLine: card.querySelector('.kb-gravity-activity .kb-gravity-combo') !== null,
+      comboBelowStatus: (() => {
+        const status = card.querySelector('.kb-gravity-status')
+        const combo = card.querySelector('.kb-gravity-combo')
+        if (!status || !combo) return false
+        return combo.getBoundingClientRect().top >= status.getBoundingClientRect().bottom - 1
+      })(),
       /* The row must not grow when a reaction lands. */
       barHeight: Math.round(
         card.querySelector('.kb-together')?.getBoundingClientRect().height ?? 0,
@@ -197,14 +208,6 @@ function openRoom() {
   const tab = document.querySelector('.kb-tab-session')
   if (!tab) throw new Error('no contextual streamer tab')
   tab.click()
-  return true
-}
-
-/** The ephemeral doorway: only there while a combo is running. */
-function clickCombo() {
-  const cta = document.querySelector('button.kb-gravity-combo')
-  if (!cta) throw new Error('no combo CTA on the card')
-  cta.click()
   return true
 }
 
@@ -559,7 +562,7 @@ async function main() {
      */
     check(together.roomButton === false, 'the permanent ROOM button is back on the card')
     check(together.cardUnread === null, 'the card is drawing a duplicate unread badge')
-    check(together.cta === null, 'a Join Room CTA appeared with no combo running')
+    check(together.cta === false, 'a Join Room CTA is back on the card')
 
     /*
      * Both older shapes, asserted as absences.
@@ -764,25 +767,24 @@ async function main() {
       outside.combos[0]?.includes('×2'),
       `the card showed "${outside.combos[0]}" for a ×2 combo in the session`,
     )
-    check(
-      outside.cta === 'Join Room →',
-      `the combo offered "${outside.cta}" instead of Join Room →`,
-    )
-    check(outside.ctaIsButton === true, 'the combo CTA is not a real control')
+    check(outside.cta === false, 'the Join Room invitation is back')
+    check(outside.comboIsControl === false, 'the combo became a control again')
+    check(outside.comboOnOwnLine === true, 'the combo is not on its own activity line')
+    check(outside.comboBelowStatus === true, 'the combo is not below LIVE and the viewer count')
     check(
       outside.comboOnLeft === 0,
       'the combo is on the left, competing with the destination and the friends',
     )
     check(
-      outside.comboWidth > 0 && outside.comboWidth < 150,
-      `the combo CTA is ${outside.comboWidth}px wide; it is a badge, not a banner`,
+      outside.comboWidth > 0 && outside.comboWidth < 70,
+      `the combo is ${outside.comboWidth}px wide; it is a mark, not a banner`,
     )
 
     await settle(page, 8500)
     const after = await page.evaluate(readPanel)
     const faded = after.cards[0] ?? {}
     check(faded.combos.length === 0, 'an expired combo stayed on the card')
-    check(faded.cta === null, 'Join Room outlived the combo that justified it')
+    check(faded.comboOnOwnLine === false, 'the activity line outlived its combo')
     /*
      * And the session itself is untouched. Existence is persistent while
      * people are co-present; the CTA is ephemeral while something is
@@ -850,12 +852,14 @@ async function main() {
       lone.combos.length === 0,
       `a single emote leaked onto the card: ${JSON.stringify(lone.combos)}`,
     )
-    check(lone.cta === null, 'a single emote produced a Join Room CTA')
+    check(lone.comboOnOwnLine === false, 'a single emote drew an activity line')
 
     /*
-     * And the CTA opens the session that already exists.
+     * And the tab is the only way in.
      *
-     * No Twitch navigation, no second room - it selects the tab.
+     * There is nothing on the card to click: a permanent ROOM button and then
+     * a Join Room invitation both lived here, and both are gone. The combo
+     * says something is happening; the tab is how you go there.
      */
     await page.evaluate(clickPreset, 'Room · A↔B')
     await settle(page)
@@ -873,15 +877,22 @@ async function main() {
     await page.evaluate(leaveRoom)
     await settle(page, 300)
 
-    const withCta = await page.evaluate(readPanel)
-    check(withCta.cards[0]?.cta === 'Join Room →', 'no CTA to click')
-    check(withCta.session.open === false, 'the session was already open')
+    const signal = await page.evaluate(readPanel)
+    check(signal.cards[0]?.combos[0]?.includes('×2'), 'no combo on the card to look at')
+    check(signal.cards[0]?.comboIsControl === false, 'the combo is clickable')
+    check(signal.session.open === false, 'the session opened by itself')
 
-    await page.evaluate(clickCombo)
+    // The tab still works, and is still not selected on its own.
+    check(
+      signal.tabs.find((t) => t.streamer !== null)?.active === false,
+      'the streamer tab selected itself',
+    )
+    await page.evaluate(openSessionTab)
     await settle(page, 300)
-    const jumped = await page.evaluate(readPanel)
-    check(jumped.session.open === true, 'Join Room did not open the session')
-    check(jumped.session.tabActive === true, 'Join Room did not select the streamer tab')
+    check(
+      (await page.evaluate(readPanel)).session.open === true,
+      'the streamer tab did not open the session',
+    )
     await page.evaluate(leaveRoom)
     await settle(page, 200)
 
@@ -1140,8 +1151,8 @@ async function main() {
   console.log('The contextual streamer tab appears, never selects itself, and carries a conversation.')
   console.log('One combo stream over reactions and emote messages; text closes a run, never extends it.')
   console.log('A session is people, not a broadcast: it survives the stream ending, and says OFFLINE.')
-  console.log('Only real combos leak onto the card: compact, on the right, and a Join Room way in.')
-  console.log('Unread lives on the streamer tab alone; the card carries no permanent doorway.')
+  console.log('Only real combos leak onto the card: a mark under the status, and not a control.')
+  console.log('Unread and the way in both live on the streamer tab; the card carries neither.')
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
 }
