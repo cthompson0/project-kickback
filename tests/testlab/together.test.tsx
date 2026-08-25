@@ -3,10 +3,11 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SocialGravity } from '../../src/ui/components/SocialGravity'
+import { StreamRoom } from '../../src/ui/components/StreamRoom'
 import { ChannelNameProvider } from '../../src/ui/ChannelNames'
 import { createTestLabClient } from '../../src/testlab/client'
 import { PRESETS, preset } from '../../src/testlab/presets'
-import { roomMembers } from '../../src/testlab/world'
+import { channelMetadata, roomMembers } from '../../src/testlab/world'
 import type { SimWorld } from '../../src/testlab/world'
 import { MAX_HOPS } from '../../src/core/streamRoom'
 import type { Activity } from '../../src/core/types'
@@ -57,8 +58,39 @@ function draw(world: SimWorld): string {
           friendIds: new Set(state.friends.map((f) => f.user.id)),
           outgoingRequestIds: new Set(),
         }}
+        metadata={channelMetadata(world, Date.now())}
         reactions={state.togetherReactions}
         roomMembers={state.roomMembers}
+        onOpenRoom={() => {}}
+      />
+    </ChannelNameProvider>,
+  )
+}
+
+/** The room itself, once the viewer has walked into it. */
+function drawRoom(world: SimWorld): string {
+  const handle = createTestLabClient({ world, appVersion: 'test' })
+  const state = handle.client.getState()
+  const local = localActivity(world)
+  const channel = world.observer.channel!.toLowerCase()
+
+  return renderToStaticMarkup(
+    <ChannelNameProvider people={state.friends.map((f) => f.user)} seen={state.channelNames}>
+      <StreamRoom
+        channel={channel}
+        members={state.roomMembers}
+        friends={state.friends}
+        reactions={state.togetherReactions}
+        metadata={channelMetadata(world, Date.now())[channel]}
+        selfId={state.identity?.userId ?? null}
+        client={handle.client as KickbackClient}
+        cardContext={{
+          selfId: state.identity?.userId ?? null,
+          viewerActivity: local,
+          friendIds: new Set(state.friends.map((f) => f.user.id)),
+          outgoingRequestIds: new Set(),
+        }}
+        onBack={() => {}}
       />
     </ChannelNameProvider>,
   )
@@ -92,10 +124,24 @@ describe('A ↔ B ↔ C: a friend of a friend is in the room', () => {
     expect(distant.viaUserId).toBe('sim-b')
   })
 
-  it('draws the room, and the roster is reachable', () => {
+  it('offers a way into the room from the card', () => {
     const html = draw(world)
-    expect(html).toContain('kb-together')
     expect(html).toContain('kb-together-open')
+    // And nothing about who is in it: the card is a doorway, not a roster.
+    expect(html).not.toContain('kb-room-person')
+  })
+
+  it('names the friend-of-friend once the viewer walks in', () => {
+    /*
+     * Sarah is Bianca's friend, not the viewer's. Presence never mentions her,
+     * so everything the panel can say about her comes from room membership -
+     * her name, and the one hop of context that makes it mean anything.
+     */
+    const html = drawRoom(world)
+    expect(html).toContain('WATCHING TOGETHER')
+    expect(html).toContain('Bianca')
+    expect(html).toContain('Friend of Bianca')
+    expect(html).toContain('kb-room-unknown')
   })
 })
 
@@ -148,7 +194,7 @@ describe('the bridge leaves, and the room splits', () => {
     expect(members(world)).toEqual([])
   })
 
-  it('draws no room at all once nobody is reachable', () => {
+  it('draws no doorway at all once nobody is reachable', () => {
     const world = preset('room-bridge-gone').build()
     expect(draw(world)).not.toContain('kb-together')
   })
@@ -264,20 +310,23 @@ describe('reactions in the lab', () => {
     handle.react(world.users[0].id, 'lol')
     handle.client.sendReaction('lol')
 
+    const state = handle.client.getState()
     const html = renderToStaticMarkup(
       <ChannelNameProvider people={[]} seen={{}}>
         <SocialGravity
-          friends={handle.client.getState().friends}
+          friends={state.friends}
           localActivity={localActivity(world)}
           client={handle.client as KickbackClient}
           cardContext={{
-            selfId: handle.client.getState().identity?.userId ?? null,
+            selfId: state.identity?.userId ?? null,
             viewerActivity: localActivity(world),
             friendIds: new Set(),
             outgoingRequestIds: new Set(),
           }}
-          reactions={handle.client.getState().togetherReactions}
-          roomMembers={handle.client.getState().roomMembers}
+          metadata={channelMetadata(world, Date.now())}
+          reactions={state.togetherReactions}
+          roomMembers={state.roomMembers}
+          onOpenRoom={() => {}}
         />
       </ChannelNameProvider>,
     )
@@ -285,11 +334,152 @@ describe('reactions in the lab', () => {
     expect((html.match(/kb-together-burst/g) ?? []).length).toBe(1)
   })
 
+  it('shows the room the same combo the card outside is showing', () => {
+    /*
+     * One combo semantic model, asserted across the seam.
+     *
+     * Both surfaces call roomActivity, so walking in continues the run rather
+     * than restarting or contradicting it.
+     */
+    const world = preset('room-abc').build()
+    const handle = createTestLabClient({ world, appVersion: 'test' })
+    handle.react(world.users[0].id, 'fire')
+    handle.client.sendReaction('fire')
+
+    const inside = renderToStaticMarkup(
+      <ChannelNameProvider people={[]} seen={{}}>
+        <StreamRoom
+          channel="lirik"
+          members={handle.client.getState().roomMembers}
+          friends={handle.client.getState().friends}
+          reactions={handle.client.getState().togetherReactions}
+          selfId={handle.client.getState().identity?.userId ?? null}
+          client={handle.client as KickbackClient}
+          cardContext={{
+            selfId: handle.client.getState().identity?.userId ?? null,
+            viewerActivity: localActivity(world),
+            friendIds: new Set(),
+            outgoingRequestIds: new Set(),
+          }}
+          onBack={() => {}}
+        />
+      </ChannelNameProvider>,
+    )
+    expect(inside).toContain('×2')
+    expect((inside.match(/kb-room-combo/g) ?? []).length).toBe(1)
+  })
+
+  it('has no combo breaker to fire, because a room has no ordinary messages', () => {
+    /*
+     * Stated rather than left to be discovered.
+     *
+     * A breaker is an ordinary message interrupting a run, and a v1 room has
+     * no text in it - so the rule is preserved in scanCombos and simply has
+     * nothing to fire on. It is not missing, and nothing here should invent a
+     * second way to end a run.
+     */
+    const world = preset('room-abc').build()
+    const handle = createTestLabClient({ world, appVersion: 'test' })
+    handle.react(world.users[0].id, 'lol')
+    handle.client.sendReaction('lol')
+    // A DIFFERENT emote starts its own run rather than breaking this one.
+    handle.react(world.users[0].id, 'sad')
+
+    const inside = renderToStaticMarkup(
+      <ChannelNameProvider people={[]} seen={{}}>
+        <StreamRoom
+          channel="lirik"
+          members={handle.client.getState().roomMembers}
+          friends={handle.client.getState().friends}
+          reactions={handle.client.getState().togetherReactions}
+          selfId={handle.client.getState().identity?.userId ?? null}
+          client={handle.client as KickbackClient}
+          cardContext={{
+            selfId: handle.client.getState().identity?.userId ?? null,
+            viewerActivity: localActivity(world),
+            friendIds: new Set(),
+            outgoingRequestIds: new Set(),
+          }}
+          onBack={() => {}}
+        />
+      </ChannelNameProvider>,
+    )
+    // The trailing run is one person on 'sad': shown, but not a combo.
+    expect(inside).toContain('kb-room-combo')
+    expect(inside).not.toContain('×')
+    expect(inside).not.toMatch(/broke|breaker/i)
+  })
+
   it('holds no reactions when the viewer is not on a channel', () => {
     const world = preset('two').build()
     const handle = createTestLabClient({ world, appVersion: 'test' })
     handle.react(world.users[0].id, 'lol')
     expect(handle.client.getState().togetherReactions).toEqual([])
+  })
+})
+
+// ------------------------------------------------- rooms need a live stream
+
+describe('a room requires something to watch', () => {
+  /*
+   * The bug this checkpoint began with, reproduced in the lab.
+   *
+   * Two accounts sat on twitch.tv/lirik with no stream running and Kickback
+   * reported a room, reactions and an open watching-together interval. Every
+   * layer was reading presence correctly; none of them ever asked whether
+   * there was a stream. These are the same world with three answers from
+   * Twitch.
+   */
+
+  it('forms no room on a channel whose stream has ended', () => {
+    const world = preset('room-offline').build()
+    expect(members(world)).toEqual([])
+  })
+
+  it('still says the friend is there, and still says OFFLINE', () => {
+    /*
+     * Raw presence is untouched, and the label is not hidden. What changes is
+     * only whether a social space forms on top of it.
+     */
+    const html = draw(preset('room-offline').build())
+    expect(html).toContain('1 friend watching with you')
+    expect(html).toContain('Bianca')
+    expect(html).toContain('OFFLINE')
+    expect(html).not.toContain('kb-together-open')
+  })
+
+  it('forms no room when Twitch has not answered', () => {
+    // Uncertain is not live. Inventing certainty here is what would put
+    // fabricated watch time into analytics.
+    expect(members(preset('room-unknown').build())).toEqual([])
+  })
+
+  it('forms the room again once the stream is live', () => {
+    const world = preset('room-went-live').build()
+    expect(members(world)).toEqual([{ userId: 'sim-b', hops: 1, viaUserId: null }])
+    expect(draw(world)).toContain('kb-together-open')
+  })
+
+  it('closes the room when a live stream ends, with the people unchanged', () => {
+    /*
+     * LIVE -> OFFLINE on one world, so the only thing that differs is what
+     * Twitch said. In production this arrives as a metadata refresh, which is
+     * why no new polling loop was needed.
+     */
+    const live = preset('room-went-live').build()
+    const ended: SimWorld = { ...live, metadata: { lirik: { live: 'offline', displayName: 'LIRIK' } } }
+
+    expect(members(live)).toHaveLength(1)
+    expect(members(ended)).toEqual([])
+    expect(draw(ended)).toContain('1 friend watching with you')
+  })
+
+  it('opens the room when an offline stream starts, with the people unchanged', () => {
+    const ended = preset('room-offline').build()
+    const live: SimWorld = { ...ended, metadata: { lirik: { live: 'live', displayName: 'LIRIK' } } }
+
+    expect(members(ended)).toEqual([])
+    expect(members(live)).toHaveLength(1)
   })
 })
 

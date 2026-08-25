@@ -108,6 +108,16 @@ const LIVE: SimChannelMeta = {
   viewerCount: 18_412,
 }
 
+/*
+ * LIRIK is streaming.
+ *
+ * Every room preset carries this, because an automatic Stream Room requires a
+ * live stream - see core/socialViewing.ts. Before that rule existed the
+ * presets said nothing about metadata and rooms formed anyway, which is
+ * exactly the bug: presence alone was taken as watching.
+ */
+const LIVE_LIRIK: Record<string, SimChannelMeta> = { lirik: LIVE }
+
 export interface Preset {
   id: string
   label: string
@@ -302,14 +312,14 @@ export const PRESETS: Preset[] = [
     id: 'room-ab',
     label: 'Room · A↔B',
     hint: 'You and one direct friend. The smallest room there is.',
-    build: () => world(crowd(1, 'LIRIK'), 'LIRIK'),
+    build: () => world(crowd(1, 'LIRIK'), 'LIRIK', LIVE_LIRIK),
   },
   {
     id: 'room-abc',
     label: 'Room · A↔B↔C',
     hint: 'C is Bianca\'s friend, not yours. You should still see them.',
     build: () =>
-      world([person(0, { activity: 'watching', channel: 'LIRIK' }), distant(1, 'LIRIK')], 'LIRIK', undefined, [
+      world([person(0, { activity: 'watching', channel: 'LIRIK' }), distant(1, 'LIRIK')], 'LIRIK', LIVE_LIRIK, [
         [ID[0], ID[1]],
       ]),
   },
@@ -325,7 +335,7 @@ export const PRESETS: Preset[] = [
           distant(2, 'LIRIK'),
         ],
         'LIRIK',
-        undefined,
+        LIVE_LIRIK,
         [
           [ID[0], ID[1]],
           [ID[1], ID[2]],
@@ -344,7 +354,7 @@ export const PRESETS: Preset[] = [
           distant(3, 'LIRIK'),
         ],
         'LIRIK',
-        undefined,
+        LIVE_LIRIK,
         [[ID[2], ID[3]]],
       ),
   },
@@ -361,7 +371,7 @@ export const PRESETS: Preset[] = [
           distant(2, 'LIRIK'),
         ],
         'LIRIK',
-        undefined,
+        LIVE_LIRIK,
         [
           [ID[0], ID[1]],
           [ID[1], ID[2]],
@@ -380,7 +390,7 @@ export const PRESETS: Preset[] = [
           distant(3, 'LIRIK'),
         ],
         'LIRIK',
-        undefined,
+        LIVE_LIRIK,
         [
           [ID[2], ID[3]],
           // The bridge that merges them.
@@ -393,7 +403,7 @@ export const PRESETS: Preset[] = [
     label: 'Room · unrelated stranger',
     hint: 'Faye is on LIRIK and connected to nobody. Invisible to the room.',
     build: () =>
-      world([person(0, { activity: 'watching', channel: 'LIRIK' }), distant(4, 'LIRIK')], 'LIRIK'),
+      world([person(0, { activity: 'watching', channel: 'LIRIK' }), distant(4, 'LIRIK')], 'LIRIK', LIVE_LIRIK),
   },
   {
     id: 'room-fof-left',
@@ -403,7 +413,7 @@ export const PRESETS: Preset[] = [
       world(
         [person(0, { activity: 'watching', channel: 'LIRIK' }), distant(1, 'xQc')],
         'LIRIK',
-        undefined,
+        LIVE_LIRIK,
         [[ID[0], ID[1]]],
       ),
   },
@@ -419,9 +429,39 @@ export const PRESETS: Preset[] = [
             : distant(index, 'LIRIK'),
         ),
         'LIRIK',
-        undefined,
+        LIVE_LIRIK,
         Array.from({ length: 8 }, (_, index) => [ID[index], ID[index + 1]] as [string, string]),
       ),
+  },
+
+  // ------------------------------------------- rooms need a live stream
+  //
+  // The bug this checkpoint began with: two accounts on twitch.tv/lirik with
+  // no stream running, and Kickback saying HERE · OFFLINE · 1 friend watching
+  // with you - with a room, reactions and an open watching-together interval
+  // behind it. These three presets are the same world with three different
+  // answers from Twitch, so the difference is visible in one click.
+  {
+    id: 'room-offline',
+    label: 'Room · stream ended',
+    hint: 'You and a friend on LIRIK, which is offline. Presence yes; room no.',
+    build: () =>
+      world(crowd(1, 'LIRIK'), 'LIRIK', {
+        lirik: { live: 'offline', displayName: 'LIRIK' },
+      }),
+  },
+  {
+    id: 'room-unknown',
+    label: 'Room · Twitch has not answered',
+    hint: 'Metadata unavailable. Uncertain is not live: no room forms.',
+    build: () =>
+      world(crowd(1, 'LIRIK'), 'LIRIK', { lirik: { live: 'unavailable' } }),
+  },
+  {
+    id: 'room-went-live',
+    label: 'Room · just went live',
+    hint: 'The same people, now with a stream. Compare against the two above.',
+    build: () => world(crowd(1, 'LIRIK'), 'LIRIK', LIVE_LIRIK),
   },
 
   // ---------------------------------------------------- automatic together
@@ -429,25 +469,25 @@ export const PRESETS: Preset[] = [
     id: 'together-1',
     label: 'Together · 1 friend',
     hint: 'You and one friend on LIRIK. The smallest Together there is.',
-    build: () => world(crowd(1, 'LIRIK'), 'LIRIK'),
+    build: () => world(crowd(1, 'LIRIK'), 'LIRIK', LIVE_LIRIK),
   },
   {
     id: 'together-2',
     label: 'Together · 2 friends',
     hint: 'You and two. Enough for a reaction to become a combo.',
-    build: () => world(crowd(2, 'LIRIK'), 'LIRIK'),
+    build: () => world(crowd(2, 'LIRIK'), 'LIRIK', LIVE_LIRIK),
   },
   {
     id: 'together-5',
     label: 'Together · 5 friends',
     hint: 'Where the people row wraps and the reaction bar must still fit.',
-    build: () => world(crowd(5, 'LIRIK'), 'LIRIK'),
+    build: () => world(crowd(5, 'LIRIK'), 'LIRIK', LIVE_LIRIK),
   },
   {
     id: 'together-10',
     label: 'Together · 10 friends',
     hint: 'Every simulated person, with you. Watch the narrow panel.',
-    build: () => world(crowd(10, 'LIRIK'), 'LIRIK'),
+    build: () => world(crowd(10, 'LIRIK'), 'LIRIK', LIVE_LIRIK),
   },
   {
     id: 'together-live',

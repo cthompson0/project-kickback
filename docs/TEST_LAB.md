@@ -152,6 +152,21 @@ the original. A test asserts no lab source mentions any of them.
 Reactions persist across a preset change because the *channel* did not change -
 which mirrors production, where the buffer clears only when the viewer moves.
 
+### Rooms need a live stream
+
+`roomMembers` calls `canWatchTogether` from `src/core/socialViewing.ts` - the
+production rule, imported rather than reimplemented. This is the one place the
+lab must **not** have its own copy of a rule, because reproducing the offline
+bug is the point: before that rule existed, presets said nothing about metadata
+and rooms formed anyway, which is exactly what happened on a real offline
+channel.
+
+`Room · stream ended`, `Room · Twitch has not answered` and `Room · just went
+live` are the same world with three answers from Twitch. The first two draw the
+HERE card, the friend and the OFFLINE label, and **no doorway**. Nothing is
+hidden; a social space simply does not form on top of a stream that is not
+running.
+
 ### Presets
 
 Empty · 1 friend watching · 2/3/5-friend Gravity · 10-friend stress · Two
@@ -161,6 +176,10 @@ Cluster split/reform · Casing mix · Stale heartbeat · Requests + strangers.
 Metadata: Live creator · Offline creator · Metadata unavailable · Long title +
 category · Missing avatar · Mixed live/offline · Authoritative casing · HERE
 with the stream ended.
+
+Rooms: A↔B · A↔B↔C · A↔B↔C↔D · two clusters · bridge left · clusters merged ·
+unrelated stranger · friend-of-friend left · 10 in a chain · stream ended ·
+Twitch has not answered · just went live.
 
 A preset configures **people**, never an expected outcome. They are pure
 functions, so a bug is reproducible by name.

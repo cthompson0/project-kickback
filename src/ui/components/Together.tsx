@@ -1,38 +1,38 @@
 import { useEffect, useState } from 'react'
-import { REACTIONS, liveReactions, reactionEmote, reactionMessages } from '../../core/together'
-import type { Reaction, TogetherReaction } from '../../core/together'
-import { scanCombos } from '../../core/combos'
-import { directCount, sortMembers } from '../../core/streamRoom'
+import { COMBO_MIN_DISPLAY } from '../../core/combos'
+import { roomActivity } from '../../core/together'
+import type { TogetherReaction } from '../../core/together'
+import { directCount } from '../../core/streamRoom'
 import type { RoomMember } from '../../core/streamRoom'
 import type { Friend } from '../../client/types'
-import type { UserCardContext } from './UserCard'
-import type { KickbackClient } from '../../client/types'
 import { EmoteImage } from './EmoteImage'
-import { Avatar } from './Avatar'
-import { UserCard } from './UserCard'
 import { useAnalytics } from '../Analytics'
 
 /**
- * The automatic Stream Room, inside the card for the channel you are on.
+ * The room, seen from outside it.
  *
- * TWO SURFACES, ONE EVENT STREAM
+ * WHAT THIS USED TO BE, AND WHY IT CHANGED
  *
- * The quick strip is always there: five buttons and whatever just landed.
- * OPEN ROOM expands the people, which is the part that needs space - because
- * the room is the connected social component, so it can contain somebody you
- * have never met who arrived through a friend.
+ * It used to be the whole feature: five permanent reaction buttons, a live
+ * strip, a roster, and a ROOM button that expanded the roster in place. Two
+ * things were wrong with that, and neither was a bug.
  *
- * Both surfaces send the same event and read the same buffer, and both count
- * it with `scanCombos` - the combo engine Kickback already had. A reaction is
- * one of Kickback's own emotes, so there is nothing here that knows how to
- * count a combo; it asks the thing that already did.
+ * The buttons made the social map into a composer. Gravity's job is to answer
+ * "where is everybody" at a glance, and five always-present controls in the
+ * middle of that answer are a thing to operate rather than a thing to read.
  *
- * WHY THE COMBO IS ONE BADGE AND NOT A ROW OF EMOJI
+ * And ROOM was a disclosure triangle. Presence → Gravity → JOIN → Together
+ * ends in arriving somewhere, and expanding a card is not arriving. The room
+ * is a view now, so this is reduced to the two things a card outside it should
+ * carry: what is happening in there, and the way in.
  *
- * The first version rendered every burst side by side, which is the stacking
- * that was reported. `scanCombos` annotates the run's latest contribution with
- * a count, so a combo grows IN PLACE - one symbol, one number - exactly as it
- * does in group chat.
+ * WHAT LEAKS OUTWARD, AND WHAT DOES NOT
+ *
+ * The combo leaks. `😂 ×6` on the card is real activity from inside the room,
+ * and it is enough on its own - a glance says something is happening right
+ * now, which is the whole point. What does not leak is who: no names, no
+ * "Sarah and Jake are reacting", no narration. Narration is a feed, and a feed
+ * is something you read rather than something you notice.
  */
 
 interface TogetherProps {
@@ -40,13 +40,11 @@ interface TogetherProps {
   channel: string
   /** Everybody in the connected component, from the server. */
   members: readonly RoomMember[]
-  /** Friends the panel already knows about, for names and avatars. */
+  /** Friends the panel already knows about, for combo attribution. */
   friends: readonly Friend[]
   reactions: readonly TogetherReaction[]
   selfId: string | null
-  client: KickbackClient
-  cardContext: UserCardContext
-  onReact: (reaction: Reaction) => void
+  onOpen: () => void
 }
 
 export function Together({
@@ -55,19 +53,15 @@ export function Together({
   friends,
   reactions,
   selfId,
-  client,
-  cardContext,
-  onReact,
+  onOpen,
 }: TogetherProps) {
   const analytics = useAnalytics()
-  const [open, setOpen] = useState(false)
-  const [openCardId, setOpenCardId] = useState<string | null>(null)
 
   /*
-   * Reactions age out on their own, so the surface needs a heartbeat: nothing
-   * else re-renders the panel between presence updates, and a combo that
-   * stayed until the next one would linger for forty seconds. Only while
-   * there is something to age.
+   * Reactions age out on their own, so this needs a heartbeat: nothing else
+   * re-renders the panel between presence updates, and a combo that stayed
+   * until the next one would sit there for forty seconds claiming to be now.
+   * Only while there is something to age - an idle card ticks nothing.
    */
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -76,189 +70,77 @@ export function Together({
     return () => window.clearInterval(id)
   }, [reactions.length])
 
-  /** Everyone the panel can name, including people met through a friend. */
   const byId = new Map(friends.map((friend) => [friend.user.id, friend]))
   const nameOf = (userId: string) =>
     userId === selfId ? 'You' : (byId.get(userId)?.user.displayName ?? 'Someone')
 
-  // The clock lives in liveReactions, so this stays a pure derivation.
-  const live = liveReactions(reactions, channel)
-  const { annotations } = scanCombos(reactionMessages(live, nameOf))
+  // The clock lives inside roomActivity, so this stays a pure derivation - and
+  // it is the SAME derivation the room itself draws from.
+  const activity = roomActivity(reactions, channel, nameOf)
 
   /*
-   * What to draw: ONE thing per run.
+   * A combo is recorded once, when it reaches a size.
    *
-   * `scanCombos` annotates only the LAST contribution of a run, because in a
-   * chat the earlier ones are still their own messages sitting above it. Here
-   * they are not - a run is a single badge - so the contributors behind each
-   * annotation are folded into it. Drawing them as well is precisely the
-   * emoji-stacking that was reported.
-   *
-   * The run is reconstructed from the engine's own count rather than by
-   * re-deciding its rules: walk back from the annotated entry over the same
-   * reaction until `count` distinct people have been collected.
-   */
-  const covered = new Set<string>()
-  live.forEach((entry, index) => {
-    const count = annotations.get(entry.id)?.comboCount
-    if (!count) return
-
-    covered.add(entry.id)
-    const speakers = new Set<string>([entry.senderId])
-    for (let back = index - 1; back >= 0 && speakers.size < count; back -= 1) {
-      const earlier = live[back]
-      if (earlier.reaction !== entry.reaction) break
-      covered.add(earlier.id)
-      speakers.add(earlier.senderId)
-    }
-  })
-
-  const badges = live.filter((entry) => annotations.get(entry.id)?.comboCount)
-  const singles = live.filter((entry) => !covered.has(entry.id))
-
-  /*
-   * A combo is recorded once, when it forms.
-   *
-   * Keyed on the run rather than counted per render: this component re-renders
-   * on a one-second heartbeat, and a naive count would report the same combo
-   * eight times as it faded.
+   * Keyed on emote and count rather than counted per render: this re-renders
+   * every second while a combo is on screen, and a naive count would report
+   * one combo eight times as it faded.
    */
   const [recorded] = useState(() => new Set<string>())
   useEffect(() => {
-    for (const entry of badges) {
-      const count = annotations.get(entry.id)?.comboCount
-      if (!count) continue
-      const key = `${entry.id}:${count}`
-      if (recorded.has(key)) continue
-      recorded.add(key)
-      analytics.track(
-        'automatic_room_combo',
-        { combo_size: count, participant_count: members.length + 1 },
-        { source: 'together', channel },
-      )
-    }
-  }, [badges, annotations, recorded, analytics, members.length, channel])
-
-  const ordered = sortMembers(members)
+    if (!activity || activity.count < COMBO_MIN_DISPLAY) return
+    const key = `${activity.emote.id}:${activity.count}`
+    if (recorded.has(key)) return
+    recorded.add(key)
+    analytics.track(
+      'automatic_room_combo',
+      { combo_size: activity.count, participant_count: members.length + 1 },
+      { source: 'together', channel },
+    )
+  }, [activity, recorded, analytics, members.length, channel])
 
   return (
     <div className="kb-together">
-      <div className="kb-together-bar" role="group" aria-label="React">
-        {REACTIONS.map((reaction) => (
-          <button
-            key={reaction}
-            type="button"
-            className="kb-together-react"
-            title={`React ${reactionEmote(reaction).label}`}
-            onClick={() => onReact(reaction)}
+      {/*
+       * What is happening, and nothing when nothing is.
+       *
+       * The slot keeps its height whether or not it has something in it, so a
+       * reaction landing does not shove the friends below it down the card -
+       * these arrive while somebody is watching a stream, not while they are
+       * looking at the panel.
+       */}
+      <div className="kb-together-live" aria-live="polite">
+        {activity && (
+          <span
+            className="kb-together-burst"
+            // Keyed so a new run mounts fresh and replays the entry animation
+            // rather than silently swapping the artwork of the old one.
+            key={`${activity.emote.id}:${activity.count}`}
           >
-            <EmoteImage emote={reactionEmote(reaction)} size={17} />
-          </button>
-        ))}
-
-        {/*
-         * What just happened, beside the buttons rather than above them: the
-         * row must not change height when a reaction lands, because they
-         * arrive while somebody is watching a stream, not looking at the panel.
-         */}
-        <div className="kb-together-live" aria-live="polite">
-          {singles.map((entry) => (
-            <span key={entry.id} className="kb-together-burst">
-              <EmoteImage emote={reactionEmote(entry.reaction)} size={16} />
-            </span>
-          ))}
-          {badges.map((entry) => (
-            <span key={entry.id} className="kb-together-burst kb-together-combo">
-              <EmoteImage emote={reactionEmote(entry.reaction)} size={16} />
-              <span className="kb-together-count">×{annotations.get(entry.id)?.comboCount}</span>
-            </span>
-          ))}
-        </div>
-
-        <button
-          type="button"
-          className="kb-together-open"
-          aria-expanded={open}
-          onClick={() => {
-            const next = !open
-            setOpen(next)
-            if (next) {
-              analytics.track(
-                'automatic_room_opened',
-                {
-                  participant_count: members.length + 1,
-                  direct_friend_count: directCount(members),
-                },
-                { source: 'together', channel },
-              )
-            }
-          }}
-        >
-          {open ? 'CLOSE' : 'ROOM'}
-        </button>
+            <EmoteImage emote={activity.emote} size={16} />
+            {activity.count >= COMBO_MIN_DISPLAY && (
+              <span className="kb-together-count">×{activity.count}</span>
+            )}
+          </span>
+        )}
       </div>
 
-      {/*
-       * The people.
-       *
-       * Only when asked for: the room can hold somebody two hops away, and a
-       * list of names nobody opened would take space from the destination
-       * without answering a question anybody had.
-       */}
-      {open && (
-        <div className="kb-room">
-          {ordered.map((member) => {
-            const friend = byId.get(member.userId)
-            const via = member.viaUserId ? byId.get(member.viaUserId) : undefined
-
-            return (
-              <div className="kb-room-person" key={member.userId}>
-                <button
-                  type="button"
-                  className="kb-person-btn"
-                  title={`About ${nameOf(member.userId)}`}
-                  onClick={() =>
-                    setOpenCardId((current) =>
-                      current === member.userId ? null : member.userId,
-                    )
-                  }
-                >
-                  {friend ? (
-                    <Avatar user={friend.user} size={20} showDot={false} />
-                  ) : (
-                    <span className="kb-room-unknown" aria-hidden="true">
-                      ?
-                    </span>
-                  )}
-                  <span className="kb-cluster-name">{nameOf(member.userId)}</span>
-                </button>
-
-                {/*
-                 * One hop of context, and no more.
-                 *
-                 * "Friend of Jake" is what turns a stranger in your panel into
-                 * somebody who arrived through a person you trust. Beyond that
-                 * the server does not tell us, deliberately - "friend of a
-                 * friend of Jake" is graph detail nobody needs.
-                 */}
-                {member.hops === 2 && via && (
-                  <span className="kb-room-via">Friend of {via.user.displayName}</span>
-                )}
-
-                {friend && openCardId === member.userId && (
-                  <UserCard
-                    user={friend.user}
-                    presence={friend.presence}
-                    client={client}
-                    context={cardContext}
-                    onClose={() => setOpenCardId(null)}
-                  />
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      <button
+        type="button"
+        className="kb-together-open"
+        onClick={() => {
+          analytics.track(
+            'automatic_room_opened',
+            {
+              participant_count: members.length + 1,
+              direct_friend_count: directCount(members),
+            },
+            { source: 'together', channel },
+          )
+          onOpen()
+        }}
+      >
+        ROOM
+      </button>
     </div>
   )
 }

@@ -34,6 +34,7 @@ import { createTogetherReactions } from './togetherReactions'
 import { createStreamRoom } from './streamRoom'
 import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
+import { canWatchTogether } from '../core/socialViewing'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
 import { isPersistedLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
@@ -378,7 +379,11 @@ function roomSize(): number {
 let togetherShownFor: string | null = null
 
 function noteTogetherSurface(): void {
-  const here = currentChannel()
+  // socialChannel(), not currentChannel(): an empty member list would already
+  // stop this, because rooms are only fetched for an eligible channel - but
+  // one that says which question it is asking cannot drift away from the
+  // answer later.
+  const here = socialChannel()
   const members = room.snapshot()
 
   if (!here || members.length === 0) {
@@ -437,9 +442,22 @@ const metadata = createMetadataService({
   save: (records) => {
     void storageArea.set({ [METADATA_KEY]: records })
   },
-  // A refreshed record changes what the panel should draw, so the same
-  // broadcast every other state change goes through.
-  onChange: () => broadcast(),
+  /*
+   * Metadata arriving is a state change, and now also an ELIGIBILITY change.
+   *
+   * This is the whole of the LIVE -> OFFLINE and OFFLINE -> LIVE path, and it
+   * needs no new timer: the service already refetches any record older than
+   * LIVE_TTL_MS, and refreshAttention asks for the viewer's own channel on
+   * every presence heartbeat. So a stream ending closes the room, the reaction
+   * subscription and the analytics interval within about two minutes, and a
+   * stream starting opens them on the same schedule - through pushActivity and
+   * updateTogether, which are the only places that decide either.
+   */
+  onChange: () => {
+    pushActivity()
+    updateTogether()
+    broadcast()
+  },
   /*
    * Say what happened - in development and beta only.
    *
@@ -556,6 +574,35 @@ function wantMetadata(): void {
   if (here) channels.push(here)
 
   metadata.want(channels)
+}
+
+/**
+ * The channel the viewer is WATCHING WITH PEOPLE, as opposed to standing on.
+ *
+ * THE OFFLINE BUG, IN ONE FUNCTION
+ *
+ * Two accounts sat on twitch.tv/lirik with no stream running and Kickback said
+ * they were watching together. Every layer was behaving correctly: presence
+ * reported the page, the HERE cluster formed from presence, the room formed
+ * from presence, and the shared-watch analytics lifecycle opened from presence.
+ * The mistake was upstream of all of them - being ON a channel page was taken
+ * as watching a stream, and no layer ever asked whether there was one.
+ *
+ * So there is now one question and one place that answers it, and everything
+ * that means "together" reads THIS rather than currentChannel(): the reaction
+ * inbox filter, the room query, the surface event, and the analytics
+ * lifecycle. Presence itself is untouched - the Friends list still says a
+ * friend is on an offline channel, because they are, and the Gravity card
+ * still says OFFLINE rather than hiding the destination. What changes is only
+ * whether a social space forms on top of it.
+ *
+ * Unknown metadata is not eligible. See core/socialViewing.ts for why that
+ * costs a false negative on purpose.
+ */
+function socialChannel(): string | null {
+  if (authState.status !== 'signed_in') return null
+  const here = currentChannel()
+  return canWatchTogether(here, metadata.snapshot()) ? here : null
 }
 
 function refreshAttention(): void {
@@ -680,7 +727,7 @@ function pushActivity(): void {
    * which room to ask about. Driven from the same effective activity presence
    * reports, so multi-tab behaviour is inherited rather than re-derived.
    */
-  const here = authState.status === 'signed_in' ? currentChannel() : null
+  const here = socialChannel()
   together.setChannel(here)
   room.want(here)
 
@@ -698,8 +745,7 @@ function pushActivity(): void {
  * selector the UI uses - so "Watching with you" on screen and
  * watching_together in analytics can never mean two different things.
  */
-function coWatcherCount(): number {
-  const channel = currentChannel()
+function coWatcherCount(channel: string | null): number {
   if (!channel) return 0
   const viewer: Activity = { type: 'watching', platform: 'twitch', channel }
   const selfId = authState.identity?.userId ?? null
@@ -714,7 +760,18 @@ function coWatcherCount(): number {
 
 function updateTogether(): void {
   if (authState.status !== 'signed_in') return
-  analytics.noteTogether({ channel: currentChannel(), otherCount: coWatcherCount() })
+  /*
+   * The lifecycle measures SOCIAL VIEWING, not co-location.
+   *
+   * Passing socialChannel() rather than currentChannel() is what stops
+   * watching_together_started firing for two people on a channel with no
+   * stream on it - and passing the same value to the count keeps the two
+   * halves of that claim from disagreeing. A channel that stops being eligible
+   * arrives here as null, which is exactly what leaving it looks like, so the
+   * open interval ends through the path that already existed.
+   */
+  const channel = socialChannel()
+  analytics.noteTogether({ channel, otherCount: coWatcherCount(channel) })
 }
 
 // ------------------------------------------------------------------- state

@@ -72,6 +72,15 @@ interface SocialGravityProps {
    * shipped before rooms existed.
    */
   roomMembers?: readonly RoomMember[]
+  /**
+   * Ask the panel to open the Stream Room for a channel.
+   *
+   * The map does not own that view - the room takes over the panel body, the
+   * way a group conversation does - so this reports the intent and the panel
+   * decides. Absent when there is nowhere to go, which is how the control arm
+   * and the tests that predate rooms keep working unchanged.
+   */
+  onOpenRoom?: (channel: string) => void
 }
 
 /**
@@ -198,6 +207,7 @@ function DestinationCard({
   cardContext,
   openCardId,
   onToggleCard,
+  onOpenRoom,
 }: {
   section: GravitySection<Friend>
   meta?: ChannelMetadata
@@ -208,6 +218,7 @@ function DestinationCard({
   cardContext: UserCardContext
   openCardId: string | null
   onToggleCard: (userId: string) => void
+  onOpenRoom?: (channel: string) => void
 }) {
   const channelName = useChannelName()
   const here = section.kind === 'here'
@@ -352,23 +363,23 @@ function DestinationCard({
       )}
 
       {/*
-       * The room, for the channel the viewer is standing on.
+       * The way into the room, for the channel the viewer is standing on.
        *
-       * Shown when presence says somebody is here OR the server found a
-       * connected component - the two usually agree, and when they do not it
-       * is because the component reaches somebody the viewer is not directly
-       * friends with, which is exactly the case this exists for.
+       * The SERVER's membership is the condition now, not the HERE count.
+       * They used to be or-ed together, which meant a card could offer a room
+       * that nobody was in - the count comes from presence the client already
+       * has, and the room comes from a query that also requires the stream to
+       * be live. Asking only the second is what makes the doorway honest: if
+       * it is there, there is somewhere to go.
        */}
-      {here && section.channel && (section.count > 0 || (roomMembers?.length ?? 0) > 0) && (
+      {here && section.channel && onOpenRoom && (roomMembers?.length ?? 0) > 0 && (
         <Together
           channel={section.channel}
           members={roomMembers ?? []}
           friends={friends}
           reactions={reactions ?? []}
           selfId={cardContext.selfId}
-          client={client}
-          cardContext={cardContext}
-          onReact={(reaction) => client.sendReaction(reaction)}
+          onOpen={() => onOpenRoom(section.channel!)}
         />
       )}
 
@@ -397,6 +408,7 @@ export function SocialGravity({
   metadata,
   reactions,
   roomMembers,
+  onOpenRoom,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
 
@@ -445,6 +457,7 @@ export function SocialGravity({
               onToggleCard={(userId) =>
                 setOpenCardId((open) => (open === userId ? null : userId))
               }
+              onOpenRoom={section.kind === 'here' ? onOpenRoom : undefined}
             />
           )
         }

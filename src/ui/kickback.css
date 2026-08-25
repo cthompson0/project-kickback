@@ -2045,84 +2045,62 @@ a.kb-ghost-btn {
 }
 
 /*
- * ---------- automatic together ----------
+ * ---------- automatic stream rooms ----------
  *
- * Two lines inside the card the viewer is already standing in. It must not
- * become a room: no header, no name, no member list of its own, no unread
- * badge. The card above it already says who is here.
+ * TWO SURFACES, AND THE DIFFERENCE BETWEEN THEM
  *
- * The whole surface is one row that never changes height, so a reaction
- * landing cannot push the friends or the JOIN around - which matters because
- * they arrive while somebody is watching a stream, not looking at the panel.
+ * Outside, on the Gravity card: a doorway and a pulse. It used to be five
+ * permanent reaction buttons, a live strip and a disclosure toggle, which
+ * turned the social map into a control panel. What is left is what a card
+ * outside a room should carry - the fact that something is happening in
+ * there, and the way in.
+ *
+ * Inside: an actual view, laid out like the group conversation it borrows its
+ * header from. Reactions live here now, big enough to hit while looking at a
+ * stream rather than at the panel.
  */
+
 .kb-together {
   margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.kb-together-bar {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
+  /*
+   * The row never changes height.
+   *
+   * Whether or not anything is landing, this measures the same - so a combo
+   * appearing cannot shove the friends below it down the card. They arrive
+   * while somebody is watching a stream, not while they are looking here.
+   */
   min-height: 24px;
 }
 
 /*
- * The buttons.
+ * What is happening in the room, from outside it.
  *
- * Fixed size and `flex: none`, so five of them fit at the 260px minimum with
- * room left for whatever is landing beside them. Big enough to hit without
- * looking away from the stream, which is the entire interaction.
- */
-.kb-together-react {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  line-height: 1;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  cursor: pointer;
-  transition: background 0.12s ease, transform 0.08s ease;
-}
-
-.kb-together-react:hover {
-  background: var(--kb-bg-hover);
-}
-
-.kb-together-react:active {
-  transform: scale(0.88);
-}
-
-/*
- * What just happened, beside the buttons.
- *
- * Right-aligned and allowed to shrink: the buttons are the fixed half. It
- * scrolls rather than wraps, because a second line would change the card's
- * height every time somebody reacted.
+ * Left of the doorway and allowed to shrink to nothing, because the doorway is
+ * the fixed half. One thing at a time: this is the trailing run and nothing
+ * else, so there is never a list to scroll or wrap.
  */
 .kb-together-live {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 4px;
   overflow: hidden;
 }
 
 /*
- * One reaction, or one burst of them.
+ * The pulse.
  *
- * Fades on its own over the display window rather than being removed abruptly,
- * so the surface empties quietly instead of blinking. `forwards` holds the
- * faded state for the moment between the animation ending and the heartbeat
- * pruning it.
+ * Fades over the display window rather than being removed abruptly, so the
+ * card empties quietly instead of blinking. `forwards` holds the faded state
+ * for the moment between the animation ending and the heartbeat pruning it -
+ * and pruning is what actually removes it, so nothing lingers as decoration
+ * once the reactions behind it have expired.
  */
 .kb-together-burst {
   flex: none;
@@ -2150,12 +2128,21 @@ a.kb-ghost-btn {
   }
 }
 
+/* Two or more people agreeing. The count, not the artwork, is the news. */
+.kb-together-count {
+  font-size: 10.5px;
+  font-weight: 800;
+  color: var(--kb-accent);
+  font-variant-numeric: tabular-nums;
+}
+
 /*
- * The ROOM button, and the people it opens.
+ * The way in.
  *
- * The button sits at the end of the reaction row so the row keeps one height
- * whether or not anything is landing. Small, because the reactions are the
- * thing you reach for and the roster is the thing you occasionally check.
+ * At the end of the row, so the row keeps one height whether or not anything
+ * is landing beside it. Reads as a destination rather than a toggle - there is
+ * no CLOSE state any more, because the thing it opens is somewhere you come
+ * back from rather than something you collapse.
  */
 .kb-together-open {
   flex: none;
@@ -2176,40 +2163,100 @@ a.kb-ghost-btn {
   background: var(--kb-bg-hover);
 }
 
+/* ---------- inside the room ---------- */
+
 /*
- * The roster.
+ * The title beside Back.
+ *
+ * Shares .kb-detail-head with group conversations deliberately: arriving in a
+ * room and opening a conversation are the same gesture, and they should not
+ * look like two different mechanisms.
+ */
+.kb-room-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.kb-room-channel {
+  font-size: 12.5px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-room-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 1px;
+  font-size: 10.5px;
+  color: var(--kb-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.kb-room-viewers {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * WATCHING TOGETHER · N.
+ *
+ * The one sentence the room exists to say, so it gets its own line rather than
+ * being folded into the header where the channel name would out-shout it.
+ */
+.kb-room-count {
+  margin: 8px 2px 6px;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  color: var(--kb-dim);
+}
+
+/*
+ * The people.
  *
  * A column rather than the wrapping row the destination card uses, because a
  * room can contain somebody the viewer has never met and those people need a
- * line of context under their name. Positioned relative so a user card opened
- * from here is measured against the whole panel-width card above it - the same
- * rule every other surface follows.
+ * line of context under their name. Scrolls on its own so the reaction bar
+ * below stays reachable however many people are here.
  */
-.kb-room {
-  margin-top: 6px;
+.kb-room-people {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  /* A user card opened from a row is measured against this, not the row. */
+  position: relative;
 }
 
 .kb-room-person {
   min-width: 0;
 }
 
+.kb-room-self {
+  padding: 2px 4px;
+  font-size: 11.5px;
+  color: var(--kb-dim);
+}
+
 /*
  * Somebody Kickback has no identity for.
  *
- * A room can reach two hops, and presence for a person you are not friends
- * with never arrives - so the roster names them from the room membership and
- * draws a neutral mark rather than inventing an avatar.
+ * A room reaches two hops, and presence for a person you are not friends with
+ * never arrives - so the list names them from the room membership and draws a
+ * neutral mark rather than inventing an avatar.
  */
 .kb-room-unknown {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 20px;
-  height: 20px;
+  width: 22px;
+  height: 22px;
   border-radius: 50%;
   font-size: 10px;
   font-weight: 800;
@@ -2222,12 +2269,12 @@ a.kb-ghost-btn {
  * One hop of context, and no more.
  *
  * "Friend of Jake" is what turns a name you do not recognise into somebody who
- * arrived through a person you trust. Indented under the name so it reads as
- * a caption rather than a second person.
+ * arrived through a person you trust. Indented under the name so it reads as a
+ * caption rather than a second person.
  */
 .kb-room-via {
   display: block;
-  margin-left: 26px;
+  margin-left: 28px;
   font-size: 10.5px;
   color: var(--kb-faint);
   overflow: hidden;
@@ -2235,16 +2282,83 @@ a.kb-ghost-btn {
   white-space: nowrap;
 }
 
-/* Two or more people agreeing. The count, not the artwork, is the news. */
-.kb-together-combo {
-  padding: 0 2px;
+/*
+ * What is happening, inside.
+ *
+ * A fixed-height lane above the buttons: it is empty most of the time, and a
+ * lane that collapsed when empty would make the reaction bar jump every time
+ * somebody pressed something.
+ */
+.kb-room-activity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  margin-top: 6px;
 }
 
-.kb-together-count {
+.kb-room-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  line-height: 1;
+  animation: kb-together-fade 8s linear forwards;
+}
+
+.kb-room-combo .kb-together-count {
+  font-size: 13px;
+}
+
+/*
+ * The buttons.
+ *
+ * Only in here, and bigger than they were on the card - this is the surface
+ * you came to use. Spread across the width so they can be hit without looking
+ * away from the stream, which is the entire interaction.
+ */
+.kb-room-react {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 6px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.kb-room-react-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 30px;
+  padding: 0;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+
+.kb-room-react-btn:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-room-react-btn:active {
+  transform: scale(0.88);
+}
+
+/*
+ * Who is here, in one line.
+ *
+ * The connected-component model is the one thing about a room that is not
+ * self-evident from looking at it, so it gets a sentence rather than a diagram.
+ */
+.kb-room-note {
+  padding: 0 2px 4px;
   font-size: 10.5px;
-  font-weight: 800;
-  color: var(--kb-accent);
-  font-variant-numeric: tabular-nums;
+  color: var(--kb-faint);
 }
 
 /*
@@ -2254,11 +2368,12 @@ a.kb-ghost-btn {
  * without animating.
  */
 @media (prefers-reduced-motion: reduce) {
-  .kb-together-burst {
+  .kb-together-burst,
+  .kb-room-combo {
     animation: none;
   }
 
-  .kb-together-react:active {
+  .kb-room-react-btn:active {
     transform: none;
   }
 }

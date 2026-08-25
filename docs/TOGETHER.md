@@ -11,6 +11,14 @@
 > reaction recipients are decided at write time rather than by read-time RLS;
 > and reactions are Kickback emotes counted by the existing combo engine rather
 > than a second implementation.
+>
+> **Superseded again by the UX correction** -
+> [automatic-stream-room-ux.md](checkpoints/automatic-stream-room-ux.md).
+> The reaction row and roster drawn on the Gravity card below are gone: the
+> card carries an ephemeral combo and a doorway, and the room is a distinct
+> view you enter and come back from. A room also now requires a **live
+> stream** - see `src/core/socialViewing.ts` - which is why two people sitting
+> on an offline channel no longer form one, or accrue shared watch time.
 
 The last step of **Presence → Social Gravity → JOIN → Together**.
 

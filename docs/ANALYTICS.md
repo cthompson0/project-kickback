@@ -556,6 +556,35 @@ That last row matters. The intervals are facts and are recorded either way; the
 *credit* is not. `from_join` is false and `attribution_id` is null for organic
 co-viewing, and `analytics_join_funnel_v` does not contain it at all.
 
+### A shared watch requires a live stream
+
+Being on `twitch.tv/lirik` and watching LIRIK are two different facts, and
+until 2026-08-24 everything downstream of presence treated them as one.
+
+Presence reports where a browser is - correctly, and that has not changed. What
+changed is that the shared-watch lifecycle no longer opens from presence alone:
+`updateTogether()` in the worker passes `socialChannel()`, which is the
+current channel **only when Twitch says a stream is running on it**. The rule
+lives in `src/core/socialViewing.ts` and is the same one that decides whether
+a Stream Room forms, so the panel and the database cannot disagree about what
+"watching together" meant.
+
+Uncertainty is not live. A cold cache, a Twitch outage and a channel nobody has
+asked about all report `unknown`, and none of them starts an interval. This
+undercounts - a live stream whose metadata has not arrived yet loses the first
+moments of a shared watch - and that is the intended direction. It is the same
+trade as everywhere else here: conservative undercounting over fabricated
+watch time.
+
+**A limitation in historical rows.** `watching_together_started` /
+`_ended` rows written before 2026-08-24 were produced by the presence-only
+rule, so a private-beta interval may record two people sitting on a channel
+with no stream on it. The rows are not distinguishable after the fact - nothing
+recorded the live state of the destination at the time - so **nothing has been
+rewritten**. Treat pre-2026-08-24 `together_duration` figures as an upper
+bound rather than a measurement. Rows from the reset before public launch
+(section 9) are unaffected, because there are none.
+
 ### Retention as a metric, not a judgement
 
 `post_social_retained` is true whenever the user was still on the destination

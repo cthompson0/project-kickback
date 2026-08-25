@@ -7,6 +7,7 @@ import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
 import { SocialGravity } from './components/SocialGravity'
+import { StreamRoom } from './components/StreamRoom'
 import { gravityOpportunities, socialGravity } from '../core/socialGravity'
 import { resolveArm } from '../core/experiment'
 import { FindFriends } from './components/FindFriends'
@@ -73,6 +74,16 @@ export function KickbackPanel({
   const [accountOpen, setAccountOpen] = useState(false)
   const [finding, setFinding] = useState(false)
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
+  /*
+   * The Stream Room the viewer has walked into, by channel login.
+   *
+   * Held here rather than in the card, because the room is a VIEW: it takes
+   * over the body the way a group conversation does, and Back returns to the
+   * map with the card exactly as it was. The card is not unmounted while the
+   * room is open, so HERE, its count and its people are still there on the way
+   * back rather than rebuilt.
+   */
+  const [openRoomChannel, setOpenRoomChannel] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const { layout, gesturing, sized, onDragStart, onResizeStart, reset } = usePanelLayout({
@@ -93,8 +104,24 @@ export function KickbackPanel({
     onResizeStart(edge)(event)
   }
 
-  // A conversation is the one view worth filling the whole height budget with.
-  const chatOpen = tab === 'groups' && openGroupId !== null && !finding
+  /*
+   * The room is only open while the viewer is still on that channel.
+   *
+   * Derived rather than stored, so leaving the channel closes it without
+   * anything having to notice: presence already moved, and a room for a stream
+   * you walked away from is a room you are not in. Rooms also require a live
+   * stream, so a stream ending closes it the same way, through the same
+   * derivation - see roomMembers, which the worker empties.
+   */
+  const roomOpen =
+    tab === 'friends' &&
+    !finding &&
+    openRoomChannel !== null &&
+    openRoomChannel === view.channel &&
+    view.roomMembers.length > 0
+
+  // A conversation and a room are the two views worth the whole height budget.
+  const chatOpen = (tab === 'groups' && openGroupId !== null && !finding) || roomOpen
 
   useEffect(() => writeCollapsed(collapsed), [collapsed])
 
@@ -498,7 +525,28 @@ export function KickbackPanel({
           </div>
 
           <div className={`kb-body${chatOpen ? ' kb-body-chat' : ''}`}>
-            {finding ? (
+            {roomOpen && openRoomChannel ? (
+              /*
+               * Arriving somewhere.
+               *
+               * Rendered instead of the map rather than inside it, which is the
+               * whole correction: the previous version expanded a section of a
+               * card and called that a room. Nothing is created by getting
+               * here - membership is the connected component the server already
+               * computes from presence - so Back is genuinely just going back.
+               */
+              <StreamRoom
+                channel={openRoomChannel}
+                members={view.roomMembers}
+                friends={friends}
+                reactions={view.togetherReactions}
+                metadata={view.channelMetadata?.[openRoomChannel]}
+                selfId={identity?.userId ?? null}
+                client={client}
+                cardContext={cardContext}
+                onBack={() => setOpenRoomChannel(null)}
+              />
+            ) : finding ? (
               <FindFriends
                 client={client}
                 outgoingRequests={view.outgoingRequests}
@@ -541,6 +589,7 @@ export function KickbackPanel({
                     metadata={view.channelMetadata}
                     reactions={view.togetherReactions}
                     roomMembers={view.roomMembers}
+                    onOpenRoom={setOpenRoomChannel}
                   />
                 ) : (
                   /* The control arm keeps the flat list it always had. */
