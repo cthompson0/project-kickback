@@ -60,10 +60,8 @@ function draw(world: SimWorld): string {
         }}
         metadata={channelMetadata(world, Date.now())}
         reactions={state.togetherReactions}
-        roomMembers={state.roomMembers}
         roomMessages={state.roomMessages}
         mutedUserIds={state.mutedUserIds}
-        roomUnread={state.roomUnread}
         onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
@@ -86,6 +84,7 @@ function drawRoom(world: SimWorld): string {
         reactions={state.togetherReactions}
         messages={state.roomMessages}
         mutedUserIds={state.mutedUserIds}
+        peers={state.roomPeers}
         metadata={channelMetadata(world, Date.now())[channel]}
         selfId={state.identity?.userId ?? null}
         client={handle.client as KickbackClient}
@@ -128,10 +127,11 @@ describe('A ↔ B ↔ C: a friend of a friend is in the room', () => {
     expect(distant.viaUserId).toBe('sim-b')
   })
 
-  it('offers a way into the room from the card', () => {
+  it('offers nothing permanent on the card', () => {
+    // The contextual streamer tab is the way in; the card carries the live
+    // social signal and nothing else.
     const html = draw(world)
-    expect(html).toContain('kb-together-open')
-    // And nothing about who is in it: the card is a doorway, not a roster.
+    expect(html).not.toContain('kb-together-open')
     expect(html).not.toContain('kb-room-person')
   })
 
@@ -142,6 +142,7 @@ describe('A ↔ B ↔ C: a friend of a friend is in the room', () => {
      * her name, and the one hop of context that makes it mean anything.
      */
     const html = drawRoom(world)
+    // You, Bianca and the person reached through her.
     expect(html).toContain('WATCHING TOGETHER · 3')
     expect(html).toContain('Bianca')
     // The two-hop person has no presence, so the panel can only name them from
@@ -331,10 +332,8 @@ describe('reactions in the lab', () => {
           }}
           metadata={channelMetadata(world, Date.now())}
           reactions={state.togetherReactions}
-          roomMembers={state.roomMembers}
           roomMessages={state.roomMessages}
           mutedUserIds={state.mutedUserIds}
-          roomUnread={state.roomUnread}
           onOpenRoom={() => {}}
         />
       </ChannelNameProvider>,
@@ -366,6 +365,7 @@ describe('reactions in the lab', () => {
           reactions={handle.client.getState().togetherReactions}
           messages={handle.client.getState().roomMessages}
           mutedUserIds={handle.client.getState().mutedUserIds}
+          peers={handle.client.getState().roomPeers}
           selfId={handle.client.getState().identity?.userId ?? null}
           client={handle.client as KickbackClient}
           cardContext={{
@@ -406,6 +406,7 @@ describe('reactions in the lab', () => {
           reactions={handle.client.getState().togetherReactions}
           messages={handle.client.getState().roomMessages}
           mutedUserIds={handle.client.getState().mutedUserIds}
+          peers={handle.client.getState().roomPeers}
           selfId={handle.client.getState().identity?.userId ?? null}
           client={handle.client as KickbackClient}
           cardContext={{
@@ -423,7 +424,6 @@ describe('reactions in the lab', () => {
      * person did, and the conversation already carries it.
      */
     expect(inside).not.toContain('kb-combo-active')
-    expect(inside).not.toContain('×')
     expect(inside).not.toMatch(/broke|breaker/i)
   })
 
@@ -464,7 +464,6 @@ describe('a room does NOT require something to watch', () => {
     expect(html).toContain('1 friend watching with you')
     expect(html).toContain('Bianca')
     expect(html).toContain('OFFLINE')
-    expect(html).toContain('kb-together-open')
   })
 
   it('forms even when Twitch has not answered', () => {
@@ -483,7 +482,7 @@ describe('a room does NOT require something to watch', () => {
 
     expect(members(live)).toHaveLength(1)
     expect(members(ended)).toHaveLength(1)
-    expect(draw(ended)).toContain('kb-together-open')
+    expect(draw(ended)).toContain('1 friend watching with you')
   })
 
   it('still ends when the PEOPLE go, which is the thing that matters', () => {

@@ -50,6 +50,15 @@ interface StreamSessionProps {
   reactions: readonly TogetherReaction[]
   messages: readonly RoomMessage[]
   mutedUserIds: readonly string[]
+  /**
+   * Direct friends presence proves are here.
+   *
+   * The header counts the union of this and the server's membership: a session
+   * can exist on presence alone while the graph query is still in the air, and
+   * counting only the server's answer showed "WATCHING TOGETHER · 1" to
+   * somebody who was demonstrably not alone.
+   */
+  peers: readonly string[]
   metadata?: ChannelMetadata
   selfId: string | null
   client: KickbackClient
@@ -63,6 +72,7 @@ export function StreamSession({
   reactions,
   messages,
   mutedUserIds,
+  peers,
   metadata,
   selfId,
   client,
@@ -160,7 +170,17 @@ export function StreamSession({
   const activeKey = active ? emoteKey(active.emote) : null
   const activeCount = active?.count ?? 0
   const reportedComboRef = useRef<string | null>(null)
-  const participants = members.length + 1
+  /*
+   * Everybody here, INCLUDING the viewer.
+   *
+   * "WATCHING TOGETHER · 2" for you and one other person, which complements
+   * the card's "1 friend watching with you" - Gravity counts other people, the
+   * session counts everybody in it.
+   *
+   * The union, because either source can be ahead: presence sees a direct
+   * friend immediately, and the server sees anybody reached through one.
+   */
+  const participants = Math.max(members.length, peers.length) + 1
 
   useEffect(() => {
     if (!activeKey) {

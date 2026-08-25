@@ -2500,26 +2500,53 @@ a.kb-ghost-btn {
 }
 
 /*
- * The combo, in the status lane on the right.
+ * The combo, and the way in, in the status lane on the right.
  *
- * This is the one thing the session leaks outward, and it lives here rather
- * than on the left because the left is identity: who is streaming, what they
- * are playing, who is there. Those must not move. A combo appears and vanishes
- * within eight seconds, so it belongs with the other ephemeral numbers - and
- * `flex: none` plus tabular digits mean it can grow from x2 to x9 without
- * shifting anything beside it.
+ * This is the one thing the session leaks outward, and it is a CONTROL: a
+ * combo means something is happening right now, so the useful thing to offer
+ * beside it is a way to join it. It lives here rather than on the left because
+ * the left is identity - who is streaming, what they are playing, who is there
+ * - and that must not move.
+ *
+ * It appears and vanishes within eight seconds, so everything about it is
+ * built not to shift its neighbours: `flex: none`, tabular digits, and a
+ * fixed-height row. There is no permanent button here to leave a hole behind.
  */
 .kb-gravity-combo {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
   flex: none;
   line-height: 1;
+  padding: 1px 5px 1px 3px;
+  border: 1px solid var(--kb-line);
+  border-radius: 999px;
+  background: var(--kb-bg-raised);
+  cursor: pointer;
   animation: kb-together-fade 8s linear forwards;
+}
+
+.kb-gravity-combo:hover {
+  background: var(--kb-bg-hover);
+  border-color: var(--kb-accent);
+}
+
+.kb-gravity-combo:focus-visible {
+  outline: 2px solid var(--kb-accent);
+  outline-offset: 1px;
 }
 
 .kb-gravity-combo .kb-together-count {
   font-size: 10px;
+}
+
+/* The invitation. Small, and the only words on this side of the card. */
+.kb-gravity-cta {
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: var(--kb-accent);
+  white-space: nowrap;
 }
 
 .kb-gravity-viewers {

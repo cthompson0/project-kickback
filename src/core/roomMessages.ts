@@ -51,6 +51,17 @@ export interface RoomMessage {
   body: string
   /** Epoch ms, from the server, so everybody orders them the same way. */
   at: number
+  /**
+   * Epoch ms on THIS machine, when this client learned of it. Zero for
+   * anything read back as history.
+   *
+   * Ordering and recency are different questions and must use different
+   * clocks - see the same field on TogetherReaction. History gets zero rather
+   * than a timestamp because a message fetched after a refresh did not just
+   * happen, however recently the server wrote it: the activity window means
+   * "arrived while I was watching", and reading it back is not that.
+   */
+  receivedAt: number
 }
 
 /** As long as a message is worth keeping. Matches the sweep in 0021. */
@@ -77,7 +88,7 @@ export const MAX_MESSAGE_LENGTH = 280
  * keeps anything malformed off somebody's screen even if the server's own
  * checks were ever loosened.
  */
-export function parseRoomMessage(value: unknown): RoomMessage | null {
+export function parseRoomMessage(value: unknown, receivedAt = Date.now()): RoomMessage | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as Record<string, unknown>
 
@@ -98,13 +109,23 @@ export function parseRoomMessage(value: unknown): RoomMessage | null {
     channel,
     body,
     at: Number.isFinite(time) ? time : Date.now(),
+    receivedAt,
   }
 }
 
+/**
+ * A page of history.
+ *
+ * `receivedAt` is zero for every row: these did not arrive while the viewer
+ * was watching, so none of them is "happening now" however recently the server
+ * wrote them. They are still ordered, still rendered, and still counted by the
+ * per-message combo badges - only the eight-second activity window excludes
+ * them, which is what stops a refresh flashing somebody else's old combo.
+ */
 export function parseRoomMessages(value: unknown): RoomMessage[] {
   if (!Array.isArray(value)) return []
   return value.flatMap((row) => {
-    const message = parseRoomMessage(row)
+    const message = parseRoomMessage(row, 0)
     return message ? [message] : []
   })
 }
@@ -289,7 +310,7 @@ export interface RoomActivity {
 
 export function roomActivity(
   reactions: readonly TogetherReaction[],
-  messages: readonly { id: string; senderId: string; channel: string; body: string; at: number }[],
+  messages: readonly RoomMessage[],
   channel: string | null,
   displayName: (userId: string) => string,
   now: number = Date.now(),
@@ -306,7 +327,12 @@ export function roomActivity(
    * data, which is exactly why the two lifetimes are separate constants.
    */
   const recent = messages.filter(
-    (entry) => entry.channel === login && now - entry.at < ACTIVITY_TTL_MS,
+    // Against OUR clock, not the server's: see receivedAt. Eight seconds is a
+    // very small tolerance for two unsynchronised clocks, and comparing them
+    // meant a machine a few seconds behind Supabase never saw an activity
+    // window at all - the session's per-message badge still counted the combo,
+    // and every window-based surface silently showed nothing.
+    (entry) => entry.channel === login && now - entry.receivedAt < ACTIVITY_TTL_MS,
   )
 
   const stream = comboStream(live, recent, displayName)

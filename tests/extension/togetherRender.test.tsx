@@ -50,6 +50,7 @@ const reaction = (over: Partial<TogetherReaction> = {}): TogetherReaction => ({
   channel: 'lirik',
   reaction: 'lol',
   at: Date.now(),
+  receivedAt: over.at ?? Date.now(),
   ...over,
 })
 
@@ -59,6 +60,7 @@ const message = (over: Partial<RoomMessage> = {}): RoomMessage => ({
   channel: 'lirik',
   body: 'holy shit',
   at: Date.now(),
+  receivedAt: over.at ?? Date.now(),
   ...over,
 })
 
@@ -78,14 +80,18 @@ const CLIENT = {
   setUserMuted: () => {},
 } as unknown as KickbackClient
 
-/** The map, as the Friends tab draws it. */
+/**
+ * The map, as the Friends tab draws it.
+ *
+ * No membership and no unread: the card depends on neither any more. What is
+ * in the room decides the contextual TAB, which these cases do not render, and
+ * unread is drawn by that tab.
+ */
 function render(
   friends: Friend[],
   local: Activity,
   reactions: TogetherReaction[] = [],
-  roomMembers: RoomMember[] = [],
   messages: RoomMessage[] = [],
-  unread = 0,
 ) {
   return renderToStaticMarkup(
     <ChannelNameProvider people={[]} seen={{}}>
@@ -100,10 +106,8 @@ function render(
           outgoingRequestIds: new Set(),
         }}
         reactions={reactions}
-        roomMembers={roomMembers}
         roomMessages={messages}
         mutedUserIds={[]}
-        roomUnread={unread}
         onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
@@ -127,6 +131,7 @@ function renderSession(
         reactions={reactions}
         messages={messages}
         mutedUserIds={mutedUserIds}
+        peers={roomMembers.map((member) => member.userId)}
         selfId="me"
         client={CLIENT}
         cardContext={{
@@ -149,14 +154,20 @@ describe('the card outside the session', () => {
     expect(html).not.toContain('kb-together')
   })
 
-  it('grows a doorway on the card the viewer is standing in', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [member('jake'), member('matt')])
+  it('carries no permanent way into the session', () => {
+    /*
+     * The ROOM button is gone. It was a second, always-present doorway beside
+     * the contextual streamer tab, and it carried a duplicate unread badge -
+     * so one waiting message was announced twice in the same panel.
+     */
+    const html = render(TWO_ON_LIRIK, ON('lirik'))
 
     expect((html.match(/class="kb-gravity-card/g) ?? []).length).toBe(1)
     expect(html).toContain('kb-gravity-card-here')
     expect(html).toContain('2 friends watching with you')
-    expect(html).toContain('kb-together-open')
-    expect(html).toContain('ROOM')
+    expect(html).not.toContain('kb-together-open')
+    expect(html).not.toContain('ROOM')
+    expect(html).not.toContain('kb-together-unread')
     expect(html).not.toContain('kb-join')
   })
 
@@ -166,14 +177,14 @@ describe('the card outside the session', () => {
      * middle of the social map made it a thing to operate rather than a thing
      * to read. Everything you can DO is inside.
      */
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [member('jake')])
+    const html = render(TWO_ON_LIRIK, ON('lirik'))
     expect(html).not.toContain('kb-together-react')
     expect(html).not.toContain('kb-session-react')
     expect(html).not.toContain('kb-composer')
   })
 
   it('does not list the people in the room', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [member('jake'), member('sarah', 2, 'jake')])
+    const html = render(TWO_ON_LIRIK, ON('lirik'))
     expect(html).not.toContain('kb-room-person')
     expect(html).not.toContain('Friend of')
   })
@@ -184,13 +195,13 @@ describe('the card outside the session', () => {
      * still draws the card and still says who is here; it just does not
      * manufacture a door to somewhere that does not exist.
      */
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [])
+    const html = render(TWO_ON_LIRIK, ON('lirik'))
     expect(html).toContain('2 friends watching with you')
     expect(html).not.toContain('kb-together-open')
   })
 
   it('does not appear on a destination the viewer is not on', () => {
-    const html = render(TWO_ON_LIRIK, ON('xqc'), [], [member('jake')])
+    const html = render(TWO_ON_LIRIK, ON('xqc'))
     expect(html).toContain('kb-join')
     expect(html).not.toContain('kb-together')
   })
@@ -206,7 +217,7 @@ describe('the activity preview', () => {
      * once. The threshold is the combo engine's own - there is no second
      * opinion here about what counts.
      */
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [reaction({ senderId: 'jake' })], [member('jake')])
+    const html = render(TWO_ON_LIRIK, ON('lirik'), [reaction({ senderId: 'jake' })])
     expect(html).not.toContain('kb-gravity-combo')
     expect(html).not.toContain('kb-together-count')
   })
@@ -217,10 +228,12 @@ describe('the activity preview', () => {
       TWO_ON_LIRIK,
       ON('lirik'),
       [reaction({ senderId: 'jake', at: now }), reaction({ senderId: 'matt', at: now + 200 })],
-      [member('jake'), member('matt')],
     )
     expect((html.match(/kb-gravity-combo/g) ?? []).length).toBe(1)
     expect(html).toContain('×2')
+    // A combo means something is happening; the useful thing to offer beside
+    // it is a way to join it.
+    expect(html).toContain('Join Room')
   })
 
   it('counts an emote-only message alongside a reaction', () => {
@@ -234,7 +247,6 @@ describe('the activity preview', () => {
       TWO_ON_LIRIK,
       ON('lirik'),
       [reaction({ senderId: 'jake', reaction: 'lol', at: now })],
-      [member('jake'), member('matt')],
       [message({ senderId: 'matt', body: ':lol:', at: now + 100 })],
     )
     expect(html).toContain('×2')
@@ -246,7 +258,6 @@ describe('the activity preview', () => {
       TWO_ON_LIRIK,
       ON('lirik'),
       [],
-      [member('jake')],
       [message({ senderId: 'jake', body: 'a secret only the room should see', at: now })],
     )
     expect(html).not.toContain('secret')
@@ -261,7 +272,6 @@ describe('the activity preview', () => {
       TWO_ON_LIRIK,
       ON('lirik'),
       [reaction({ senderId: 'jake', at: now })],
-      [member('jake'), member('matt')],
       [message({ senderId: 'matt', body: 'what happened', at: now + 100 })],
     )
     expect(html).not.toContain('kb-together-burst')
@@ -277,7 +287,6 @@ describe('the activity preview', () => {
         reaction({ senderId: 'jake', at: now + 100 }),
         reaction({ senderId: 'jake', at: now + 200 }),
       ],
-      [member('jake')],
     )
     expect(html).not.toContain('kb-together-count')
   })
@@ -294,15 +303,14 @@ describe('the activity preview', () => {
         reaction({ senderId: 'jake', at: Date.now() - ACTIVITY_TTL_MS - 1 }),
         reaction({ senderId: 'matt', at: Date.now() - ACTIVITY_TTL_MS - 1 }),
       ],
-      [member('jake'), member('matt')],
     )
-    expect(html).toContain('kb-together-open')
-    expect(html).not.toContain('kb-together-burst')
+    expect(html).not.toContain('kb-gravity-combo')
+    expect(html).not.toContain('Join Room')
     expect(html).not.toContain('×2')
   })
 
   it('ignores a reaction from another channel', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [reaction({ channel: 'xqc' })], [member('jake')])
+    const html = render(TWO_ON_LIRIK, ON('lirik'), [reaction({ channel: 'xqc' })])
     expect(html).not.toContain('kb-together-burst')
   })
 
@@ -312,7 +320,6 @@ describe('the activity preview', () => {
       [friend('jake', 'Jake', 'lirik')],
       ON('lirik'),
       [reaction({ senderId: 'jake', at: now }), reaction({ senderId: 'sarah', at: now + 100 })],
-      [member('jake'), member('sarah', 2, 'jake')],
     )
     const preview = html.slice(html.indexOf('kb-together'))
     expect(preview).toContain('×2')
@@ -321,23 +328,19 @@ describe('the activity preview', () => {
   })
 })
 
-describe('unread on the doorway', () => {
-  it('says how many are waiting', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [member('jake')], [], 3)
-    expect(html).toContain('kb-together-unread')
-    expect(html).toContain('>3<')
-  })
-
-  it('caps the display', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [member('jake')], [], 47)
-    expect(html).toContain('9+')
-    expect(html).not.toContain('47')
-  })
-
-  it('says nothing when nothing is waiting', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [member('jake')], [], 0)
-    expect(html).toContain('kb-together-open')
+describe('unread belongs to the tab, not the card', () => {
+  it('never draws a count on the card, however much is waiting', () => {
+    /*
+     * One waiting message, one badge. It used to be announced twice: on the
+     * contextual streamer tab AND on a ROOM button beside it.
+     *
+     * The two are different facts and only one of them is content: unread is
+     * something waiting for you, and the card's combo is something happening
+     * right now. Keeping them on separate surfaces is what keeps them legible.
+     */
+    const html = render(TWO_ON_LIRIK, ON('lirik'))
     expect(html).not.toContain('kb-together-unread')
+    expect(html).not.toContain('>7<')
   })
 })
 
@@ -417,7 +420,7 @@ describe('inside the session', () => {
       reaction({ senderId: 'jake', at: now }),
       reaction({ senderId: 'matt', at: now + 200 }),
     ]
-    const outside = render(TWO_ON_LIRIK, ON('lirik'), reactions, [member('jake'), member('matt')])
+    const outside = render(TWO_ON_LIRIK, ON('lirik'), reactions)
     const inside = renderSession(TWO_ON_LIRIK, [member('jake'), member('matt')], [], reactions)
 
     expect(outside).toContain('×2')
@@ -545,7 +548,7 @@ describe('the surfaces stay small', () => {
 
 describe('the session survives everything failing around it', () => {
   it('draws the card unchanged when no membership answer arrived', () => {
-    const html = render(TWO_ON_LIRIK, ON('lirik'), [], [])
+    const html = render(TWO_ON_LIRIK, ON('lirik'))
     expect(html).toContain('2 friends watching with you')
     expect(html).toContain('Jake')
   })

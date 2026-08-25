@@ -100,6 +100,20 @@ export interface TogetherReaction {
   reaction: Reaction
   /** Epoch ms, from the server, so everybody orders them the same way. */
   at: number
+  /**
+   * Epoch ms on THIS machine, when this client learned of it.
+   *
+   * Ordering and recency are different questions and must use different
+   * clocks. Ordering has to be the server's, or two clients would disagree
+   * about which emote came first and therefore about the combo. Recency has to
+   * be ours, because "is this happening now" is a question about the person
+   * looking at the screen.
+   *
+   * Comparing `at` against Date.now() conflated them, and eight seconds is a
+   * very small tolerance for two unsynchronised clocks: a machine a few
+   * seconds behind Supabase never saw an activity window at all.
+   */
+  receivedAt: number
 }
 
 /** Reactions still worth showing on this channel, oldest first. */
@@ -116,9 +130,12 @@ export function liveReactions(
 ): TogetherReaction[] {
   if (!channel) return []
   const login = channel.toLowerCase()
-  return reactions
-    .filter((entry) => entry.channel === login && now - entry.at < ttl)
-    .sort((a, b) => a.at - b.at)
+  return (
+    reactions
+      // Recency against OUR clock, ordering by the server's. See receivedAt.
+      .filter((entry) => entry.channel === login && now - entry.receivedAt < ttl)
+      .sort((a, b) => a.at - b.at)
+  )
 }
 
 /**
@@ -170,7 +187,7 @@ export function pruneReactions(
   now: number,
   ttl = REACTION_TTL_MS,
 ): TogetherReaction[] {
-  return reactions.filter((entry) => now - entry.at < ttl)
+  return reactions.filter((entry) => now - entry.receivedAt < ttl)
 }
 
 /**
@@ -202,5 +219,7 @@ export function parseReaction(value: unknown): TogetherReaction | null {
     channel,
     reaction,
     at: Number.isFinite(time) ? time : Date.now(),
+    // A reaction is only ever delivered live, so learning of it IS now.
+    receivedAt: Date.now(),
   }
 }

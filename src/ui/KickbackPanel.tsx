@@ -673,6 +673,7 @@ export function KickbackPanel({
                 reactions={view.togetherReactions}
                 messages={view.roomMessages}
                 mutedUserIds={view.mutedUserIds}
+                peers={view.roomPeers}
                 metadata={view.channelMetadata?.[sessionChannel]}
                 selfId={identity?.userId ?? null}
                 client={client}
@@ -720,11 +721,8 @@ export function KickbackPanel({
                     cardContext={cardContext}
                     metadata={view.channelMetadata}
                     reactions={view.togetherReactions}
-                    roomMembers={view.roomMembers}
                     roomMessages={view.roomMessages}
                     mutedUserIds={view.mutedUserIds}
-                    roomUnread={view.roomUnread}
-                    roomPeers={view.roomPeers}
                     onOpenRoom={() => chooseTab('session')}
                   />
                 ) : (

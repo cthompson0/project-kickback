@@ -275,6 +275,8 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       channel: here,
       reaction,
       at,
+      // The lab injects at the boundary realtime would, so arriving IS now.
+      receivedAt: Date.now(),
     })
     publish()
   }
@@ -309,6 +311,7 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       channel: here,
       body,
       at,
+      receivedAt: Date.now(),
     })
     publish()
   }

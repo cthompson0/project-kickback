@@ -167,6 +167,7 @@ const reaction = (over: Partial<TogetherReaction> = {}): TogetherReaction => ({
   channel: 'lirik',
   reaction: 'lol',
   at: NOW,
+  receivedAt: over.at ?? NOW,
   ...over,
 })
 

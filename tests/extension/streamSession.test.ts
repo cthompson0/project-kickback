@@ -41,6 +41,7 @@ const message = (over: Partial<RoomMessage> = {}): RoomMessage => ({
   channel: CHANNEL,
   body: 'holy shit',
   at: NOW,
+  receivedAt: over.at ?? NOW,
   ...over,
 })
 
@@ -50,6 +51,7 @@ const reaction = (over: Partial<TogetherReaction> = {}): TogetherReaction => ({
   channel: CHANNEL,
   reaction: 'lol',
   at: NOW,
+  receivedAt: over.at ?? NOW,
   ...over,
 })
 
@@ -119,7 +121,8 @@ describe('what a message is, and how long', () => {
         body: 'hi',
         created_at: new Date(NOW).toISOString(),
       }),
-    ).toEqual({ id: 'a', senderId: 'b', channel: CHANNEL, body: 'hi', at: NOW })
+      // Arrival is stamped on OUR clock; see receivedAt.
+    ).toMatchObject({ id: 'a', senderId: 'b', channel: CHANNEL, body: 'hi', at: NOW })
   })
 
   it('belongs to one channel', () => {

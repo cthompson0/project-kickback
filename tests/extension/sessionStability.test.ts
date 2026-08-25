@@ -35,6 +35,7 @@ const message = (over: Partial<RoomMessage> = {}): RoomMessage => ({
   channel: CHANNEL,
   body: ':lol:',
   at: NOW,
+  receivedAt: over.at ?? NOW,
   ...over,
 })
 
@@ -344,7 +345,16 @@ describe('one combo stream', () => {
 
   it('counts a reaction and an emote message as the same run', () => {
     const activity = roomActivity(
-      [{ id: 'r', senderId: 'jake', channel: CHANNEL, reaction: 'lol', at: NOW }],
+      [
+        {
+          id: 'r',
+          senderId: 'jake',
+          channel: CHANNEL,
+          reaction: 'lol',
+          at: NOW,
+          receivedAt: NOW,
+        },
+      ],
       [message({ id: 'm', senderId: 'matt', body: ':lol:', at: NOW + 100 })],
       CHANNEL,
       (id) => id,

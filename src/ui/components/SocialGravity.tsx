@@ -11,10 +11,8 @@ import type { RoomMessage } from '../../core/roomMessages'
 import { COMBO_MIN_DISPLAY } from '../../core/combos'
 import { withoutMutedSenders } from '../../core/mute'
 import { EmoteImage } from './EmoteImage'
-import type { RoomMember } from '../../core/streamRoom'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
-import { Together } from './Together'
 import { avatarTint } from '../avatarTint'
 import { JoinButton } from './JoinButton'
 import { PersonRow } from './PersonRow'
@@ -68,28 +66,9 @@ interface SocialGravityProps {
    * surface still shows who is here, because that comes from presence.
    */
   reactions?: readonly TogetherReaction[]
-  /**
-   * The connected social component on the channel the viewer is on.
-   *
-   * Wider than the HERE count, which is the viewer's own direct friends: this
-   * can include somebody two hops away who arrived through a friend. Empty
-   * whenever the server has not answered, which renders as the card that
-   * shipped before rooms existed.
-   */
-  roomMembers?: readonly RoomMember[]
   /** The conversation, for the activity preview only. Never rendered as text. */
   roomMessages?: readonly RoomMessage[]
   mutedUserIds?: readonly string[]
-  /** Messages waiting in that session. */
-  roomUnread?: number
-  /**
-   * Direct friends presence already proves are here.
-   *
-   * Availability does not wait on the server to rediscover them; see
-   * background/index.ts. The server's membership is still what decides who a
-   * message reaches.
-   */
-  roomPeers?: readonly string[]
   /**
    * Ask the panel to open the Stream Room for a channel.
    *
@@ -219,11 +198,8 @@ function DestinationCard({
   section,
   meta,
   reactions,
-  roomMembers,
   roomMessages,
   mutedUserIds,
-  roomUnread,
-  roomPeers,
   client,
   cardContext,
   openCardId,
@@ -233,11 +209,8 @@ function DestinationCard({
   section: GravitySection<Friend>
   meta?: ChannelMetadata
   reactions?: readonly TogetherReaction[]
-  roomMembers?: readonly RoomMember[]
   roomMessages?: readonly RoomMessage[]
   mutedUserIds?: readonly string[]
-  roomUnread?: number
-  roomPeers?: readonly string[]
   client: KickbackClient
   cardContext: UserCardContext
   openCardId: string | null
@@ -387,11 +360,31 @@ function DestinationCard({
              * social activity sits with the other ephemeral numbers, compact
              * enough that it appears and disappears without shifting anything.
              */}
-            {combo && (
-              <span className="kb-gravity-combo" aria-live="polite" key={`${combo.emote.id}:${combo.count}`}>
+            {combo && section.channel && onOpenRoom && (
+              /*
+               * The contextual doorway, and the ONLY one on this card.
+               *
+               * A permanent ROOM button used to live on the left. It was
+               * redundant - the streamer tab is the persistent way in and owns
+               * the unread count - and it competed with the destination and
+               * the friends for the eye.
+               *
+               * This is the other job: something is happening RIGHT NOW, jump
+               * into it. So it exists only while a real combo does, disappears
+               * with it, and carries no unread of its own. A button rather
+               * than a decorated span, because it is a thing you can press.
+               */
+              <button
+                type="button"
+                className="kb-gravity-combo"
+                key={`${combo.emote.id}:${combo.count}`}
+                title="Join the conversation"
+                onClick={() => onOpenRoom(section.channel!)}
+              >
                 <EmoteImage emote={combo.emote} size={15} />
                 <span className="kb-together-count">×{combo.count}</span>
-              </span>
+                <span className="kb-gravity-cta">Join Room →</span>
+              </button>
             )}
 
             {live ? (
@@ -443,31 +436,17 @@ function DestinationCard({
       )}
 
       {/*
-       * The way into the room, for the channel the viewer is standing on.
+       * THE PERMANENT ROOM BUTTON USED TO BE HERE.
        *
-       * Either kind of evidence will do, and that is the arrival fix.
+       * It was a second, always-present way into a session the contextual
+       * streamer tab already offers - and it carried a duplicate unread badge,
+       * so one waiting message was announced twice in the same panel.
        *
-       * A direct friend whose authenticated presence puts them here is not
-       * less real than one the server has confirmed, and waiting for the graph
-       * query to rediscover them cost a round trip that kept failing - the
-       * card said "1 friend watching with you" and offered nowhere to go.
-       *
-       * `roomPeers` is presence; `roomMembers` is the server, and it is what
-       * adds anybody reached THROUGH a friend. The client never invents the
-       * second kind, and message recipients are still decided server-side.
+       * Unread belongs to the tab, because unread is content waiting for you.
+       * The card's job is the live social signal, and that is the combo CTA in
+       * the status lane above: it appears only while something is happening
+       * and leaves with it.
        */}
-      {here &&
-        section.channel &&
-        onOpenRoom &&
-        ((roomMembers?.length ?? 0) > 0 || (roomPeers?.length ?? 0) > 0) && (
-          <Together
-            channel={section.channel}
-            members={roomMembers ?? []}
-            peers={roomPeers?.length ?? 0}
-            unread={roomUnread ?? 0}
-            onOpen={() => onOpenRoom(section.channel!)}
-          />
-        )}
 
       <div className="kb-gravity-people">
         {section.friends.map((friend) => (
@@ -493,11 +472,8 @@ export function SocialGravity({
   cardContext,
   metadata,
   reactions,
-  roomMembers,
   roomMessages,
   mutedUserIds,
-  roomUnread,
-  roomPeers,
   onOpenRoom,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
@@ -539,11 +515,8 @@ export function SocialGravity({
               section={section}
               meta={section.channel ? metadata?.[section.channel] : undefined}
               reactions={section.kind === 'here' ? reactions : undefined}
-              roomMembers={section.kind === 'here' ? roomMembers : undefined}
               roomMessages={section.kind === 'here' ? roomMessages : undefined}
               mutedUserIds={mutedUserIds}
-              roomUnread={section.kind === 'here' ? roomUnread : undefined}
-              roomPeers={section.kind === 'here' ? roomPeers : undefined}
               client={client}
               cardContext={cardContext}
               openCardId={openCardId}

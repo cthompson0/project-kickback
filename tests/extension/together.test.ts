@@ -52,6 +52,7 @@ const reaction = (over: Partial<TogetherReaction> = {}): TogetherReaction => ({
   channel: 'lirik',
   reaction: 'lol',
   at: NOW,
+  receivedAt: over.at ?? NOW,
   ...over,
 })
 
@@ -168,7 +169,7 @@ describe('reading a reaction row', () => {
       reaction: 'fire',
       created_at: new Date(NOW).toISOString(),
     })
-    expect(parsed).toEqual({ id: 'abc', senderId: 'jake', channel: 'lirik', reaction: 'fire', at: NOW })
+    expect(parsed).toMatchObject({ id: 'abc', senderId: 'jake', channel: 'lirik', reaction: 'fire', at: NOW })
   })
 
   it('drops anything it cannot render', () => {

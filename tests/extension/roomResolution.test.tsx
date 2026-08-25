@@ -104,8 +104,17 @@ const FRIEND_ROW: Friend = {
   } as Presence,
 }
 
-/** The HERE card, with whatever membership the server has confirmed. */
-function drawCard(roomMembers: Array<{ userId: string; hops: number; viaUserId: string | null }>) {
+/** The HERE card, with whatever the session is currently doing. */
+function drawCard(
+  reactions: Array<{
+    id: string
+    senderId: string
+    channel: string
+    reaction: 'lol'
+    at: number
+    receivedAt: number
+  }> = [],
+) {
   return renderToStaticMarkup(
     <ChannelNameProvider people={[]} seen={{}}>
       <SocialGravity
@@ -119,8 +128,9 @@ function drawCard(roomMembers: Array<{ userId: string; hops: number; viaUserId: 
           outgoingRequestIds: new Set(),
         }}
         metadata={liveNow()}
-        reactions={[]}
-        roomMembers={roomMembers}
+        reactions={reactions}
+        roomMessages={[]}
+        mutedUserIds={[]}
         onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
@@ -289,35 +299,49 @@ describe('the worker wires the whole chain', () => {
 
 // ------------------------------------------------------ and then it renders
 
-describe('one resolved member puts ROOM on the card', () => {
-  it('renders the affordance for metadata live + one friend + one member', () => {
+describe('the card offers a way in only while something is happening', () => {
+  const NOW_REACTION = (senderId: string, at: number) => ({
+    id: `r-${senderId}-${at}`,
+    senderId,
+    channel: CHANNEL,
+    reaction: 'lol' as const,
+    at,
+    receivedAt: at,
+  })
+
+  it('has no permanent ROOM button, even with the session fully resolved', () => {
     /*
-     * The end of the chain the bug report described: live metadata, the
-     * observer and one friend on the same channel, HERE count 1 - and now a
-     * membership answer, which is what the affordance actually depends on.
+     * The permanent doorway is gone.
+     *
+     * It was a second, always-present way into a session the contextual
+     * streamer tab already offers - and it carried a duplicate unread badge,
+     * so one waiting message was announced twice in the same panel. Unread
+     * belongs to the tab; the card's job is the live social signal.
      */
-    const html = drawCard([{ userId: FRIEND, hops: 1, viaUserId: null }])
+    const html = drawCard()
 
     expect(html).toContain('kb-badge-here')
     expect(html).toContain('1 friend watching with you')
     expect(html).toContain('kb-live')
-    expect(html).toContain('kb-together-open')
-    expect(html).toContain('ROOM')
+    expect(html).not.toContain('kb-together-open')
+    expect(html).not.toContain('kb-together-unread')
+    expect(html).not.toContain('ROOM')
   })
 
-  it('is the membership answer, not the HERE count, that puts it there', () => {
-    /*
-     * The screenshot itself: live, HERE 1, and no members.
-     *
-     * This must STILL draw no doorway. The fix is that the members now arrive,
-     * not that the condition was loosened - a card that offered a room the
-     * server had not confirmed would be back to promising somewhere to go and
-     * then arriving nowhere.
-     */
-    const html = drawCard([])
+  it('says nothing for a single emote', () => {
+    const at = Date.now()
+    const html = drawCard([NOW_REACTION('friend-1', at)])
 
-    expect(html).toContain('1 friend watching with you')
-    expect(html).toContain('kb-live')
-    expect(html).not.toContain('kb-together-open')
+    expect(html).not.toContain('kb-gravity-combo')
+    expect(html).not.toContain('Join Room')
+  })
+
+  it('offers Join Room once a real combo is running', () => {
+    const at = Date.now()
+    const html = drawCard([NOW_REACTION('friend-1', at), NOW_REACTION('me', at + 100)])
+
+    expect(html).toContain('kb-gravity-combo')
+    expect(html).toContain('×2')
+    expect(html).toContain('Join Room')
   })
 })
