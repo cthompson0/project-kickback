@@ -32,6 +32,7 @@ import {
 } from '../core/roomMessages'
 import type { RoomMessage } from '../core/roomMessages'
 import { withMuted, withoutMuted } from '../core/mute'
+import { EMOTES } from '../core/emotes'
 import type { Reaction, TogetherReaction } from '../core/together'
 import {
   canonicalChannel,
@@ -589,8 +590,20 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     sendGroupMessage: unavailable,
     markGroupRead: () => {},
     setGroupMuted: unavailable,
-    async searchEmotes() {
-      return []
+    async searchEmotes(query: string) {
+      /*
+       * The built-ins, filtered - which is what production falls back to when a
+       * channel has no external emotes.
+       *
+       * It used to return nothing, and returning nothing is NOT the same as
+       * having nothing: the picker treats an empty answer as a real result and
+       * stops showing its own fallback, so the lab rendered a picker with no
+       * emotes in it and the browser gate could not exercise the one path a
+       * person actually uses to send one.
+       */
+      const term = query.trim().toLowerCase()
+      const emotes = EMOTES.filter((emote) => !term || emote.name.includes(term))
+      return emotes.length ? [{ title: 'Kickback', emotes }] : []
     },
 
     track: (name, properties, options) => analytics.track(name, properties, options),

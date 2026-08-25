@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { SocialGravity } from '../../src/ui/components/SocialGravity'
 import { StreamSession } from '../../src/ui/components/StreamSession'
 import { ChannelNameProvider } from '../../src/ui/ChannelNames'
-import { REACTIONS, ACTIVITY_TTL_MS } from '../../src/core/together'
+import { ACTIVITY_TTL_MS } from '../../src/core/together'
 import type { TogetherReaction } from '../../src/core/together'
 import { MAX_MESSAGE_LENGTH } from '../../src/core/roomMessages'
 import type { RoomMessage } from '../../src/core/roomMessages'
@@ -376,10 +376,18 @@ describe('inside the session', () => {
     expect(html).not.toContain('maxLength="500"')
   })
 
-  it('is where the reactions are', () => {
+  it('has one way to send an emote, and it is the picker', () => {
+    /*
+     * There used to be a permanent row of five reaction buttons above the
+     * input, stacked on top of the emote picker attached to the composer. Two
+     * emoji surfaces, and the strip was the weaker one: five emotes where the
+     * picker offers every emote the channel has, costing a row of height that
+     * belongs to the conversation.
+     */
     const html = renderSession(TWO_ON_LIRIK, [member('jake')])
-    expect((html.match(/kb-session-react-btn/g) ?? []).length).toBe(REACTIONS.length)
-    expect(html).toContain('kb-emote')
+    expect(html).not.toContain('kb-session-react')
+    expect(html).toContain('kb-emote-toggle')
+    expect(html).toContain('kb-composer')
     for (const forbidden of ['😂', '❤️', '🔥', '😭', '👀']) {
       expect(html).not.toContain(forbidden)
     }
@@ -503,8 +511,10 @@ describe('the surfaces stay small', () => {
     expect(rule('.kb-tab-session')).toContain('min-width: 0')
   })
 
-  it('holds the reaction bar open so it cannot jump', () => {
-    expect(rule('.kb-session-react')).toContain('min-height')
+  it('holds the activity lane open so the composer cannot jump', () => {
+    // Empty most of the time, and a lane that collapsed when empty would move
+    // the input every time somebody sent an emote.
+    expect(rule('.kb-session-activity')).toContain('min-height')
   })
 
   it('paints LIVE red, and only LIVE', () => {

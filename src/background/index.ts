@@ -1313,7 +1313,19 @@ chrome.runtime.onConnect.addListener((port) => {
          * discovering that. Recorded when the sender's own copy is DELIVERED,
          * not here - see the onMessage handler.
          */
-        const body = typeof raw.body === 'string' ? raw.body.trim() : ''
+        const typed = typeof raw.body === 'string' ? raw.body.trim() : ''
+        /*
+         * Bare emote names become stable provider+id tokens here, once - the
+         * same call group chat makes, and the one the room was missing.
+         *
+         * The picker inserts an external emote as its bare NAME so the
+         * composer reads the way Twitch chat does, and something has to turn
+         * that into a token before it is stored. Without this the room kept
+         * the word: it rendered as plain text, soleEmote() did not recognise
+         * it, and it therefore contributed nothing to a combo - which is also
+         * why the activity preview outside never lit up.
+         */
+        const body = emoteCatalog.resolveOutgoing(typed)
         if (body.length > 0 && body.length <= MAX_MESSAGE_LENGTH) roomChat.send(body)
         break
       }

@@ -125,7 +125,9 @@ function readPanel() {
       ),
       composer: Boolean(document.querySelector('.kb-composer-input')),
       maxLength: document.querySelector('.kb-composer-input')?.getAttribute('maxlength') ?? null,
-      buttons: document.querySelectorAll('.kb-session-react-btn').length,
+      /* The permanent five-button strip is gone; the picker is the one way. */
+      quickButtons: document.querySelectorAll('.kb-session-react-btn').length,
+      picker: Boolean(document.querySelector('.kb-emote-toggle')),
       combos: [...document.querySelectorAll('.kb-combo-active-count')].map((el) =>
         el.textContent.trim(),
       ),
@@ -187,11 +189,37 @@ function leaveRoom() {
   return true
 }
 
-/** Reacts from inside the session, which is the only place reactions live. */
-function reactInRoom(index = 0) {
-  const buttons = [...document.querySelectorAll('.kb-session-react-btn')]
-  if (!buttons[index]) throw new Error('no reaction button in the session')
-  buttons[index].click()
+/**
+ * Sends an emote from the session, through the picker.
+ *
+ * There is no quick-reaction strip any more, so this is the only way a person
+ * sends an emote - and it is the path that was broken: the picker inserts the
+ * emote and the composer sends it as a message.
+ */
+function openPicker() {
+  const toggle = document.querySelector('.kb-emote-toggle')
+  if (!toggle) throw new Error('no emote picker on the composer')
+  if (!document.querySelector('.kb-emote-btn')) toggle.click()
+  return true
+}
+
+/**
+ * Picks an emote. Sending is a separate step on purpose: the draft is React
+ * state, so the send button is still reading the previous render until the
+ * page has had a chance to re-render - clicking both in one go sends nothing.
+ */
+function pickEmote(index = 0) {
+  const emotes = [...document.querySelectorAll('.kb-emote-btn')]
+  if (!emotes[index]) throw new Error('the picker offered no emotes')
+  emotes[index].click()
+  return true
+}
+
+function clickSend() {
+  const send = [...document.querySelectorAll('.kb-send')].pop()
+  if (!send) throw new Error('no send button')
+  if (send.disabled) throw new Error('the composer had nothing to send')
+  send.click()
   return true
 }
 
@@ -542,7 +570,11 @@ async function main() {
       opened.session.maxLength === '280',
       `composer capped at ${opened.session.maxLength}, expected 280`,
     )
-    check(opened.session.buttons === 5, `session drew ${opened.session.buttons} reactions`)
+    check(
+      opened.session.quickButtons === 0,
+      `the permanent quick-reaction strip is back: ${opened.session.quickButtons} buttons`,
+    )
+    check(opened.session.picker === true, 'the composer lost its emote picker')
     check(
       opened.session.people.length === 0,
       'the participant list was expanded before anybody asked',
@@ -594,15 +626,29 @@ async function main() {
     await page.evaluate(openRoom)
     await settle(page, 8500)
 
-    await page.evaluate(labReact, 0, 'lol')
+    await page.evaluate(labSay, 0, ':lol:')
     await settle(page, 300)
     const one = (await page.evaluate(readPanel)).session
-    check(one.combos.length === 0, 'a single reaction was drawn as a combo')
+    check(one.combos.length === 0, 'a single emote was drawn as a combo')
     check(one.pulses === 1, `expected one pulse, saw ${one.pulses}`)
 
-    await page.evaluate(reactInRoom, 0)
-    await settle(page, 300)
+    /*
+     * The viewer answers with the SAME emote, chosen from the picker.
+     *
+     * This is the path that was broken: an emote from the picker used to reach
+     * the room as the bare word, render as text and count for nothing.
+     */
+    await page.evaluate(openPicker)
+    await settle(page, 200)
+    await page.evaluate(pickEmote, 0)
+    await settle(page, 200)
+    await page.evaluate(clickSend)
+    await settle(page, 400)
     const combo = (await page.evaluate(readPanel)).session
+    check(
+      combo.messages.some((m) => !m.includes(':lol:')),
+      'an emote sent from the picker rendered as its token rather than artwork',
+    )
     check(combo.combos[0] === '×2', `combo read "${combo.combos[0]}", expected ×2`)
 
     /*
@@ -612,16 +658,22 @@ async function main() {
      * the slow way, so they collide on one run. Two combo engines would show
      * two numbers here.
      */
-    await page.evaluate(clickPreset, 'Room · A↔B↔C')
+    await page.evaluate(clickPreset, 'Room · A↔B')
     await settle(page)
     await page.evaluate(openRoom)
-    await settle(page, 8500)
-    // The VIEWER reacts, and Bianca answers with an emote MESSAGE. Two
-    // different people, one run - which is the whole claim.
-    await page.evaluate(reactInRoom, 0)
+    // Long enough that everything above has left the activity window, so the
+    // run below starts from nothing.
+    await settle(page, 9000)
+    // Bianca REACTS and the viewer answers with the same emote as a MESSAGE.
+    // Different event kinds, different people, one run.
+    await page.evaluate(labReact, 0, 'lol')
     await settle(page, 200)
-    await page.evaluate(labSay, 0, ':lol:')
-    await settle(page, 300)
+    await page.evaluate(openPicker)
+    await settle(page, 200)
+    await page.evaluate(pickEmote, 0)
+    await settle(page, 200)
+    await page.evaluate(clickSend)
+    await settle(page, 400)
     const merged = (await page.evaluate(readPanel)).session
     check(
       merged.combos[0] === '×2',
@@ -640,10 +692,14 @@ async function main() {
     await settle(page)
     await page.evaluate(openRoom)
     await settle(page, 8500)
-    await page.evaluate(labReact, 0, 'lol')
+    await page.evaluate(labSay, 0, ':lol:')
     await settle(page, 200)
-    await page.evaluate(reactInRoom, 0)
-    await settle(page, 300)
+    await page.evaluate(openPicker)
+    await settle(page, 200)
+    await page.evaluate(pickEmote, 0)
+    await settle(page, 200)
+    await page.evaluate(clickSend)
+    await settle(page, 400)
     await page.evaluate(leaveRoom)
     await settle(page, 300)
 
@@ -808,7 +864,7 @@ async function main() {
     })
     await settle(page, 300)
     const tight = (await page.evaluate(readPanel)).session
-    check(tight.buttons === 5, 'reaction buttons were lost at 260px')
+    check(tight.picker === true, 'the emote picker was lost at 260px')
     check(
       tight.people.length === 4,
       `the hop limit let ${tight.people.length - 1} people in, expected 3`,

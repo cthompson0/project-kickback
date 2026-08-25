@@ -86,16 +86,55 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
   let inFlight = false
   /** Guards a slow answer landing after the viewer moved on. */
   let generation = 0
+  /**
+   * How many times the answer has been declared out of date.
+   *
+   * A counter rather than a flag, because what matters is whether an
+   * invalidation happened DURING a particular request - and a flag cleared by
+   * whoever noticed it first cannot answer that.
+   */
+  let invalidations = 0
 
-  async function ask(forChannel: string, mine: number): Promise<void> {
+  async function ask(forChannel: string, mine: number, seen: number): Promise<void> {
     inFlight = true
     try {
       const payload = await deps.backend.members(forChannel)
       if (mine !== generation) return
 
       members = sortMembers(parseRoomMembers(payload))
-      fetchedAt = now()
       deps.onChange?.()
+
+      /*
+       * THE ARRIVAL AND DEPARTURE BUG.
+       *
+       * Somebody joining produces TWO presence events in quick succession -
+       * they go idle as their old tab closes, then appear on the new channel a
+       * moment later - and each one invalidates the room. The first fires a
+       * request; the second arrives while it is still in the air, finds
+       * `inFlight` and returns early.
+       *
+       * The request then lands with an answer computed BEFORE the arrival, and
+       * used to stamp `fetchedAt` - swallowing the invalidation and caching
+       * the pre-arrival room for the full refresh interval. That is exactly
+       * the reported symptom: the person who joined sees the session
+       * immediately (their own navigation resets this state), and the person
+       * already watching does not get it until they refresh. Departure is the
+       * same shape, which is why leaving took most of a minute to show.
+       *
+       * So an answer is only allowed to count as fresh if nothing invalidated
+       * it while it was being fetched. Otherwise it is applied - it is still
+       * the best we have - and asked again immediately. This terminates
+       * because each retry observes the latest count, and invalidations only
+       * happen when the co-present set actually changes.
+       */
+      if (invalidations !== seen) {
+        fetchedAt = 0
+        inFlight = false
+        void ask(forChannel, mine, invalidations)
+        return
+      }
+
+      fetchedAt = now()
     } catch (error) {
       /*
        * Nothing is cleared.
@@ -128,13 +167,16 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
       if (inFlight) return
       if (fetchedAt !== 0 && now() - fetchedAt < refreshMs) return
 
-      void ask(channel, generation)
+      void ask(channel, generation, invalidations)
     },
 
     snapshot: () => members,
     channel: () => channel,
 
     invalidate(): void {
+      // The count is what makes this survive a request that is already in the
+      // air; see ask(). Zeroing the timestamp alone was not enough.
+      invalidations += 1
       fetchedAt = 0
     },
 

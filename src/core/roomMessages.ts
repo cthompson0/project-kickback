@@ -1,5 +1,5 @@
-import { EMOTES, isEmoteOnly } from './emotes'
-import type { KickbackEmote } from './emotes'
+import { isEmoteOnly, soleEmote } from './emotes'
+import type { Emote } from './emotes'
 import { ACTIVITY_TTL_MS, liveReactions, reactionEmote } from './together'
 import type { TogetherReaction } from './together'
 import { activeCombo } from './combos'
@@ -282,7 +282,7 @@ export function isEmoteMessage(body: string): boolean {
  * "recently", no decayed remnant kept so the layout does not move.
  */
 export interface RoomActivity {
-  emote: KickbackEmote
+  emote: Emote
   /** Distinct people in the run. One means a single emote, not a combo. */
   count: number
 }
@@ -322,8 +322,19 @@ export function roomActivity(
   return { emote, count: combo?.count ?? 1 }
 }
 
-/** The Kickback emote a combo body stands for, if it is one at all. */
-function emoteOf(body: string): KickbackEmote | null {
-  const match = EMOTES.find((emote) => emote.token === body.trim())
-  return match ?? null
+/**
+ * The emote a combo body stands for, if it is one at all.
+ *
+ * `soleEmote` rather than a lookup in the built-in palette, because the
+ * palette is not the whole vocabulary: an emote-only message can carry a
+ * channel or global emote from the picker, and matching only Kickback tokens
+ * meant the room counted it and the preview outside did not - two surfaces
+ * disagreeing about the same run, which is the exact thing one combo model
+ * exists to prevent.
+ *
+ * It is also the same function that decides whether a message QUALIFIES for a
+ * combo, so a body can never be countable and unrenderable at once.
+ */
+function emoteOf(body: string): Emote | null {
+  return soleEmote(body)
 }

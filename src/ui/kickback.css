@@ -2703,49 +2703,21 @@ a.kb-ghost-btn {
 }
 
 /*
- * Quick reactions, between the log and the composer.
+ * What just landed, when there is no combo bar already saying it.
  *
- * The fastest way to send an emote-only message, and counted by exactly the
- * same engine - so pressing one can extend a combo somebody else started by
- * typing an emote. Fixed size and `flex: none`, so five fit at the 260px
- * minimum with room for whatever is landing beside them.
+ * The five-button quick-reaction row used to sit here. It offered five emotes
+ * where the picker beside the composer offers every emote the channel has, and
+ * it spent a row of height doing it - so it is gone, and sending an emote is
+ * one thing done one way.
  */
-.kb-session-react {
+.kb-session-activity {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 4px 2px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
-  min-height: 30px;
-}
-
-.kb-session-react-btn {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 24px;
-  padding: 0;
-  line-height: 1;
-  border: 1px solid transparent;
-  border-radius: 7px;
-  background: transparent;
-  cursor: pointer;
-  transition: background 0.12s ease, transform 0.08s ease;
+  min-height: 22px;
 }
 
-.kb-session-react-btn:hover {
-  background: var(--kb-bg-hover);
-}
-
-.kb-session-react-btn:active {
-  transform: scale(0.88);
-}
-
-/* What just landed, when there is no combo bar already saying it. */
 .kb-session-pulse {
-  margin-left: auto;
   display: inline-flex;
   align-items: center;
   line-height: 1;
@@ -2801,9 +2773,5 @@ a.kb-ghost-btn {
 @media (prefers-reduced-motion: reduce) {
   .kb-session-pulse {
     animation: none;
-  }
-
-  .kb-session-react-btn:active {
-    transform: none;
   }
 }

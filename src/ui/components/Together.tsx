@@ -74,17 +74,24 @@ export function Together({
   const analytics = useAnalytics()
 
   /*
-   * Reactions age out on their own, so this needs a heartbeat: nothing else
-   * re-renders the panel between presence updates, and a combo that stayed
-   * until the next one would sit there for forty seconds claiming to be now.
-   * Only while there is something to age - an idle card ticks nothing.
+   * Activity ages out on its own, so this needs a heartbeat: nothing else
+   * re-renders between presence updates, and a combo that stayed until the
+   * next one would sit there claiming to be now.
+   *
+   * It ticks while there is EITHER a reaction or a message, and that second
+   * half was missing. Once an emote sent from the picker became a message
+   * rather than a reaction, a room with a live combo and no reactions in it
+   * had nothing driving the clock - so the preview formed correctly and then
+   * never went away. Only while there is something to age; an idle surface
+   * ticks nothing.
    */
   const [, setTick] = useState(0)
+  const pulses = reactions.length + messages.length
   useEffect(() => {
-    if (reactions.length === 0) return
+    if (pulses === 0) return
     const id = window.setInterval(() => setTick((value) => value + 1), 1_000)
     return () => window.clearInterval(id)
-  }, [reactions.length])
+  }, [pulses])
 
   const byId = new Map(friends.map((friend) => [friend.user.id, friend]))
   const nameOf = (userId: string) =>

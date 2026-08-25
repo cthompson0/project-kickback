@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { scanCombos } from '../../core/combos'
+import { COMBO_MIN_DISPLAY, scanCombos } from '../../core/combos'
 import { emoteKey } from '../../core/emotes'
 import { comboStream, liveMessages, MAX_MESSAGE_LENGTH, roomActivity } from '../../core/roomMessages'
 import type { RoomMessage } from '../../core/roomMessages'
-import { REACTIONS, reactionEmote } from '../../core/together'
 import type { TogetherReaction } from '../../core/together'
 import { withoutMutedSenders } from '../../core/mute'
 import { directCount, sortMembers } from '../../core/streamRoom'
@@ -76,17 +75,24 @@ export function StreamSession({
   const [openCardId, setOpenCardId] = useState<string | null>(null)
 
   /*
-   * Reactions age out on their own, so this needs a heartbeat: nothing else
+   * Activity ages out on its own, so this needs a heartbeat: nothing else
    * re-renders between presence updates, and a combo that stayed until the
-   * next one would sit there claiming to be now. Only while there is something
-   * to age - an idle session ticks nothing.
+   * next one would sit there claiming to be now.
+   *
+   * It ticks while there is EITHER a reaction or a message, and that second
+   * half was missing. Once an emote sent from the picker became a message
+   * rather than a reaction, a room with a live combo and no reactions in it
+   * had nothing driving the clock - so the preview formed correctly and then
+   * never went away. Only while there is something to age; an idle surface
+   * ticks nothing.
    */
   const [, setTick] = useState(0)
+  const pulses = reactions.length + messages.length
   useEffect(() => {
-    if (reactions.length === 0) return
+    if (pulses === 0) return
     const id = window.setInterval(() => setTick((value) => value + 1), 1_000)
     return () => window.clearInterval(id)
-  }, [reactions.length])
+  }, [pulses])
 
   const byId = useMemo(() => new Map(friends.map((friend) => [friend.user.id, friend])), [friends])
   const nameOf = (userId: string) =>
@@ -118,7 +124,7 @@ export function StreamSession({
    * three are rules `scanCombos` already had - the third has simply never had
    * anything to fire on in a room before, because a room had no text in it.
    */
-  const { annotations, active } = useMemo(
+  const { annotations } = useMemo(
     () => scanCombos(comboStream(heardReactions, heard, nameOf)),
     // nameOf is derived from friends/selfId, both of which are in byId.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -134,6 +140,22 @@ export function StreamSession({
    * offering a second opinion.
    */
   const activity = roomActivity(heardReactions, heard, channel, nameOf)
+
+  /*
+   * The bar above the composer is the ACTIVITY window, not the trailing run of
+   * the whole log.
+   *
+   * Those are different questions once a room keeps half an hour of
+   * conversation: the log's trailing run happily reaches back through
+   * everything said since the session began, so the session showed a combo of
+   * four while the card outside - which has always used the eight-second
+   * window - showed two. Same engine, different clocks, and the two surfaces
+   * are supposed to agree about what is happening right now.
+   *
+   * The per-message badges still come from the full log, because a count
+   * beside an old message is history and is correct there.
+   */
+  const active = activity && activity.count >= COMBO_MIN_DISPLAY ? activity : null
 
   /* Combos and breaks are recorded once each, the way group chat records them. */
   const activeKey = active ? emoteKey(active.emote) : null
@@ -314,45 +336,31 @@ export function StreamSession({
       {active && <ActiveComboBar combo={active} />}
 
       {/*
-       * Quick reactions, above the composer.
+       * What just landed, when there is no combo bar already saying it.
        *
-       * The fastest way to send an emote-only message, and counted by exactly
-       * the same engine - which is why pressing one can extend a combo that
-       * somebody else started by typing an emote.
+       * THE FIVE-BUTTON ROW USED TO BE HERE, and it is gone. There were two
+       * emoji surfaces stacked above the input - a permanent strip of quick
+       * reactions and the emote picker attached to the composer - and the
+       * strip was the weaker one: it offered five emotes where the picker
+       * offers every emote the channel has, and it took a row of height
+       * from the conversation to do it.
+       *
+       * Sending an emote is now one thing, done one way: the picker. An
+       * emote-only message is counted by exactly the same engine a reaction
+       * was, so nothing about combos changed.
+       *
+       * FUTURE, NOT NOW: when a combo is already running, surfacing THAT
+       * emote as a single one-click way to join it would be a quick action
+       * with a reason to exist - unlike a permanent strip, it would appear
+       * only when there is something to join.
        */}
-      <div className="kb-session-react" role="group" aria-label="React">
-        {REACTIONS.map((reaction) => (
-          <button
-            key={reaction}
-            type="button"
-            className="kb-session-react-btn"
-            title={`React ${reactionEmote(reaction).label}`}
-            onClick={() => {
-              client.sendReaction(reaction)
-              analytics.track(
-                'automatic_room_reaction',
-                { participant_count: participants, direction: 'sent' },
-                { source: 'together', channel },
-              )
-            }}
-          >
-            <EmoteImage emote={reactionEmote(reaction)} size={18} />
-          </button>
-        ))}
-
-        {/*
-         * And what just landed, beside them.
-         *
-         * Only when there is no combo bar above: two live indicators saying
-         * the same thing in different words is one too many.
-         */}
-        {!active && activity && (
+      {!active && activity && (
+        <div className="kb-session-activity" aria-live="polite">
           <span className="kb-session-pulse" key={`${activity.emote.id}:${activity.count}`}>
             <EmoteImage emote={activity.emote} size={18} />
           </span>
-        )}
-      </div>
-
+        </div>
+      )}
       <Composer
         client={client}
         maxLength={MAX_MESSAGE_LENGTH}

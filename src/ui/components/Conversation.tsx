@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EMOTES, isEmoteOnly, parseMessage } from '../../core/emotes'
-import type { ActiveCombo, ComboAnnotation } from '../../core/combos'
+import type { ComboAnnotation } from '../../core/combos'
+import type { Emote } from '../../core/emotes'
 import type { KickbackClient } from '../../client/types'
 import type { User } from '../../core/types'
 import type { Presence } from '../../core/types'
@@ -52,8 +53,17 @@ export function MessageBody({ body }: { body: string }) {
   )
 }
 
-/** The run currently building, anchored above the composer. */
-export function ActiveComboBar({ combo }: { combo: ActiveCombo }) {
+/**
+ * The run currently building, anchored above the composer.
+ *
+ * Takes the emote and the count rather than a whole ActiveCombo, because the
+ * two surfaces derive "currently" differently and both are right: a group
+ * conversation has no clock, so its run is the trailing one in the log, while
+ * a stream session shows what is happening in the last few seconds. Narrowing
+ * the parameter is what lets them share the rendering without sharing a
+ * definition of now.
+ */
+export function ActiveComboBar({ combo }: { combo: { emote: Emote; count: number } }) {
   return (
     <div
       className="kb-combo-active"
