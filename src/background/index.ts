@@ -38,7 +38,7 @@ import { MAX_MESSAGE_LENGTH, unreadCount } from '../core/roomMessages'
 import { isEmoteOnly } from '../core/emotes'
 import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
-import { canWatchTogether } from '../core/socialViewing'
+import { canWatchLiveTogether, watchTogetherState } from '../core/socialViewing'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
 import { isPersistedLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
@@ -204,7 +204,7 @@ function indexPresence(next: PresenceIndex): void {
    * Keyed on WHO is here rather than on every presence tick, so this is one
    * query per actual arrival or departure, not one per heartbeat per friend.
    */
-  const here = socialChannel()
+  const here = sessionChannel()
   const key = coPresenceKey(here)
   if (key !== coPresence) {
     coPresence = key
@@ -466,13 +466,16 @@ const sessionTab = createSessionTab({
 function restoredSession(): string | null {
   const remembered = sessionTab.selected()
   if (!remembered) return null
-  if (remembered !== socialChannel()) return null
-  return room.snapshot().length > 0 ? remembered : null
+  if (remembered !== sessionChannel()) return null
+  // Either kind of evidence will do, for the same reason availability accepts
+  // either: a direct friend the client can already see is not less real than
+  // one the server has confirmed.
+  return room.snapshot().length > 0 || sessionPeers().length > 0 ? remembered : null
 }
 
 /** Messages waiting on the channel the viewer is on. Zero when none. */
 function roomUnread(): number {
-  const here = socialChannel()
+  const here = sessionChannel()
   if (!here) return 0
   return unreadCount(
     roomChat.snapshot(),
@@ -503,14 +506,13 @@ function roomSize(): number {
 let togetherShownFor: string | null = null
 
 function noteTogetherSurface(): void {
-  // socialChannel(), not currentChannel(): an empty member list would already
-  // stop this, because rooms are only fetched for an eligible channel - but
-  // one that says which question it is asking cannot drift away from the
-  // answer later.
-  const here = socialChannel()
+  // The session rule, not the live one: a room that exists on an offline
+  // channel is still a room somebody arrived in.
+  const here = sessionChannel()
   const members = room.snapshot()
+  const peers = sessionPeers()
 
-  if (!here || members.length === 0) {
+  if (!here || (members.length === 0 && peers.length === 0)) {
     togetherShownFor = null
     return
   }
@@ -520,7 +522,7 @@ function noteTogetherSurface(): void {
   analytics.track(
     'automatic_room_entered',
     {
-      participant_count: members.length + 1,
+      participant_count: Math.max(members.length, peers.length) + 1,
       // The question the connected-component model exists to answer: is
       // friend-of-friend exposure actually happening, or is every room just
       // the viewer's own friends?
@@ -701,55 +703,83 @@ function wantMetadata(): void {
 }
 
 /**
- * The channel the viewer is WATCHING WITH PEOPLE, as opposed to standing on.
+ * The destination the viewer is socially PRESENT at.
  *
- * THE OFFLINE BUG, IN ONE FUNCTION
+ * WHAT THIS DELIBERATELY NO LONGER ASKS
  *
- * Two accounts sat on twitch.tv/lirik with no stream running and Kickback said
- * they were watching together. Every layer was behaving correctly: presence
- * reported the page, the HERE cluster formed from presence, the room formed
- * from presence, and the shared-watch analytics lifecycle opened from presence.
- * The mistake was upstream of all of them - being ON a channel page was taken
- * as watching a stream, and no layer ever asked whether there was one.
+ * Whether the broadcaster is live. It used to, and that was too broad: it made
+ * a stream ending end the conversation happening around it, which is precisely
+ * backwards - the stream ends and everybody is still sitting there. It also
+ * made every session hostage to a metadata refresh, so a viewer who had been
+ * on a channel for a while could have a friend arrive, see them on the HERE
+ * card, and get no session at all because the live record had gone stale.
  *
- * So there is now one question and one place that answers it, and everything
- * that means "together" reads THIS rather than currentChannel(): the reaction
- * inbox filter, the room query, the surface event, and the analytics
- * lifecycle. Presence itself is untouched - the Friends list still says a
- * friend is on an offline channel, because they are, and the Gravity card
- * still says OFFLINE rather than hiding the destination. What changes is only
- * whether a social space forms on top of it.
+ * A session needs somewhere to be. Live status is a fact ABOUT that somewhere,
+ * shown on the card and required by analytics - see liveWatchChannel().
  *
- * Unknown metadata is not eligible. See core/socialViewing.ts for why that
- * costs a false negative on purpose.
+ * WHAT IT STILL ASKS
+ *
+ * That we are signed in, and that our own presence row already says we are
+ * here. `stream_room_members` refuses unless the caller's presence puts them
+ * on the channel, and asking before that is true returns an empty room that is
+ * then cached - which is the bug that made a page load resolve to nothing.
+ * `lastReported()` is the write, not the intent.
  */
-function socialChannel(): string | null {
+function sessionChannel(): string | null {
   if (authState.status !== 'signed_in') return null
   const here = currentChannel()
-  if (!canWatchTogether(here, metadata.snapshot())) return null
+  if (!here) return null
 
-  /*
-   * And we must already be visibly there.
-   *
-   * `stream_room_members` refuses unless the caller's own presence row says
-   * they are on the channel, which is what stops it being an oracle for "who
-   * is watching X". The client has to respect the same precondition, because
-   * asking too early does not fail - it returns an empty room, and an empty
-   * room is cached exactly as a real one is.
-   *
-   * That is what the real-browser bug was. Presence writes are debounced by a
-   * second; metadata often resolves from the hydrated cache in the same tick
-   * as the first activity report. So the membership query fired while our own
-   * presence row did not yet exist, came back empty, and stayed empty - on
-   * both accounts, every page load, symmetrically.
-   *
-   * `lastReported()` is the write, not the intent, so this is true only once
-   * the row is really there. See presence.ts.
-   */
   const reported = presenceReporter.lastReported()
   if (reported?.type !== 'watching' || reported.channel !== here) return null
 
   return here
+}
+
+/**
+ * The destination the viewer is co-viewing a LIVE broadcast at.
+ *
+ * The narrower rule, and the only consumer is the shared-watch analytics
+ * lifecycle. Nothing a person can see hangs off it: if metadata is stale or
+ * missing, a duration is conservative, and nobody loses a conversation.
+ *
+ * Kept as a separate function rather than a parameter so that a future call
+ * site has to choose a name, and the name says which question it is asking.
+ */
+function liveWatchChannel(): string | null {
+  const here = sessionChannel()
+  return canWatchLiveTogether(here, metadata.snapshot()) ? here : null
+}
+
+/**
+ * Direct friends whose presence puts them here with the viewer, right now.
+ *
+ * THIS IS WHAT MAKES A SESSION AVAILABLE, AND WHY IT IS NOT THE RPC.
+ *
+ * Authenticated realtime presence already proves that a friend is on this
+ * destination - it is the same evidence the HERE card draws "1 friend watching
+ * with you" from. Waiting for `stream_room_members` to rediscover that costs a
+ * round trip, and every one of the arrival failures happened inside it.
+ *
+ * The server remains authoritative for everything that MATTERS: who receives a
+ * message, who receives a reaction, and which friends-of-friends are in the
+ * component. The client never invents membership - it only declines to
+ * pretend it does not already know about a direct friend it can see.
+ */
+function sessionPeers(): string[] {
+  const here = sessionChannel()
+  if (!here) return []
+
+  const viewer: Activity = { type: 'watching', platform: 'twitch', channel: here }
+  const selfId = authState.identity?.userId ?? null
+  const friendIds = new Set(friendsState.friends.map((friend) => friend.user.id))
+
+  const peers: string[] = []
+  for (const [userId, presence] of Object.entries(presenceIndex)) {
+    if (userId === selfId || !friendIds.has(userId)) continue
+    if (describePresence(presence, viewer).kind === 'watching_with_you') peers.push(userId)
+  }
+  return peers.sort()
 }
 
 function refreshAttention(): void {
@@ -874,7 +904,7 @@ function pushActivity(): void {
    * which room to ask about. Driven from the same effective activity presence
    * reports, so multi-tab behaviour is inherited rather than re-derived.
    */
-  const here = socialChannel()
+  const here = sessionChannel()
   together.setChannel(here)
   room.want(here)
   // The conversation follows the same channel, and re-fetches on the same
@@ -921,7 +951,15 @@ function updateTogether(): void {
    * arrives here as null, which is exactly what leaving it looks like, so the
    * open interval ends through the path that already existed.
    */
-  const channel = socialChannel()
+  /*
+   * The LIVE rule, and the only place it is asked.
+   *
+   * A session on an offline channel is real and keeps working; it simply does
+   * not accrue shared WATCH time, because there is nothing being watched. A
+   * null channel here is exactly what leaving looks like, so an open interval
+   * closes through the path that already existed.
+   */
+  const channel = liveWatchChannel()
   analytics.noteTogether({ channel, otherCount: coWatcherCount(channel) })
 }
 
@@ -963,6 +1001,7 @@ function currentState(): KickbackState {
     channelMetadata: { ...metadata.snapshot() },
     togetherReactions: together.snapshot(),
     roomMembers: room.snapshot(),
+    roomPeers: sessionPeers(),
     roomMessages: roomChat.snapshot(),
     roomUnread: roomUnread(),
     sessionChannel: restoredSession(),
@@ -1339,7 +1378,7 @@ chrome.runtime.onConnect.addListener((port) => {
          * one would be storing a selection it could never have made, and the
          * restore path checks eligibility again anyway.
          */
-        const here = socialChannel()
+        const here = sessionChannel()
         const wanted = typeof raw.channel === 'string' ? raw.channel.toLowerCase() : null
         if (wanted && wanted === here) {
           sessionTab.select(here)
@@ -1480,6 +1519,52 @@ if (METADATA_DIAGNOSTICS) {
       }
     },
     snapshot: () => metadata.snapshot(),
+  }
+
+  /*
+   * Why do I have "1 friend watching with you" and no session tab?
+   *
+   *     kickbackSession.why()
+   *
+   * Arrival survived two rounds of fixes that unit tests said were correct, so
+   * the point of this is to make the next disagreement between what the panel
+   * SAYS and what it OFFERS answerable in one line rather than by another
+   * round of reasoning about code.
+   *
+   * Every field is either a count, an id we already hold locally, or a piece
+   * of our own machine state. No tokens, no message bodies, no metadata beyond
+   * the live word the card is already showing. Development and beta only, on
+   * the same build-time constant the metadata probe uses.
+   */
+  ;(globalThis as unknown as Record<string, unknown>).kickbackSession = {
+    why() {
+      const here = sessionChannel()
+      const peers = sessionPeers()
+      const members = room.snapshot()
+      return {
+        // Where we think we are, and whether our own row says so yet.
+        destination: currentChannel(),
+        sessionChannel: here,
+        presenceReported:
+          presenceReporter.lastReported()?.type === 'watching'
+            ? (presenceReporter.lastReported() as { channel: string }).channel
+            : null,
+        // The two kinds of evidence, and what they add up to.
+        peerIds: peers,
+        memberIds: members.map((member) => member.userId),
+        sessionAvailable: Boolean(here) && (peers.length > 0 || members.length > 0),
+        // The membership request's own state, which is where arrival used to
+        // get stuck: an answer computed before somebody arrived, cached.
+        roomChannel: room.channel(),
+        roomPending: room.pending(),
+        // Live status is now ONLY a label and an analytics gate. If this says
+        // offline and the session is missing, the two are unrelated.
+        liveWatchChannel: liveWatchChannel(),
+        live: watchTogetherState(here, metadata.snapshot()),
+        messages: roomChat.snapshot().length,
+        unread: roomUnread(),
+      }
+    },
   }
 }
 void groups.hydrate()

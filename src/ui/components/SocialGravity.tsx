@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { socialGravity, isGravity } from '../../core/socialGravity'
 import type { GravitySection } from '../../core/socialGravity'
 import { formatViewers } from '../../core/twitchMetadata'
@@ -6,7 +6,11 @@ import type { ChannelMetadata } from '../../core/twitchMetadata'
 import type { Activity } from '../../core/types'
 import type { Friend, KickbackClient } from '../../client/types'
 import type { TogetherReaction } from '../../core/together'
+import { roomActivity } from '../../core/roomMessages'
 import type { RoomMessage } from '../../core/roomMessages'
+import { COMBO_MIN_DISPLAY } from '../../core/combos'
+import { withoutMutedSenders } from '../../core/mute'
+import { EmoteImage } from './EmoteImage'
 import type { RoomMember } from '../../core/streamRoom'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
@@ -78,6 +82,14 @@ interface SocialGravityProps {
   mutedUserIds?: readonly string[]
   /** Messages waiting in that session. */
   roomUnread?: number
+  /**
+   * Direct friends presence already proves are here.
+   *
+   * Availability does not wait on the server to rediscover them; see
+   * background/index.ts. The server's membership is still what decides who a
+   * message reaches.
+   */
+  roomPeers?: readonly string[]
   /**
    * Ask the panel to open the Stream Room for a channel.
    *
@@ -211,7 +223,7 @@ function DestinationCard({
   roomMessages,
   mutedUserIds,
   roomUnread,
-  friends,
+  roomPeers,
   client,
   cardContext,
   openCardId,
@@ -225,7 +237,7 @@ function DestinationCard({
   roomMessages?: readonly RoomMessage[]
   mutedUserIds?: readonly string[]
   roomUnread?: number
-  friends: readonly Friend[]
+  roomPeers?: readonly string[]
   client: KickbackClient
   cardContext: UserCardContext
   openCardId: string | null
@@ -235,6 +247,26 @@ function DestinationCard({
   const channelName = useChannelName()
   const here = section.kind === 'here'
   const heavy = isGravity(section)
+
+  /*
+   * The clock that lets the combo go away again.
+   *
+   * The combo is derived from an eight-second window, and nothing else
+   * re-renders this card between presence updates - so without a tick it would
+   * form correctly and then sit there until something unrelated happened. That
+   * exact bug has now been fixed twice, once on each surface the combo has
+   * lived on; it moves with the combo because it belongs to it.
+   *
+   * Only while there is something to age, and only on the card the viewer is
+   * standing in: an idle map ticks nothing.
+   */
+  const [, setTick] = useState(0)
+  const pulses = here ? (reactions?.length ?? 0) + (roomMessages?.length ?? 0) : 0
+  useEffect(() => {
+    if (pulses === 0) return
+    const id = window.setInterval(() => setTick((value) => value + 1), 1_000)
+    return () => window.clearInterval(id)
+  }, [pulses])
 
   /*
    * Three states, and only two of them say anything.
@@ -247,6 +279,27 @@ function DestinationCard({
    */
   const live = section.live === 'live'
   const offline = section.live === 'offline'
+
+  /*
+   * The one piece of the session that leaks outward.
+   *
+   * COMBOS ONLY. A single emote is a thing one person did and belongs in the
+   * conversation; a combo is several people agreeing at once, which is the
+   * social signal worth catching from across the panel. The threshold is the
+   * combo engine's own - there is no second opinion here about what counts.
+   *
+   * Drawn from the same derivation the session's own indicator uses, over the
+   * same eight-second window, with muted people already filtered out.
+   */
+  const activity = here
+    ? roomActivity(
+        withoutMutedSenders(reactions ?? [], mutedUserIds ?? []),
+        withoutMutedSenders(roomMessages ?? [], mutedUserIds ?? []),
+        section.channel,
+        () => '',
+      )
+    : null
+  const combo = activity && activity.count >= COMBO_MIN_DISPLAY ? activity : null
 
   const className = [
     'kb-gravity-card',
@@ -317,7 +370,7 @@ function DestinationCard({
        * context - it is deliberately the smallest, dimmest thing here, and it
        * has no influence whatsoever on where this card sits.
        */}
-      {(live || offline) && (
+      {(live || offline || combo) && (
         <div className="kb-gravity-stream">
           {live && meta?.gameName && (
             <span className="kb-gravity-game" title={meta.gameName}>
@@ -326,16 +379,31 @@ function DestinationCard({
           )}
 
           <span className="kb-gravity-status">
+            {/*
+             * Right side, with the status and the viewer count.
+             *
+             * The left half of this card is identity - who is streaming, what
+             * they are playing, who is there - and it must not move. Ephemeral
+             * social activity sits with the other ephemeral numbers, compact
+             * enough that it appears and disappears without shifting anything.
+             */}
+            {combo && (
+              <span className="kb-gravity-combo" aria-live="polite" key={`${combo.emote.id}:${combo.count}`}>
+                <EmoteImage emote={combo.emote} size={15} />
+                <span className="kb-together-count">×{combo.count}</span>
+              </span>
+            )}
+
             {live ? (
               <span className="kb-live" title="Streaming now">
                 <span className="kb-live-dot" aria-hidden="true" />
                 LIVE
               </span>
-            ) : (
+            ) : offline ? (
               <span className="kb-offline-badge" title="Twitch says this stream has ended">
                 OFFLINE
               </span>
-            )}
+            ) : null}
 
             {live && meta?.viewerCount !== null && meta?.viewerCount !== undefined && (
               <span className="kb-gravity-viewers" title={`${meta.viewerCount} viewers`}>
@@ -377,26 +445,29 @@ function DestinationCard({
       {/*
        * The way into the room, for the channel the viewer is standing on.
        *
-       * The SERVER's membership is the condition now, not the HERE count.
-       * They used to be or-ed together, which meant a card could offer a room
-       * that nobody was in - the count comes from presence the client already
-       * has, and the room comes from a query that also requires the stream to
-       * be live. Asking only the second is what makes the doorway honest: if
-       * it is there, there is somewhere to go.
+       * Either kind of evidence will do, and that is the arrival fix.
+       *
+       * A direct friend whose authenticated presence puts them here is not
+       * less real than one the server has confirmed, and waiting for the graph
+       * query to rediscover them cost a round trip that kept failing - the
+       * card said "1 friend watching with you" and offered nowhere to go.
+       *
+       * `roomPeers` is presence; `roomMembers` is the server, and it is what
+       * adds anybody reached THROUGH a friend. The client never invents the
+       * second kind, and message recipients are still decided server-side.
        */}
-      {here && section.channel && onOpenRoom && (roomMembers?.length ?? 0) > 0 && (
-        <Together
-          channel={section.channel}
-          members={roomMembers ?? []}
-          friends={friends}
-          reactions={reactions ?? []}
-          messages={roomMessages ?? []}
-          mutedUserIds={mutedUserIds ?? []}
-          selfId={cardContext.selfId}
-          unread={roomUnread ?? 0}
-          onOpen={() => onOpenRoom(section.channel!)}
-        />
-      )}
+      {here &&
+        section.channel &&
+        onOpenRoom &&
+        ((roomMembers?.length ?? 0) > 0 || (roomPeers?.length ?? 0) > 0) && (
+          <Together
+            channel={section.channel}
+            members={roomMembers ?? []}
+            peers={roomPeers?.length ?? 0}
+            unread={roomUnread ?? 0}
+            onOpen={() => onOpenRoom(section.channel!)}
+          />
+        )}
 
       <div className="kb-gravity-people">
         {section.friends.map((friend) => (
@@ -426,6 +497,7 @@ export function SocialGravity({
   roomMessages,
   mutedUserIds,
   roomUnread,
+  roomPeers,
   onOpenRoom,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
@@ -471,7 +543,7 @@ export function SocialGravity({
               roomMessages={section.kind === 'here' ? roomMessages : undefined}
               mutedUserIds={mutedUserIds}
               roomUnread={section.kind === 'here' ? roomUnread : undefined}
-              friends={friends}
+              roomPeers={section.kind === 'here' ? roomPeers : undefined}
               client={client}
               cardContext={cardContext}
               openCardId={openCardId}

@@ -339,8 +339,10 @@ describe('reactions in the lab', () => {
         />
       </ChannelNameProvider>,
     )
+    // On the card's status line, beside LIVE - not on the left where it would
+    // compete with the destination and the friends.
     expect(html).toContain('×2')
-    expect((html.match(/kb-together-burst/g) ?? []).length).toBe(1)
+    expect((html.match(/kb-gravity-combo/g) ?? []).length).toBe(1)
   })
 
   it('shows the room the same combo the card outside is showing', () => {
@@ -415,8 +417,12 @@ describe('reactions in the lab', () => {
         />
       </ChannelNameProvider>,
     )
-    // The trailing run is one person on 'sad': shown as a pulse, not a combo.
-    expect(inside).toContain('kb-session-pulse')
+    /*
+     * The trailing run is one person on 'sad', which is not a combo - so the
+     * session shows nothing above the composer. A lone emote is a thing one
+     * person did, and the conversation already carries it.
+     */
+    expect(inside).not.toContain('kb-combo-active')
     expect(inside).not.toContain('×')
     expect(inside).not.toMatch(/broke|breaker/i)
   })
@@ -431,66 +437,59 @@ describe('reactions in the lab', () => {
 
 // ------------------------------------------------- rooms need a live stream
 
-describe('a room requires something to watch', () => {
+describe('a room does NOT require something to watch', () => {
   /*
-   * The bug this checkpoint began with, reproduced in the lab.
+   * The rule that was right once and then wrong.
    *
-   * Two accounts sat on twitch.tv/lirik with no stream running and Kickback
-   * reported a room, reactions and an open watching-together interval. Every
-   * layer was reading presence correctly; none of them ever asked whether
-   * there was a stream. These are the same world with three answers from
-   * Twitch.
+   * Requiring an authoritative LIVE status before a room could form fixed a
+   * real bug - two people on an offline channel being reported as watching
+   * together, with an open shared-watch interval behind it. It also meant a
+   * stream ending ended the conversation happening around it, which is exactly
+   * backwards: the stream stops and everybody is still sitting there, which is
+   * when there is most to say.
+   *
+   * So live status decides the LABEL and the ANALYTICS, and people decide the
+   * room. These are the same worlds as before, asserted the other way round.
    */
 
-  it('forms no room on a channel whose stream has ended', () => {
+  it('forms on a channel whose stream has ended', () => {
     const world = preset('room-offline').build()
-    expect(members(world)).toEqual([])
+    expect(members(world)).toEqual([{ userId: 'sim-b', hops: 1, viaUserId: null }])
   })
 
-  it('still says the friend is there, and still says OFFLINE', () => {
-    /*
-     * Raw presence is untouched, and the label is not hidden. What changes is
-     * only whether a social space forms on top of it.
-     */
+  it('still says OFFLINE while the session carries on', () => {
+    // The label is not hidden and never was; it simply no longer decides
+    // whether people are allowed to talk.
     const html = draw(preset('room-offline').build())
     expect(html).toContain('1 friend watching with you')
     expect(html).toContain('Bianca')
     expect(html).toContain('OFFLINE')
-    expect(html).not.toContain('kb-together-open')
+    expect(html).toContain('kb-together-open')
   })
 
-  it('forms no room when Twitch has not answered', () => {
-    // Uncertain is not live. Inventing certainty here is what would put
-    // fabricated watch time into analytics.
-    expect(members(preset('room-unknown').build())).toEqual([])
-  })
-
-  it('forms the room again once the stream is live', () => {
-    const world = preset('room-went-live').build()
-    expect(members(world)).toEqual([{ userId: 'sim-b', hops: 1, viaUserId: null }])
-    expect(draw(world)).toContain('kb-together-open')
-  })
-
-  it('closes the room when a live stream ends, with the people unchanged', () => {
+  it('forms even when Twitch has not answered', () => {
     /*
-     * LIVE -> OFFLINE on one world, so the only thing that differs is what
-     * Twitch said. In production this arrives as a metadata refresh, which is
-     * why no new polling loop was needed.
+     * Uncertainty used to be treated as "not live" and therefore as "no room".
+     * That made every session hostage to a metadata refresh - which is how a
+     * viewer could see a friend on their HERE card and be offered nowhere to
+     * go. Metadata now enriches; it does not gate.
      */
+    expect(members(preset('room-unknown').build())).toHaveLength(1)
+  })
+
+  it('survives a live stream ending, with the people unchanged', () => {
     const live = preset('room-went-live').build()
     const ended: SimWorld = { ...live, metadata: { lirik: { live: 'offline', displayName: 'LIRIK' } } }
 
     expect(members(live)).toHaveLength(1)
-    expect(members(ended)).toEqual([])
-    expect(draw(ended)).toContain('1 friend watching with you')
+    expect(members(ended)).toHaveLength(1)
+    expect(draw(ended)).toContain('kb-together-open')
   })
 
-  it('opens the room when an offline stream starts, with the people unchanged', () => {
-    const ended = preset('room-offline').build()
-    const live: SimWorld = { ...ended, metadata: { lirik: { live: 'live', displayName: 'LIRIK' } } }
-
-    expect(members(ended)).toEqual([])
-    expect(members(live)).toHaveLength(1)
+  it('still ends when the PEOPLE go, which is the thing that matters', () => {
+    // A session is people at a destination. Take the people away and there is
+    // nothing left, whatever the broadcaster is doing.
+    expect(members(preset('room-bridge-gone').build())).toEqual([])
   })
 })
 

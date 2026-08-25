@@ -552,7 +552,12 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
 
   it('has a session tab that exists only while there is one', () => {
     expect(PANEL).toContain(`type Tab = 'friends' | 'groups' | 'session'`)
-    expect(PANEL).toContain('const sessionAvailable = sessionChannel !== null && view.roomMembers.length > 0')
+    // Either kind of evidence: presence for a direct friend, or the server for
+    // anybody reached through one. Requiring only the second is what made a
+    // card say "1 friend watching with you" and offer nowhere to go.
+    expect(PANEL).toContain(
+      'sessionChannel !== null && (view.roomPeers.length > 0 || view.roomMembers.length > 0)',
+    )
     expect(PANEL).toContain('{sessionAvailable && sessionChannel && (')
   })
 
@@ -577,17 +582,20 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
     // A stale record must never reopen an unrelated streamer's session, so
     // the worker re-derives all three conditions rather than trusting storage.
     expect(WORKER).toContain('function restoredSession()')
-    expect(WORKER).toContain('if (remembered !== socialChannel()) return null')
-    expect(WORKER).toContain('return room.snapshot().length > 0 ? remembered : null')
+    expect(WORKER).toContain('if (remembered !== sessionChannel()) return null')
+    expect(WORKER).toContain(
+      'return room.snapshot().length > 0 || sessionPeers().length > 0 ? remembered : null',
+    )
   })
 
   it('only ever remembers the channel the viewer is actually on', () => {
     expect(WORKER).toContain('if (wanted && wanted === here) {')
   })
 
-  it('follows the same eligible channel everything else does', () => {
+  it('follows the same session channel everything else does', () => {
     expect(WORKER).toContain('roomChat.setChannel(here)')
-    expect((WORKER.match(/canWatchTogether\(/g) ?? []).length).toBe(1)
+    // And the LIVE question is asked once, for analytics only.
+    expect((WORKER.match(/canWatchLiveTogether\(/g) ?? []).length).toBe(1)
   })
 
   it('records a sent message on delivery, and never its body', () => {

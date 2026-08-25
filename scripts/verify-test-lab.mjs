@@ -70,8 +70,20 @@ function readPanel() {
       roster: [...card.querySelectorAll('.kb-room-person .kb-cluster-name')].map((el) =>
         el.textContent.trim(),
       ),
-      bursts: card.querySelectorAll('.kb-together-burst').length,
-      combos: [...card.querySelectorAll('.kb-together-count')].map((el) => el.textContent.trim()),
+      /*
+       * The combo, on the RIGHT with the status and the viewer count.
+       *
+       * It used to sit on the left, where it competed with the destination and
+       * the friends and shoved them around every time somebody sent an emote.
+       * `comboOnLeft` is asserted to stay zero.
+       */
+      combos: [...card.querySelectorAll('.kb-gravity-status .kb-gravity-combo')].map((el) =>
+        el.textContent.trim(),
+      ),
+      comboOnLeft: card.querySelectorAll('.kb-together .kb-gravity-combo, .kb-gravity-people .kb-gravity-combo').length,
+      comboWidth: Math.round(
+        card.querySelector('.kb-gravity-combo')?.getBoundingClientRect().width ?? 0,
+      ),
       roomButton: Boolean(card.querySelector('.kb-together-open')),
       cardUnread: card.querySelector('.kb-together-unread')?.textContent?.trim() ?? null,
       /* The row must not grow when a reaction lands. */
@@ -132,6 +144,7 @@ function readPanel() {
         el.textContent.trim(),
       ),
       pulses: document.querySelectorAll('.kb-session-pulse').length,
+      aboveComposer: document.querySelectorAll('.kb-session-activity').length,
       broken: document.querySelectorAll('.kb-combo-broken').length,
     },
     quiet: [...document.querySelectorAll('.kb-section-label')].map((el) => el.textContent),
@@ -532,7 +545,7 @@ async function main() {
       together.roster.length === 0,
       `the card listed the room's people: ${JSON.stringify(together.roster)}`,
     )
-    check(together.bursts === 0, 'reactions appeared before anybody reacted')
+    check(together.combos.length === 0, 'a combo appeared before anybody did anything')
 
     // --- the contextual streamer tab --------------------------------------
 
@@ -573,6 +586,10 @@ async function main() {
     check(
       opened.session.quickButtons === 0,
       `the permanent quick-reaction strip is back: ${opened.session.quickButtons} buttons`,
+    )
+    check(
+      opened.session.aboveComposer === 0,
+      'the lone-emote lane above the composer is back',
     )
     check(opened.session.picker === true, 'the composer lost its emote picker')
     check(
@@ -628,9 +645,17 @@ async function main() {
 
     await page.evaluate(labSay, 0, ':lol:')
     await settle(page, 300)
-    const one = (await page.evaluate(readPanel)).session
-    check(one.combos.length === 0, 'a single emote was drawn as a combo')
-    check(one.pulses === 1, `expected one pulse, saw ${one.pulses}`)
+    const one = await page.evaluate(readPanel)
+    check(one.session.combos.length === 0, 'a single emote was drawn as a combo')
+    /*
+     * One emote, one representation.
+     *
+     * It appeared twice before: as the message, and again on its own above the
+     * input. A lone emote is a thing one person did and the conversation
+     * already carries it.
+     */
+    check(one.session.pulses === 0, 'a lone emote was echoed above the composer')
+    check(one.session.aboveComposer === 0, 'the activity lane above the composer is back')
 
     /*
      * The viewer answers with the SAME emote, chosen from the picker.
@@ -705,15 +730,21 @@ async function main() {
 
     const outside = (await page.evaluate(readPanel)).cards[0] ?? {}
     check(
-      outside.combos[0] === '×2',
+      outside.combos[0]?.includes('×2'),
       `the card showed "${outside.combos[0]}" for a ×2 combo in the session`,
     )
-    check(outside.bursts === 1, `the card drew ${outside.bursts} symbols, expected one`)
+    check(
+      outside.comboOnLeft === 0,
+      'the combo is on the left, competing with the destination and the friends',
+    )
+    check(
+      outside.comboWidth > 0 && outside.comboWidth < 70,
+      `the combo is ${outside.comboWidth}px wide; it is meant to be compact`,
+    )
 
     await settle(page, 8500)
     const faded = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(faded.bursts === 0, 'an expired combo stayed on the card')
-    check(faded.combos.length === 0, 'an expired combo left its counter behind')
+    check(faded.combos.length === 0, 'an expired combo stayed on the card')
     check(faded.roomButton === true, 'the doorway disappeared with the combo')
 
     // --- unread -----------------------------------------------------------
@@ -744,6 +775,23 @@ async function main() {
     const reacted = await page.evaluate(readPanel)
     check(reacted.cards[0]?.cardUnread === null, 'a reaction incremented the message unread')
 
+    /*
+     * And a SINGLE emote never reaches the card.
+     *
+     * Combos only: one person sending something belongs in the conversation,
+     * and the card outside is for noticing that several people agree at once.
+     */
+    await page.evaluate(clickPreset, 'Room · A↔B')
+    await settle(page)
+    await settle(page, 8500)
+    await page.evaluate(labSay, 0, ':lol:')
+    await settle(page, 400)
+    const lone = (await page.evaluate(readPanel)).cards[0] ?? {}
+    check(
+      lone.combos.length === 0,
+      `a single emote leaked onto the card: ${JSON.stringify(lone.combos)}`,
+    )
+
     // One person hammering a button is not a combo.
     await page.evaluate(clickPreset, 'Room · A↔B')
     await settle(page)
@@ -756,27 +804,39 @@ async function main() {
       'one person pressing a button repeatedly formed a combo: ' + JSON.stringify(burst.combos),
     )
 
-    // --- a session needs a stream -----------------------------------------
+    // --- a session does NOT need a stream ---------------------------------
+    //
+    // Requiring one meant a broadcast ending ended the conversation around it.
+    // Live status is a label and an analytics gate now; people are the session.
 
     await page.evaluate(clickPreset, 'Room · stream ended')
     await settle(page)
     const ended2 = await page.evaluate(readPanel)
     check(ended2.cards[0]?.here === true, 'the offline destination lost its card')
-    check(ended2.cards[0]?.offline === true, 'the OFFLINE label was hidden rather than the session')
-    check(ended2.cards[0]?.people.length === 1, 'presence stopped reporting who is on the channel')
-    check(ended2.cards[0]?.roomButton === false, 'a doorway appeared for a channel with no stream')
+    check(ended2.cards[0]?.offline === true, 'the OFFLINE label went missing')
+    check(ended2.cards[0]?.people.length === 1, 'presence stopped reporting who is here')
+    check(ended2.cards[0]?.roomButton === true, 'an offline stream took the doorway away')
     check(
-      ended2.tabs.every((t) => t.streamer === null),
-      'a contextual tab appeared for a channel with no stream',
+      ended2.tabs.some((t) => t.streamer !== null),
+      'an offline stream took the contextual tab away',
     )
-    check(ended2.session.open === false, 'a session survived the stream ending')
+
+    // And the conversation still works there.
+    await page.evaluate(openRoom)
+    await settle(page, 300)
+    const offlineSession = (await page.evaluate(readPanel)).session
+    check(offlineSession.open === true, 'the session would not open on an offline channel')
+    check(offlineSession.composer === true, 'the composer went missing on an offline channel')
+    check(offlineSession.live === false, 'an offline channel claimed to be LIVE')
+    await page.evaluate(leaveRoom)
+    await settle(page, 200)
 
     await page.evaluate(clickPreset, 'Room · Twitch has not answered')
     await settle(page)
     const unsure = await page.evaluate(readPanel)
     check(
-      unsure.tabs.every((t) => t.streamer === null),
-      'uncertainty was treated as a live stream',
+      unsure.tabs.some((t) => t.streamer !== null),
+      'a session waited on a metadata answer that may never come',
     )
 
     await page.evaluate(clickPreset, 'Room · just went live')
@@ -784,11 +844,11 @@ async function main() {
     const relit = await page.evaluate(readPanel)
     check(
       relit.tabs.some((t) => t.streamer !== null),
-      'the session tab did not come back when the stream did',
+      'the session tab went missing once the stream was live',
     )
     check(
       relit.tabs.find((t) => t.streamer !== null)?.active === false,
-      'the tab returning selected itself',
+      'the tab selected itself',
     )
 
     // --- the graphs two Twitch accounts cannot build ---------------------
@@ -986,7 +1046,8 @@ async function main() {
   console.log('Metadata states render: live, offline+demoted, unavailable, casing, long text.')
   console.log('The contextual streamer tab appears, never selects itself, and carries a conversation.')
   console.log('One combo stream over reactions and emote messages; text closes a run, never extends it.')
-  console.log('A session needs a live stream: offline and unknown destinations produce no tab.')
+  console.log('A session is people, not a broadcast: it survives the stream ending, and says OFFLINE.')
+  console.log('Only real combos leak onto the card, compact and on the right beside LIVE.')
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
 }

@@ -197,9 +197,17 @@ describe('the card outside the session', () => {
 })
 
 describe('the activity preview', () => {
-  it('shows a single reaction with no counter', () => {
+  it('shows NOTHING for a single emote', () => {
+    /*
+     * Combos only, and this is the correction.
+     *
+     * One person sending an emote is a thing that belongs in the conversation;
+     * the card outside is for noticing that several people are agreeing at
+     * once. The threshold is the combo engine's own - there is no second
+     * opinion here about what counts.
+     */
     const html = render(TWO_ON_LIRIK, ON('lirik'), [reaction({ senderId: 'jake' })], [member('jake')])
-    expect(html).toContain('kb-together-burst')
+    expect(html).not.toContain('kb-gravity-combo')
     expect(html).not.toContain('kb-together-count')
   })
 
@@ -211,7 +219,7 @@ describe('the activity preview', () => {
       [reaction({ senderId: 'jake', at: now }), reaction({ senderId: 'matt', at: now + 200 })],
       [member('jake'), member('matt')],
     )
-    expect((html.match(/kb-together-burst/g) ?? []).length).toBe(1)
+    expect((html.match(/kb-gravity-combo/g) ?? []).length).toBe(1)
     expect(html).toContain('×2')
   })
 

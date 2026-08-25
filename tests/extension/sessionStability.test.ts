@@ -408,12 +408,53 @@ describe('the session and the card agree about now', () => {
      * Once an emote from the picker became a MESSAGE rather than a reaction, a
      * room with a live combo and no reactions had nothing driving the clock -
      * so the preview formed and then never went away.
+     *
+     * The card's own clock lives in SocialGravity now, because that is where
+     * the combo moved: onto the status line beside LIVE.
      */
-    const CARD = readFileSync('src/ui/components/Together.tsx', 'utf8')
+    const CARD = readFileSync('src/ui/components/SocialGravity.tsx', 'utf8')
     for (const source of [SESSION, CARD]) {
-      expect(source).toContain('const pulses = reactions.length + messages.length')
+      expect(source).toContain('const pulses =')
       expect(source).not.toContain('if (reactions.length === 0) return')
     }
+  })
+})
+
+describe('a session outlives the broadcast', () => {
+  const WORKER = readFileSync('src/background/index.ts', 'utf8')
+  const PANEL = readFileSync('src/ui/KickbackPanel.tsx', 'utf8')
+
+  it('makes availability presence, never live status', () => {
+    /*
+     * The rule that was right once and then wrong. Requiring a broadcast
+     * before people could talk meant a stream ending ended the conversation
+     * around it - and made every session hostage to a metadata refresh, which
+     * is how a card could say "1 friend watching with you" and offer nowhere
+     * to go.
+     */
+    const session = WORKER.slice(WORKER.indexOf('function sessionChannel()'))
+    const body = session.slice(0, session.indexOf('\n}'))
+    expect(body).not.toContain('canWatchLiveTogether')
+    expect(body).not.toContain('metadata')
+  })
+
+  it('keeps live status for the label and the lifecycle only', () => {
+    expect(WORKER).toContain('const channel = liveWatchChannel()')
+    // The panel derives the tab from people, not from a broadcast.
+    expect(PANEL).toContain('view.roomPeers.length > 0 || view.roomMembers.length > 0')
+    expect(PANEL).not.toContain('canWatchLiveTogether')
+  })
+
+  it('does not wait for the server to rediscover a direct friend', () => {
+    /*
+     * Presence already proves a friend is here - it is the same evidence the
+     * HERE card counts. The server stays authoritative for who is REACHED,
+     * which is what actually needs authorizing.
+     */
+    expect(WORKER).toContain('function sessionPeers()')
+    expect(WORKER).toContain('roomPeers: sessionPeers()')
+    // And the client still invents no membership of its own.
+    expect(WORKER).toContain('room.want(here)')
   })
 })
 
@@ -433,8 +474,15 @@ describe('the quick-reaction strip is gone', () => {
     expect(SESSION).toContain('<Composer')
   })
 
-  it('keeps the activity indicator, which is not a control', () => {
-    expect(SESSION).toContain('kb-session-pulse')
-    expect(CSS).toContain('.kb-session-activity')
+  it('keeps no lone emote above the composer either', () => {
+    /*
+     * An emote you sent appeared twice - once as your message, and again on
+     * its own above the input. A single emote is a thing one person did and
+     * the conversation already shows it; only a real combo earns a second
+     * representation, and that is the bar above the composer.
+     */
+    expect(SESSION).not.toContain('kb-session-pulse')
+    expect(SESSION).toContain('ActiveComboBar')
+    expect(CSS).not.toContain('.kb-session-react')
   })
 })

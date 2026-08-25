@@ -179,6 +179,16 @@ export interface KickbackState {
    */
   roomMembers: RoomMember[]
   /**
+   * Direct friends whose presence puts them here with the viewer.
+   *
+   * The same evidence the HERE card counts, and what makes a session
+   * AVAILABLE - so the tab does not wait on a graph query to rediscover a
+   * friend the client can already see. `roomMembers` stays authoritative
+   * for who is actually in the room, including anybody reached through a
+   * friend, and for who receives a message.
+   */
+  roomPeers: string[]
+  /**
    * The ephemeral conversation on the channel the viewer is on.
    *
    * Retained for thirty minutes rather than eight seconds, because a page
@@ -233,6 +243,7 @@ export const INITIAL_STATE: KickbackState = {
   channelMetadata: {},
   togetherReactions: [],
   roomMembers: [],
+  roomPeers: [],
   roomMessages: [],
   roomUnread: 0,
   sessionChannel: null,

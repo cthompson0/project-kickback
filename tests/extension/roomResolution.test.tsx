@@ -5,7 +5,6 @@ import { SocialGravity } from '../../src/ui/components/SocialGravity'
 import { ChannelNameProvider } from '../../src/ui/ChannelNames'
 import { createStreamRoom } from '../../src/background/streamRoom'
 import { createPresenceReporter } from '../../src/background/presence'
-import { canWatchTogether } from '../../src/core/socialViewing'
 import type { ChannelMetadata } from '../../src/core/twitchMetadata'
 import type { Activity, Presence } from '../../src/core/types'
 import type { Friend, KickbackClient } from '../../src/client/types'
@@ -146,8 +145,6 @@ describe('the membership query and our own presence row', () => {
     server.present.add(FRIEND) // the friend is already there
     const room = createStreamRoom({ backend: server.backend, now: () => Date.now() })
 
-    // Eligible, so the old code asked immediately.
-    expect(canWatchTogether(CHANNEL, LIVE, NOW)).toBe(true)
     room.want(CHANNEL)
     await vi.advanceTimersByTimeAsync(0)
 
@@ -181,9 +178,15 @@ describe('the membership query and our own presence row', () => {
 
     const room = createStreamRoom({ backend: server.backend, now: () => Date.now() })
 
-    /** The worker's socialChannel(), in the order the worker applies it. */
-    const socialChannel = (): string | null => {
-      if (!canWatchTogether(CHANNEL, LIVE, Date.now())) return null
+    /**
+     * The worker's sessionChannel(), in the order the worker applies it.
+     *
+     * Live status is deliberately NOT part of it any more - a session needs
+     * somewhere to be and somebody to be there with, not a broadcast. What
+     * remains is the precondition the server itself applies: our own presence
+     * row has to exist before stream_room_members will answer.
+     */
+    const sessionChannel = (): string | null => {
       const reported = reporter.lastReported()
       if (reported?.type !== 'watching' || reported.channel !== CHANNEL) return null
       return CHANNEL
@@ -191,8 +194,8 @@ describe('the membership query and our own presence row', () => {
 
     // First activity report: eligible, but we are not visibly there yet.
     reporter.setActivity(WATCHING)
-    expect(socialChannel()).toBeNull()
-    room.want(socialChannel())
+    expect(sessionChannel()).toBeNull()
+    room.want(sessionChannel())
     await vi.advanceTimersByTimeAsync(0)
     expect(server.calls()).toBe(0)
 
@@ -200,7 +203,7 @@ describe('the membership query and our own presence row', () => {
     await vi.advanceTimersByTimeAsync(1_100)
     expect(written).toHaveLength(1)
 
-    room.want(socialChannel())
+    room.want(sessionChannel())
     await vi.advanceTimersByTimeAsync(0)
 
     expect(server.calls()).toBe(1)

@@ -375,6 +375,16 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       // Computed by the lab because production computes it in SQL, which the
       // lab has no access to. Checked against that SQL by a test.
       roomMembers: roomMembers(world, now),
+      /*
+       * Direct friends presence already proves are here.
+       *
+       * Production derives this from the presence index rather than from the
+       * membership RPC, and availability accepts it - so the lab has to supply
+       * it or it would model a panel that still waits for the server.
+       */
+      roomPeers: friendsOf(world)
+        .filter((user) => presenceRow(user, now).channel === observerChannel())
+        .map((user) => user.id),
       roomMessages: pruneMessages(messages, now),
       roomUnread: unreadCount(
         messages,

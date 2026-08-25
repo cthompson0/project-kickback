@@ -1,7 +1,6 @@
 import { isSameChannel } from '../core/channelNames'
 import type { ChannelMetadata } from '../core/twitchMetadata'
 import { MAX_HOPS, MAX_MEMBERS, sortMembers } from '../core/streamRoom'
-import { canWatchTogether } from '../core/socialViewing'
 import type { RoomMember } from '../core/streamRoom'
 
 /**
@@ -311,18 +310,14 @@ export function roomMembers(world: SimWorld, now: number): RoomMember[] {
   if (!here) return []
 
   /*
-   * A room needs a stream, and the lab asks the production question.
+   * A room does NOT need a stream, and this is where that used to be enforced.
    *
-   * canWatchTogether is imported rather than reimplemented - this is the one
-   * rule the lab must NOT have its own copy of, because its whole purpose here
-   * is to reproduce the bug where two people sat on an offline channel and
-   * every layer separately concluded they were watching together.
-   *
-   * Unknown metadata is not eligible either, so a preset that says nothing
-   * about a channel produces no room - which is what production does when the
-   * metadata service has not answered.
+   * Requiring one made a broadcast ending end the conversation around it,
+   * which is backwards: the stream stops and everybody is still sitting there.
+   * Live status is now a fact about the destination - shown on the card,
+   * required by the shared-watch analytics lifecycle - and nothing a person
+   * can see depends on it. See core/socialViewing.ts.
    */
-  if (!canWatchTogether(here, channelMetadata(world, now), now)) return []
 
   /*
    * Who is present, by the same rules the server applies: online, on this

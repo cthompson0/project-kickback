@@ -1,163 +1,39 @@
-import { useEffect, useState } from 'react'
-import { COMBO_MIN_DISPLAY } from '../../core/combos'
-import { roomActivity } from '../../core/roomMessages'
-import type { RoomMessage } from '../../core/roomMessages'
-import type { TogetherReaction } from '../../core/together'
-import { withoutMutedSenders } from '../../core/mute'
 import { directCount } from '../../core/streamRoom'
 import type { RoomMember } from '../../core/streamRoom'
-import type { Friend } from '../../client/types'
-import { EmoteImage } from './EmoteImage'
 import { useAnalytics } from '../Analytics'
 
 /**
- * The room, seen from outside it.
+ * The way into the session, on the card for the channel the viewer is on.
  *
- * WHAT THIS USED TO BE, AND WHY IT CHANGED
+ * WHAT THIS HAS STOPPED BEING
  *
- * It used to be the whole feature: five permanent reaction buttons, a live
- * strip, a roster, and a ROOM button that expanded the roster in place. Two
- * things were wrong with that, and neither was a bug.
+ * It was five permanent reaction buttons and a roster; then a doorway plus
+ * an activity preview. The preview has moved to the card's own status line,
+ * beside LIVE and the viewer count, where ephemeral social activity belongs -
+ * on the left it competed with the destination and the friends for the eye,
+ * and pushed them around every time somebody sent an emote.
  *
- * The buttons made the social map into a composer. Gravity's job is to answer
- * "where is everybody" at a glance, and five always-present controls in the
- * middle of that answer are a thing to operate rather than a thing to read.
- *
- * And ROOM was a disclosure triangle. Presence → Gravity → JOIN → Together
- * ends in arriving somewhere, and expanding a card is not arriving. The room
- * is a view now, so this is reduced to the two things a card outside it should
- * carry: what is happening in there, and the way in.
- *
- * WHAT LEAKS OUTWARD, AND WHAT DOES NOT
- *
- * The combo leaks. `😂 ×6` on the card is real activity from inside the room,
- * and it is enough on its own - a glance says something is happening right
- * now, which is the whole point. What does not leak is who: no names, no
- * "Sarah and Jake are reacting", no narration. Narration is a feed, and a feed
- * is something you read rather than something you notice.
+ * So this is now exactly two things: whether anything is waiting, and the
+ * way in. No names, no narration, no composer.
  */
 
 interface TogetherProps {
   /** Canonical lowercase login the viewer is on. */
   channel: string
-  /** Everybody in the connected component, from the server. */
+  /** Everybody the SERVER put in the room, including friends of friends. */
   members: readonly RoomMember[]
-  /** Friends the panel already knows about, for combo attribution. */
-  friends: readonly Friend[]
-  reactions: readonly TogetherReaction[]
-  /**
-   * The conversation, for the activity preview only.
-   *
-   * An emote-only message counts towards a combo exactly as a reaction does,
-   * so the preview has to see both or it would show a smaller number than the
-   * session does. Nothing about the TEXT ever reaches this card.
-   */
-  messages: readonly RoomMessage[]
-  mutedUserIds: readonly string[]
-  selfId: string | null
-  /** Waiting messages, so the doorway can say there is something to read. */
+  /** Direct friends presence already proves are here. */
+  peers: number
+  /** Messages waiting, so the doorway can say there is something to read. */
   unread: number
   onOpen: () => void
 }
 
-export function Together({
-  channel,
-  members,
-  friends,
-  reactions,
-  messages,
-  mutedUserIds,
-  selfId,
-  unread,
-  onOpen,
-}: TogetherProps) {
+export function Together({ channel, members, peers, unread, onOpen }: TogetherProps) {
   const analytics = useAnalytics()
-
-  /*
-   * Activity ages out on its own, so this needs a heartbeat: nothing else
-   * re-renders between presence updates, and a combo that stayed until the
-   * next one would sit there claiming to be now.
-   *
-   * It ticks while there is EITHER a reaction or a message, and that second
-   * half was missing. Once an emote sent from the picker became a message
-   * rather than a reaction, a room with a live combo and no reactions in it
-   * had nothing driving the clock - so the preview formed correctly and then
-   * never went away. Only while there is something to age; an idle surface
-   * ticks nothing.
-   */
-  const [, setTick] = useState(0)
-  const pulses = reactions.length + messages.length
-  useEffect(() => {
-    if (pulses === 0) return
-    const id = window.setInterval(() => setTick((value) => value + 1), 1_000)
-    return () => window.clearInterval(id)
-  }, [pulses])
-
-  const byId = new Map(friends.map((friend) => [friend.user.id, friend]))
-  const nameOf = (userId: string) =>
-    userId === selfId ? 'You' : (byId.get(userId)?.user.displayName ?? 'Someone')
-
-  /*
-   * The clock lives inside roomActivity, so this stays a pure derivation - and
-   * it is the SAME derivation the session itself draws from, over the same
-   * merged stream of reactions and emote-only messages.
-   *
-   * Muted people are filtered first, so their contribution disappears from the
-   * count rather than merely from a list you cannot see from here anyway.
-   */
-  const activity = roomActivity(
-    withoutMutedSenders(reactions, mutedUserIds),
-    withoutMutedSenders(messages, mutedUserIds),
-    channel,
-    nameOf,
-  )
-
-  /*
-   * A combo is recorded once, when it reaches a size.
-   *
-   * Keyed on emote and count rather than counted per render: this re-renders
-   * every second while a combo is on screen, and a naive count would report
-   * one combo eight times as it faded.
-   */
-  const [recorded] = useState(() => new Set<string>())
-  useEffect(() => {
-    if (!activity || activity.count < COMBO_MIN_DISPLAY) return
-    const key = `${activity.emote.id}:${activity.count}`
-    if (recorded.has(key)) return
-    recorded.add(key)
-    analytics.track(
-      'automatic_room_combo',
-      { combo_size: activity.count, participant_count: members.length + 1 },
-      { source: 'together', channel },
-    )
-  }, [activity, recorded, analytics, members.length, channel])
 
   return (
     <div className="kb-together">
-      {/*
-       * What is happening, and nothing when nothing is.
-       *
-       * The slot keeps its height whether or not it has something in it, so a
-       * reaction landing does not shove the friends below it down the card -
-       * these arrive while somebody is watching a stream, not while they are
-       * looking at the panel.
-       */}
-      <div className="kb-together-live" aria-live="polite">
-        {activity && (
-          <span
-            className="kb-together-burst"
-            // Keyed so a new run mounts fresh and replays the entry animation
-            // rather than silently swapping the artwork of the old one.
-            key={`${activity.emote.id}:${activity.count}`}
-          >
-            <EmoteImage emote={activity.emote} size={16} />
-            {activity.count >= COMBO_MIN_DISPLAY && (
-              <span className="kb-together-count">×{activity.count}</span>
-            )}
-          </span>
-        )}
-      </div>
-
       <button
         type="button"
         className="kb-together-open"
@@ -165,8 +41,11 @@ export function Together({
           analytics.track(
             'automatic_room_opened',
             {
-              participant_count: members.length + 1,
-              direct_friend_count: directCount(members),
+              // Whichever source knows about more people. Presence sees
+              // direct friends first; the server sees the whole component.
+              participant_count: Math.max(members.length, peers) + 1,
+              direct_friend_count: Math.max(directCount(members), peers),
+              opened_from: 'here_card',
             },
             { source: 'together', channel },
           )
@@ -175,11 +54,11 @@ export function Together({
       >
         ROOM
         {/*
-         * Something is waiting, said as quietly as possible.
+         * Something waiting, said as quietly as possible.
          *
-         * Unread is "somebody said something to me". It is NOT the combo above
-         * it, which is "something is happening right now" and is gone in eight
-         * seconds - a number that accrued for that would never settle.
+         * Unread is "somebody said something to me". The combo on the status
+         * line is "something is happening right now" and is gone in eight
+         * seconds - two different facts, deliberately in two places.
          */}
         {unread > 0 && <span className="kb-together-unread">{unread > 9 ? '9+' : unread}</span>}
       </button>

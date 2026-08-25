@@ -13,7 +13,6 @@ import type { Friend, KickbackClient } from '../../client/types'
 import { useChannelName } from '../ChannelNames'
 import { useAnalytics } from '../Analytics'
 import { Avatar } from './Avatar'
-import { EmoteImage } from './EmoteImage'
 import { ActiveComboBar, Composer, MessageList } from './Conversation'
 import { UserCard } from './UserCard'
 import type { UserCardContext } from './UserCard'
@@ -336,31 +335,18 @@ export function StreamSession({
       {active && <ActiveComboBar combo={active} />}
 
       {/*
-       * What just landed, when there is no combo bar already saying it.
+       * NOTHING lives between the log and the composer except a real combo.
        *
-       * THE FIVE-BUTTON ROW USED TO BE HERE, and it is gone. There were two
-       * emoji surfaces stacked above the input - a permanent strip of quick
-       * reactions and the emote picker attached to the composer - and the
-       * strip was the weaker one: it offered five emotes where the picker
-       * offers every emote the channel has, and it took a row of height
-       * from the conversation to do it.
+       * There used to be a lone glyph here echoing whatever had just been sent,
+       * which meant an emote you posted appeared twice: once as your message,
+       * and again on its own above the input. A single emote is a thing one
+       * person did and the conversation already shows it.
        *
-       * Sending an emote is now one thing, done one way: the picker. An
-       * emote-only message is counted by exactly the same engine a reaction
-       * was, so nothing about combos changed.
-       *
-       * FUTURE, NOT NOW: when a combo is already running, surfacing THAT
-       * emote as a single one-click way to join it would be a quick action
-       * with a reason to exist - unlike a permanent strip, it would appear
-       * only when there is something to join.
+       * The ActiveComboBar above is the only survivor, and it only appears at
+       * COMBO_MIN_DISPLAY - several people agreeing at once, which is genuinely
+       * something other than the messages themselves.
        */}
-      {!active && activity && (
-        <div className="kb-session-activity" aria-live="polite">
-          <span className="kb-session-pulse" key={`${activity.emote.id}:${activity.count}`}>
-            <EmoteImage emote={activity.emote} size={18} />
-          </span>
-        </div>
-      )}
+
       <Composer
         client={client}
         maxLength={MAX_MESSAGE_LENGTH}

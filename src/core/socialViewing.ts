@@ -2,44 +2,64 @@ import { liveStateOf } from './twitchMetadata'
 import type { ChannelMetadata, LiveState } from './twitchMetadata'
 
 /**
- * Whether being on a destination counts as WATCHING IT WITH SOMEBODY.
+ * Two different questions that were once one boolean.
  *
- * THE BUG THIS EXISTS FOR
+ * WHY THEY WERE EVER THE SAME
  *
- * Two accounts sat on twitch.tv/lirik while LIRIK was offline, and Kickback
- * said "HERE · OFFLINE · 1 friend watching with you". A room formed, the
- * shared-watch analytics lifecycle opened, and had they stayed an hour the
- * database would have recorded an hour of watching together - of a channel
- * with no stream on it.
+ * Two accounts once sat on twitch.tv/lirik with no stream running and Kickback
+ * reported them watching together - a room, reactions, and an open shared-watch
+ * interval that would eventually have claimed an hour of co-viewing of nothing.
+ * The fix was to require an authoritative LIVE status before any of it formed,
+ * and it worked.
  *
- * The cause is not a bug in any one place. It is that "user's Twitch page is
- * /lirik" and "user is watching LIRIK" were the same fact everywhere
- * downstream, because presence is the only thing anyone asked.
+ * It was also too broad. Requiring a broadcast to be running before people are
+ * allowed to have a conversation says that a stream ending should end the
+ * social space it happened in, which is the opposite of what it should do: the
+ * stream ends and everybody is still sitting there, which is exactly when there
+ * is most to say. And a group agreeing to meet on a channel that has not gone
+ * live yet is a perfectly ordinary thing to want.
  *
- * TWO DIFFERENT QUESTIONS
+ * So it is two rules now, and they are deliberately named so that nothing can
+ * quietly ask one when it means the other.
  *
- *   RAW ACTIVITY      where is this person's browser?
- *                     Presence answers it, and it stays exactly as hardened as
- *                     it was: URL parsing, multi-tab effective activity, the
- *                     90-second staleness rule, write-time redaction. Nothing
- *                     in this file touches it, and the Friends list still says
- *                     a friend is on an offline channel, because they are.
+ *   SOCIAL SESSION      are these people together at the same destination?
+ *                       Presence and social connectivity. NOT live status.
+ *                       Drives: the contextual tab, the room, its messages,
+ *                       its emotes and its combos.
  *
- *   SOCIAL VIEWING    are they watching a stream, with people, right now?
- *                     That needs presence AND a live stream, and it is what
- *                     Together, Stream Rooms, reactions and the shared-watch
- *                     analytics lifecycle are all about.
+ *   LIVE SHARED WATCH   are they co-viewing a live broadcast right now?
+ *                       Presence AND authoritative live status.
+ *                       Drives: watching_together_started / _ended, durations,
+ *                       and the retention measured from them - and nothing a
+ *                       person can see.
  *
- * ONE RULE, ONE PLACE
- *
- * Everything that means "watching together" asks this function. If Gravity,
- * the room, the reaction transport and analytics each decided for themselves,
- * they would eventually disagree - and the disagreement would be invisible
- * until a number in a report was wrong.
+ * The failure mode each protects against is different, which is why one rule
+ * could never serve both. Getting SOCIAL SESSION wrong shows somebody a tab
+ * they did not expect. Getting LIVE SHARED WATCH wrong writes a number into
+ * the database that nobody can ever tell was fiction.
  */
 
+// --------------------------------------------------------- social session
+
 /**
- * A destination is eligible only when Twitch says a stream is up.
+ * Whether a contextual session can exist at a destination.
+ *
+ * Deliberately says nothing about broadcasts. A session needs somewhere to be
+ * and somebody to be there with - so a channel and at least one other person
+ * whose presence puts them on it.
+ *
+ * `peers` is a count rather than the live state on purpose: what makes a
+ * session real is people, and there is no argument from metadata that can
+ * conjure one or take one away.
+ */
+export function canSessionForm(channel: string | null, peers: number): boolean {
+  return channel !== null && channel.length > 0 && peers > 0
+}
+
+// ------------------------------------------------------ live shared watch
+
+/**
+ * Whether co-viewing counts as watching a LIVE broadcast together.
  *
  * `unknown` is NOT eligible, and that is the deliberate half.
  *
@@ -49,39 +69,36 @@ import type { ChannelMetadata, LiveState } from './twitchMetadata'
  * analytics claiming people watched something together when nobody knows
  * whether there was anything to watch.
  *
- * The price is a false negative - a live channel whose metadata has not
- * arrived yet shows no room for a moment. That is recoverable and visible; the
- * false positive is neither. This is the same trade the analytics work has
- * made throughout: conservative undercounting over fabricated activity.
+ * The price is under-counting - a live channel whose metadata has not arrived
+ * yet loses the first moments of a shared watch. That is the direction to err
+ * in, and it is the same trade the rest of the analytics work has made.
+ *
+ * Nothing a person can SEE hangs off this any more. If it is wrong, a number
+ * is slightly conservative; nobody loses a conversation.
  */
-export function isSocialViewing(live: LiveState): boolean {
+export function isLiveSharedWatch(live: LiveState): boolean {
   return live === 'live'
 }
 
-/**
- * The eligibility of one channel, from whatever metadata is in hand.
- *
- * Goes through `liveStateOf` rather than reading `metadata.live` directly, so
- * a record too old to be evidence reports `unknown` and is therefore not
- * eligible - the same freshness rule the Gravity card already draws with.
- */
-export function canWatchTogether(
+/** The live half of the question, for one channel, from whatever is in hand. */
+export function canWatchLiveTogether(
   channel: string | null,
   metadata: Readonly<Record<string, ChannelMetadata>> | undefined,
   now: number = Date.now(),
 ): boolean {
   if (!channel) return false
-  return isSocialViewing(liveStateOf(metadata?.[channel.toLowerCase()], now))
+  return isLiveSharedWatch(liveStateOf(metadata?.[channel.toLowerCase()], now))
 }
 
+// ------------------------------------------------------------- the label
+
 /**
- * Why a destination is not eligible, for the one place that says so on screen.
+ * What to SAY about a destination's broadcast, which is a third thing again.
  *
- * The HERE card already distinguishes `offline` from `unknown` - a stream that
- * ended is a fact, and "we have not been told" is not - so this returns the
- * live state rather than a boolean, and the card keeps saying OFFLINE exactly
- * as it does now. Nothing here hides the label; it only stops the label being
- * attached to a social space that should not exist.
+ * The card distinguishes `offline` from `unknown` - a stream that ended is a
+ * fact, and "we have not been told" is not - so this returns the state rather
+ * than a boolean. Nothing here hides the OFFLINE label; the label is now the
+ * only thing live status decides on screen.
  */
 export function watchTogetherState(
   channel: string | null,

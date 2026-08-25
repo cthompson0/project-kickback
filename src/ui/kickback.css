@@ -2408,6 +2408,7 @@ a.kb-ghost-btn {
  * without animating.
  */
 @media (prefers-reduced-motion: reduce) {
+  .kb-gravity-combo,
   .kb-together-burst,
   .kb-room-combo {
     animation: none;
@@ -2496,6 +2497,29 @@ a.kb-ghost-btn {
   font-weight: 700;
   font-size: 10px;
   letter-spacing: 0.06em;
+}
+
+/*
+ * The combo, in the status lane on the right.
+ *
+ * This is the one thing the session leaks outward, and it lives here rather
+ * than on the left because the left is identity: who is streaming, what they
+ * are playing, who is there. Those must not move. A combo appears and vanishes
+ * within eight seconds, so it belongs with the other ephemeral numbers - and
+ * `flex: none` plus tabular digits mean it can grow from x2 to x9 without
+ * shifting anything beside it.
+ */
+.kb-gravity-combo {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  line-height: 1;
+  animation: kb-together-fade 8s linear forwards;
+}
+
+.kb-gravity-combo .kb-together-count {
+  font-size: 10px;
 }
 
 .kb-gravity-viewers {

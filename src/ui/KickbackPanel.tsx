@@ -184,7 +184,21 @@ export function KickbackPanel({
    * this is one condition rather than four that could disagree.
    */
   const sessionChannel = view.channel
-  const sessionAvailable = sessionChannel !== null && view.roomMembers.length > 0
+  /*
+   * Either kind of evidence, and that is the arrival fix.
+   *
+   * roomPeers is authenticated presence - the same evidence the HERE card
+   * draws "1 friend watching with you" from - and roomMembers is the server,
+   * which is what adds anybody reached THROUGH a friend. Requiring only the
+   * second meant the tab waited on a graph query to rediscover a friend the
+   * client could already see, and that round trip is where every arrival
+   * failure happened.
+   *
+   * Nothing about who RECEIVES a message changes: that is still decided
+   * server-side, in send_room_message.
+   */
+  const sessionAvailable =
+    sessionChannel !== null && (view.roomPeers.length > 0 || view.roomMembers.length > 0)
 
   /*
    * The tab actually shown.
@@ -710,6 +724,7 @@ export function KickbackPanel({
                     roomMessages={view.roomMessages}
                     mutedUserIds={view.mutedUserIds}
                     roomUnread={view.roomUnread}
+                    roomPeers={view.roomPeers}
                     onOpenRoom={() => chooseTab('session')}
                   />
                 ) : (
