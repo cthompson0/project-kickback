@@ -167,6 +167,32 @@ describe('the user card is a surface, not a filter', () => {
     expect(rule('.kb-usercard')).toContain('z-index')
   })
 
+  it('escapes the scrolling body it is laid out in', () => {
+    /*
+     * The opaque background was necessary and was not sufficient.
+     *
+     * The card is laid out below its cluster, inside .kb-body - and a scroll
+     * container clips its absolutely-positioned descendants. On a panel nobody
+     * has resized, the body can be shorter than the card, so the card was
+     * cropped to nothing and the names behind it stayed readable. That looked
+     * exactly like transparency and was not.
+     *
+     * These are the two halves of the fix that a refactor must not quietly
+     * drop. What it actually LOOKS like is asserted in a real browser, by the
+     * card-coverage scenario in scripts/verify-test-lab.mjs - a stylesheet
+     * cannot answer "is the card what you see", which is why the defect
+     * survived a suite that only read CSS.
+     */
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'ui', 'components', 'UserCard.tsx'),
+      'utf8',
+    )
+    expect(source).toContain("card.style.position = 'fixed'")
+    // Clamped to the panel, so escaping the body never means escaping Kickback.
+    expect(source).toContain(".closest('.kb-panel')")
+    expect(source).toContain('ResizeObserver')
+  })
+
   it('keeps every action it had', () => {
     const html = card()
     for (const action of ['Profile', '>Mute<', 'Remove friend', '>Block<']) {

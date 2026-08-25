@@ -361,6 +361,76 @@ function readUserCard() {
   }
 }
 
+/**
+ * Whether anything underneath the user card is still reaching the screen.
+ *
+ * Asked of the browser rather than of the stylesheet, because the defect this
+ * exists for passed every CSS assertion we had. The card's background really
+ * was opaque; it was being clipped away by the scrolling body it lived in, so
+ * the names and handles behind it stayed plainly readable. "Is the background
+ * opaque" was the wrong question. "Is the card what you actually see" is the
+ * right one, and only a real browser can answer it.
+ *
+ * A grid of points across the card, each one asking what is painted on top.
+ * Every answer must be part of the card.
+ */
+function cardCoverage() {
+  const card = document.querySelector('.kb-usercard')
+  if (!card) return { error: 'no user card is open' }
+
+  const panel = document.querySelector('.kb-panel')
+  const box = card.getBoundingClientRect()
+  const bounds = panel.getBoundingClientRect()
+
+  const bleeding = []
+  for (let row = 0; row < 10; row += 1) {
+    for (let column = 0; column < 6; column += 1) {
+      const x = box.x + (box.width * (column + 0.5)) / 6
+      const y = box.y + (box.height * (row + 0.5)) / 10
+      const top = document.elementsFromPoint(x, y)[0]
+      if (top && card.contains(top)) continue
+      bleeding.push(top ? String(top.className || top.tagName) : 'nothing')
+    }
+  }
+
+  return {
+    points: 60,
+    bleeding: bleeding.length,
+    through: [...new Set(bleeding)].slice(0, 4),
+    escapesPanel:
+      Math.round(box.bottom - bounds.bottom) > 1 ||
+      Math.round(bounds.top - box.top) > 1 ||
+      Math.round(box.right - bounds.right) > 1 ||
+      Math.round(bounds.left - box.left) > 1,
+  }
+}
+
+/** Gives the panel a height a user would have dragged it to. */
+function growPanel(height) {
+  const panel = document.querySelector('.kb-panel')
+  panel.style.setProperty('--kb-w', '320px')
+  panel.style.setProperty('--kb-h', `${height}px`)
+  panel.classList.add('kb-panel-filled')
+  return Math.round(panel.getBoundingClientRect().height)
+}
+
+/** Back to the height the panel picks for itself, and the default width. */
+function shrinkPanel() {
+  const panel = document.querySelector('.kb-panel')
+  panel.classList.remove('kb-panel-filled')
+  panel.style.removeProperty('--kb-h')
+  panel.style.setProperty('--kb-w', '320px')
+  return Math.round(panel.getBoundingClientRect().height)
+}
+
+/** The card is a toggle, so nothing may assume which way a click will go. */
+function closeAnyCard() {
+  const open = document.querySelector('.kb-usercard')
+  if (!open) return false
+  document.querySelector('.kb-gravity-person .kb-person-btn')?.click()
+  return true
+}
+
 /** Collapses the panel to the launcher, through its own control. */
 function minimize() {
   const button = [...document.querySelectorAll('.kb-icon-btn')].find(
@@ -1159,6 +1229,47 @@ async function main() {
       `no gravity impression captured: ${JSON.stringify(joined.events)}`,
     )
 
+    // --- the user card covers what it is opened over ---------------------
+    //
+    // The panel is left at its natural content height first, which is the state
+    // every tester starts in and the one the defect lived in: a body shorter
+    // than the card itself, clipping it away to nothing.
+
+    for (const [label, size] of [
+      ['a content-height panel', null],
+      ['a panel the user has grown', 700],
+    ]) {
+      await page.evaluate(clickPreset, '5-friend Gravity')
+      await settle(page)
+      await page.evaluate(closeAnyCard)
+      await settle(page)
+      const height = size
+        ? await page.evaluate(growPanel, size)
+        : await page.evaluate(shrinkPanel)
+      await settle(page, 300)
+
+      await page.evaluate(openMemberCard)
+      await settle(page, 400)
+
+      const coverage = await page.evaluate(cardCoverage)
+      check(!coverage.error, `${label}: ${coverage.error}`)
+      check(
+        coverage.bleeding === 0,
+        `${label} (${height}px): ${coverage.bleeding}/60 points of the user card show what is behind it — ${JSON.stringify(coverage.through)}`,
+      )
+      check(!coverage.escapesPanel, `${label}: the user card is drawn outside the panel`)
+
+      // Actions survive the repositioning; a card that fits and does nothing is
+      // not a fix.
+      const still = await page.evaluate(readUserCard)
+      check(still.actions >= 4, `${label}: only ${still?.actions} actions on the card`)
+
+      await page.evaluate(closeAnyCard)
+      await settle(page)
+    }
+    await page.evaluate(shrinkPanel)
+    await settle(page)
+
     // --- the collapsed launcher, dragged with a real mouse ---------------
     //
     // Real input rather than synthetic events, because the whole question here
@@ -1233,6 +1344,7 @@ async function main() {
   console.log('Unread and the way in both live on the streamer tab; the card carries neither.')
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
+  console.log('The user card covers what it is opened over, at content height and grown.')
   console.log('The collapsed launcher drags with a real mouse, persists, and still opens on a click.')
 }
 

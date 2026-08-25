@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { describePresence, describeSelf } from '../../core/personPresence'
 import { channelUrl } from '../../platforms/twitch/channels'
 import type { Activity, Presence, User } from '../../core/types'
@@ -90,6 +90,114 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
   const [confirmBlock, setConfirmBlock] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const channelName = useChannelName()
+
+  /*
+   * Keep the card inside the panel.
+   *
+   * THE BUG THIS EXISTS FOR. The card is laid out below its cluster - the
+   * stylesheet's `top: calc(100% + 3px)` against the Gravity card, which is the
+   * nearest positioned ancestor. That ancestor lives inside .kb-body, which
+   * scrolls, and a scroll container CLIPS its absolutely-positioned
+   * descendants. Before anyone resizes the panel it is content-height, so the
+   * body can be shorter than the card itself: clicking somebody opened a card
+   * that was cropped to nothing, leaving their name, handle and activity
+   * plainly readable exactly where the card should have been. It looked like
+   * the card was transparent. It was not being painted at all.
+   *
+   * Making it opaque was necessary and was not sufficient. No amount of
+   * repositioning fixes it either, because on a content-height panel there is
+   * genuinely less room in the body than the card needs.
+   *
+   * So the card leaves the scroller. `position: fixed` is resolved against
+   * .kb-panel rather than the viewport - the panel's backdrop-filter makes it a
+   * containing block - so the card is clipped by the PANEL, which is the right
+   * boundary: it may cover the body, the footer and the tabs, and it may not
+   * escape Kickback. Placement is then measured to match what the stylesheet
+   * used to do, and clamped so a card near the bottom rides up instead of being
+   * cut off.
+   *
+   * Written straight to the node rather than held in state: this is a
+   * measurement, and feeding it back through a render would lay the card out
+   * twice on every open for a number React never needs.
+   */
+  useLayoutEffect(() => {
+    const card = cardRef.current
+    if (!card) return
+
+    /*
+     * Back to what the stylesheet asks for before anything is measured.
+     *
+     * This effect runs after every render, and position:fixed makes
+     * offsetParent report the containing block instead of the cluster - so a
+     * second pass would measure the card against itself and walk it off the
+     * screen. Resetting first means every pass sees the same starting state.
+     */
+    card.style.cssText = ''
+
+    const anchor = card.offsetParent as HTMLElement | null
+    const panel = card.closest('.kb-panel')
+    if (!anchor || !(panel instanceof HTMLElement)) return
+
+    const MARGIN = 6
+    const GAP = 3
+
+    const place = () => {
+      const anchorBox = anchor.getBoundingClientRect()
+      const bounds = panel.getBoundingClientRect()
+      const height = card.getBoundingClientRect().height
+
+      const left = Math.max(bounds.left + MARGIN, anchorBox.left)
+      const right = Math.min(bounds.right - MARGIN, anchorBox.right)
+
+      // Below the cluster, then pulled back up by whatever did not fit. Pinned
+      // to the top of the panel rather than pushed through it when even that is
+      // not enough - a card that escaped upwards is the same bug mirrored.
+      const wanted = anchorBox.bottom + GAP
+      const lowest = bounds.bottom - MARGIN - height
+      const top = Math.max(bounds.top + MARGIN, Math.min(wanted, lowest))
+
+      /*
+       * Panel-relative, not viewport-relative.
+       *
+       * The panel's backdrop-filter makes it the containing block for a fixed
+       * descendant, so top/left are resolved from its padding box - which is
+       * exactly what lets the card escape the scrolling body while still being
+       * clipped by Kickback's own edge. Measuring in viewport coordinates and
+       * writing them straight out lands the card at twice the panel's offset.
+       */
+      const originX = bounds.left + panel.clientLeft
+      const originY = bounds.top + panel.clientTop
+
+      card.style.position = 'fixed'
+      card.style.top = `${Math.round(top - originY)}px`
+      card.style.left = `${Math.round(left - originX)}px`
+      card.style.right = 'auto'
+      card.style.width = `${Math.round(Math.max(0, right - left))}px`
+    }
+
+    place()
+
+    /*
+     * The anchor moves when the body scrolls, and a fixed card does not follow
+     * it. Re-measuring is cheaper and steadier than closing the card, which
+     * would make a stray trackpad nudge dismiss what somebody just opened.
+     */
+    const body = card.closest('.kb-body')
+    body?.addEventListener('scroll', place, { passive: true })
+
+    /*
+     * The panel changing shape moves the card's boundary, and resizing Kickback
+     * is not a window resize - so watching the window alone leaves the card
+     * hanging outside a panel the user just made smaller.
+     */
+    const observer = new ResizeObserver(place)
+    observer.observe(panel)
+
+    return () => {
+      body?.removeEventListener('scroll', place)
+      observer.disconnect()
+    }
+  })
 
   // Clicking anywhere else closes it, which is what a popover should do.
   useEffect(() => {
