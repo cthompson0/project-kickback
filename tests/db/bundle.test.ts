@@ -241,6 +241,78 @@ describe('the generated bundle', () => {
     await db.close()
   })
 
+  it('applies on top of the deployed 0020, which is where hosted is now', async () => {
+    /*
+     * The upgrade that actually has to happen.
+     *
+     * 0020 is deployed and untouched; 0021 adds room_messages beside it, so
+     * this is the exact transition the hosted database is about to make. It
+     * is asserted rather than assumed - the last two migrations both reached
+     * production through a state this suite had not tried.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0020')
+    await expect(applyBundle(db)).resolves.not.toThrow()
+
+    const columns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'room_messages'`,
+    )
+    const names = columns.rows.map((row) => row.column_name)
+    expect(names).toContain('recipient_id')
+    expect(names).toContain('sender_id')
+    expect(names).toContain('body')
+    await db.close()
+  })
+
+  it('leaves send_room_message callable however the database got there', async () => {
+    // Forwards and on top of 0020 must agree, or the extension gets whichever
+    // shape the database happened to end up with.
+    const fresh = await freshDb()
+    await applyBundle(fresh)
+
+    const upgraded = await freshDb()
+    await applyThrough(upgraded, '0020')
+    await applyBundle(upgraded)
+
+    for (const db of [fresh, upgraded]) {
+      const result = await db.query<{ returns: string }>(`
+        select pg_catalog.format_type(p.prorettype, null) as returns
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'send_room_message'
+      `)
+      expect(result.rows.map((row) => row.returns)).toEqual(['integer'])
+      await db.close()
+    }
+  })
+
+  it('keeps room_messages locked down after repeated runs', async () => {
+    /*
+     * Re-running the bundle must not hand a client a way to write its own
+     * rows. The whole authorization model is that only the RPC decides who a
+     * message is addressed to, and an INSERT grant would be the one way to
+     * step around it entirely.
+     */
+    const db = await freshDb()
+    await applyBundle(db)
+    await applyBundle(db)
+
+    const grants = await db.query<{ privilege_type: string; grantee: string }>(
+      `select privilege_type, grantee from information_schema.role_table_grants
+        where table_schema = 'public' and table_name = 'room_messages'
+          and grantee in ('anon', 'authenticated')`,
+    )
+    expect(grants.rows.map((row) => row.grantee + ':' + row.privilege_type)).toEqual([
+      'authenticated:SELECT',
+    ])
+
+    const rls = await db.query<{ relrowsecurity: boolean }>(
+      `select relrowsecurity from pg_class where relname = 'room_messages'`,
+    )
+    expect(rls.rows[0].relrowsecurity).toBe(true)
+    await db.close()
+  })
   it('leaves send_together_reaction returning a count, however it got there', async () => {
     // Forwards and on top of 0019 must agree, or the extension gets whichever
     // shape the database happened to end up with.

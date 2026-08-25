@@ -3,6 +3,7 @@ import type { SocialChannel, SocialChannelHandlers } from './socialSync'
 import type { PresenceChannel, PresenceChannelHandlers } from './presenceSync'
 import { toPresence } from './supabaseBackend'
 import type { ReactionChannel, ReactionChannelHandlers } from './togetherReactions'
+import type { RoomMessageChannel, RoomMessageChannelHandlers } from './roomMessages'
 import type { MessageRow } from './supabaseBackend'
 import type { GroupChannel, GroupChannelHandlers } from './groupSync'
 
@@ -26,6 +27,7 @@ const CHANNEL_PREFIX = 'kickback-social'
 const PRESENCE_PREFIX = 'kickback-presence'
 const GROUP_PREFIX = 'kickback-groups'
 const TOGETHER_PREFIX = 'kickback-together'
+const ROOM_PREFIX = 'kickback-room'
 
 export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialChannel {
   return {
@@ -218,6 +220,63 @@ export function createSupabaseTogetherChannel(supabase: SupabaseClient): Reactio
   }
 }
 
+/**
+ * Ephemeral room messages, on the same per-user shape as reactions.
+ *
+ * A separate channel rather than a second listener on the together one, so
+ * that a room with no conversation in it costs nothing extra and a failure
+ * in one does not take the other down. Both filter on this user's own id,
+ * which is what gives every row exactly one interested subscriber.
+ *
+ * The payload IS used here, unlike the social channel: authorization already
+ * happened when the row was written, so there is nothing to re-read through
+ * an RPC and a round trip per message would be latency on a conversation.
+ * It is still parsed rather than trusted - see core/roomMessages.ts.
+ */
+export function createSupabaseRoomMessageChannel(supabase: SupabaseClient): RoomMessageChannel {
+  return {
+    async open(userId: string, handlers: RoomMessageChannelHandlers): Promise<() => void> {
+      const { data } = await supabase.auth.getSession()
+      const accessToken = data.session?.access_token
+      if (accessToken) {
+        await supabase.realtime.setAuth(accessToken)
+      }
+
+      const subscription = supabase.channel(`${ROOM_PREFIX}:${userId}`)
+
+      subscription.on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'room_messages',
+          filter: `recipient_id=eq.${userId}`,
+        },
+        (payload: { new?: unknown }) => {
+          if (payload.new) handlers.onMessage(payload.new)
+        },
+      )
+
+      subscription.subscribe((status) => {
+        switch (status) {
+          case 'SUBSCRIBED':
+            handlers.onStatus('connected')
+            break
+          case 'CHANNEL_ERROR':
+          case 'TIMED_OUT':
+            handlers.onStatus('error')
+            break
+          default:
+            break
+        }
+      })
+
+      return () => {
+        void supabase.removeChannel(subscription)
+      }
+    },
+  }
+}
 export function createSupabaseGroupChannel(supabase: SupabaseClient): GroupChannel {
   return {
     async open(groupIds: string[], userId: string, handlers: GroupChannelHandlers) {

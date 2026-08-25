@@ -11,6 +11,7 @@ import type { LiveState } from '../core/twitchMetadata'
 import type { ChannelMetadata } from '../core/twitchMetadata'
 import type { Reaction, TogetherReaction } from '../core/together'
 import type { RoomMember } from '../core/streamRoom'
+import type { RoomMessage } from '../core/roomMessages'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -177,6 +178,32 @@ export interface KickbackState {
    * social truth, and only the room surface uses it.
    */
   roomMembers: RoomMember[]
+  /**
+   * The ephemeral conversation on the channel the viewer is on.
+   *
+   * Retained for thirty minutes rather than eight seconds, because a page
+   * refresh must not destroy what people were saying. Still not history:
+   * the server sweeps it, and nothing here is written to disk.
+   */
+  roomMessages: RoomMessage[]
+  /**
+   * Messages waiting on that channel, excluding the viewer's own.
+   *
+   * Unread is "something is waiting for me". Reactions and combos are
+   * "something is happening right now" and deliberately do not count here -
+   * a number that accrued for an eight-second event would never settle.
+   */
+  roomUnread: number
+  /**
+   * The session the viewer intentionally opened and is still entitled to.
+   *
+   * Non-null only when the remembered selection still matches the current
+   * eligible destination AND a room still exists on it, so the panel can
+   * restore a tab after a refresh without ever reopening a stale one.
+   */
+  sessionChannel: string | null
+  /** People this viewer has muted. Local only; the server never learns. */
+  mutedUserIds: string[]
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -206,6 +233,10 @@ export const INITIAL_STATE: KickbackState = {
   channelMetadata: {},
   togetherReactions: [],
   roomMembers: [],
+  roomMessages: [],
+  roomUnread: 0,
+  sessionChannel: null,
+  mutedUserIds: [],
 }
 
 export interface KickbackClient {
@@ -248,6 +279,24 @@ export interface KickbackClient {
    * you are not.
    */
   sendReaction(reaction: Reaction): void
+  /**
+   * Say something in the room on the channel the viewer is on.
+   *
+   * Fire-and-forget, and nothing is drawn optimistically: the sender's own
+   * copy comes back through the same inbox as everyone else's, so a message
+   * the server declined does not appear for the one person who could not
+   * otherwise tell.
+   */
+  sendRoomMessage(body: string): void
+  /**
+   * Remember, or forget, that the viewer opened the contextual session.
+   *
+   * Selecting also marks the conversation read. Passing null is leaving -
+   * which is remembered as leaving, so a refresh does not put them back.
+   */
+  selectSession(channel: string | null): void
+  /** Mute or unmute somebody, for this viewer only. */
+  setUserMuted(userId: string, muted: boolean): void
   /** Change who can see what. Enforced server-side, not here. */
   setPresenceVisibility(mode: PresenceVisibility): Promise<void>
 

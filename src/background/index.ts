@@ -32,6 +32,10 @@ import { createAnalyticsHub } from './analyticsHub'
 import { createMetadataService } from './metadata'
 import { createTogetherReactions } from './togetherReactions'
 import { createStreamRoom } from './streamRoom'
+import { createRoomMessages } from './roomMessages'
+import { createSessionTab } from './sessionTab'
+import { MAX_MESSAGE_LENGTH, unreadCount } from '../core/roomMessages'
+import { isEmoteOnly } from '../core/emotes'
 import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
 import { canWatchTogether } from '../core/socialViewing'
@@ -53,11 +57,13 @@ import {
   createSupabasePresenceChannel,
   createSupabaseSocialChannel,
   createSupabaseTogetherChannel,
+  createSupabaseRoomMessageChannel,
 } from './supabaseRealtime'
 import {
   createSupabaseAnalyticsBackend,
   createSupabaseMetadataBackend,
   createSupabaseRoomBackend,
+  createSupabaseRoomMessageBackend,
   createSupabaseTogetherBackend,
   createSupabaseBackend,
   createSupabaseClient,
@@ -407,6 +413,74 @@ const together = createTogetherReactions({
   },
   onError: logError,
 })
+
+/**
+ * The conversation, and what the panel remembers about the session tab.
+ *
+ * Both hang off the same eligible channel the room does, so there is still
+ * exactly one question - socialChannel() - deciding whether any of this
+ * exists. Nothing here decides who may see what; that was settled when the
+ * server wrote the row.
+ */
+const roomChat = createRoomMessages({
+  channel: createSupabaseRoomMessageChannel(supabase),
+  backend: createSupabaseRoomMessageBackend(supabase),
+  onChange: () => broadcast(),
+  onMessage: (message, mine) => {
+    if (!mine) return
+    /*
+     * Recorded on the SENDER's own copy arriving, not on the send call.
+     *
+     * The self-row is the one signal that the server accepted it, so this
+     * cannot count a message the room never got. Length bucket and an emote
+     * flag only - the body answers no question we have.
+     */
+    analytics.track(
+      'automatic_room_message_sent',
+      {
+        length_bucket: lengthBucket(message.body.length),
+        has_emote: isEmoteOnly(message.body) || parseMessage(message.body).some((segment) => segment.type === 'emote'),
+        participant_count: roomSize(),
+      },
+      { source: 'together', channel: message.channel },
+    )
+  },
+  onError: logError,
+})
+
+const sessionTab = createSessionTab({
+  storage: storageArea,
+  onChange: () => broadcast(),
+  onError: logError,
+})
+
+/**
+ * The session the viewer intentionally opened, if it is still real.
+ *
+ * Three conditions, all checked against live state rather than trusted from
+ * storage: the same canonical destination, still eligible (which is what
+ * makes "still live" true), and a room that still has somebody in it. A
+ * remembered selection can therefore never reopen an unrelated streamer's
+ * room - the worst it can do is be ignored.
+ */
+function restoredSession(): string | null {
+  const remembered = sessionTab.selected()
+  if (!remembered) return null
+  if (remembered !== socialChannel()) return null
+  return room.snapshot().length > 0 ? remembered : null
+}
+
+/** Messages waiting on the channel the viewer is on. Zero when none. */
+function roomUnread(): number {
+  const here = socialChannel()
+  if (!here) return 0
+  return unreadCount(
+    roomChat.snapshot(),
+    here,
+    sessionTab.readAt(here),
+    authState.identity?.userId ?? null,
+  )
+}
 
 /** Everyone in the room, including the viewer. Zero when there is no room. */
 function roomSize(): number {
@@ -803,6 +877,10 @@ function pushActivity(): void {
   const here = socialChannel()
   together.setChannel(here)
   room.want(here)
+  // The conversation follows the same channel, and re-fetches on the same
+  // call: a page refresh reaches here, and the messages have to come back
+  // with it rather than starting empty.
+  roomChat.setChannel(here)
 
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
@@ -885,6 +963,10 @@ function currentState(): KickbackState {
     channelMetadata: { ...metadata.snapshot() },
     togetherReactions: together.snapshot(),
     roomMembers: room.snapshot(),
+    roomMessages: roomChat.snapshot(),
+    roomUnread: roomUnread(),
+    sessionChannel: restoredSession(),
+    mutedUserIds: sessionTab.muted(),
   }
 }
 
@@ -928,6 +1010,7 @@ auth.subscribe((next) => {
      * Idempotent for the same id, so this is safe on every auth update.
      */
     together.setUser(next.identity.userId)
+    roomChat.setUser(next.identity.userId)
   } else {
     socialSync.stop()
     presenceSync.stop()
@@ -938,6 +1021,7 @@ auth.subscribe((next) => {
     attention.clear()
     gatheringWatcher.reset()
     together.reset()
+    roomChat.reset()
     room.reset()
     /*
      * Public data, but still dropped on sign-out.
@@ -1219,6 +1303,50 @@ chrome.runtime.onConnect.addListener((port) => {
         // interaction that happened.
         if (isReaction(raw.reaction)) together.send(raw.reaction)
         break
+
+      case 'roomMessage': {
+        /*
+         * Trimmed and bounded here as well as in SQL.
+         *
+         * The database is the authority and checks the same 280, but a tab is
+         * not a trusted caller and there is no reason to spend a round trip
+         * discovering that. Recorded when the sender's own copy is DELIVERED,
+         * not here - see the onMessage handler.
+         */
+        const body = typeof raw.body === 'string' ? raw.body.trim() : ''
+        if (body.length > 0 && body.length <= MAX_MESSAGE_LENGTH) roomChat.send(body)
+        break
+      }
+
+      case 'selectSession': {
+        /*
+         * The viewer's intent, remembered so a Twitch refresh lands back
+         * where they were.
+         *
+         * Only ever the channel they are actually on: a client naming another
+         * one would be storing a selection it could never have made, and the
+         * restore path checks eligibility again anyway.
+         */
+        const here = socialChannel()
+        const wanted = typeof raw.channel === 'string' ? raw.channel.toLowerCase() : null
+        if (wanted && wanted === here) {
+          sessionTab.select(here)
+          // Looking at the conversation is what makes it read.
+          sessionTab.markRead(here)
+        } else {
+          sessionTab.select(null)
+        }
+        broadcast()
+        break
+      }
+
+      case 'mute': {
+        // Local, silent, and never sent anywhere. See core/mute.ts.
+        if (typeof raw.userId === 'string' && raw.userId.length > 0) {
+          sessionTab.setMuted(raw.userId, raw.muted === true)
+        }
+        break
+      }
       case 'seen':
         if (Array.isArray(raw.keys)) attention.markSeen(raw.keys)
         else if (raw.kind) attention.markKindSeen(raw.kind)
@@ -1308,6 +1436,10 @@ void attention.hydrate()
 // A worker that has just woken should not start from a cold metadata cache;
 // a day-old record is dropped on the way in rather than shown.
 void metadata.hydrate()
+// The remembered session tab, the read watermarks and the mute list. All
+// local, all small, and all of them are what makes a Twitch refresh land
+// back where the viewer was rather than on Friends.
+void sessionTab.hydrate()
 
 /*
  * A way to ask the deployed backend a direct question, from the worker console.

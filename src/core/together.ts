@@ -1,6 +1,5 @@
 import { EMOTES } from './emotes'
 import type { KickbackEmote, KickbackEmoteId } from './emotes'
-import { activeCombo } from './combos'
 import type { ComboMessage } from './combos'
 
 /**
@@ -69,7 +68,7 @@ export function reactionEmote(reaction: Reaction): KickbackEmote {
 }
 
 /**
- * How long a reaction stays on screen.
+ * How long an interaction counts as HAPPENING NOW.
  *
  * Reactions are ephemeral by design - no history, no inbox, no transcript -
  * because they exist to say "did you SEE that" about something happening on
@@ -77,7 +76,17 @@ export function reactionEmote(reaction: Reaction): KickbackEmote {
  * while you were looking at the video, and short enough that the surface is
  * empty again before the moment has passed.
  */
-export const REACTION_TTL_MS = 8_000
+export const ACTIVITY_TTL_MS = 8_000
+
+/**
+ * The old name, kept because it is what a reaction buffer is pruned by.
+ *
+ * One constant with two readers: reactions expire out of existence after
+ * this, and the activity indicator - which also watches messages, and those
+ * do NOT expire this fast - uses the same eight seconds to decide what counts
+ * as now. Two names for one number would let them drift.
+ */
+export const REACTION_TTL_MS = ACTIVITY_TTL_MS
 
 /** The most reactions worth keeping. A burst is a burst; a flood is noise. */
 export const MAX_REACTIONS = 60
@@ -194,59 +203,4 @@ export function parseReaction(value: unknown): TogetherReaction | null {
     reaction,
     at: Number.isFinite(time) ? time : Date.now(),
   }
-}
-
-/**
- * What is happening in a room, right now.
- *
- * ONE FUNCTION, TWO SURFACES
- *
- * The Room draws this, and so does the ephemeral preview on the Gravity card
- * outside it. They must never disagree - somebody glancing at the card and
- * then opening the room should see the same thing continue, not a second
- * opinion about the same eight seconds - so there is exactly one place that
- * decides, and both call it.
- *
- * WHY IT IS THE TRAILING RUN AND NOTHING ELSE
- *
- * `scanCombos` already defines what a run is, including the rule that matters
- * most here: the same person pressing the same button twice does not make a
- * combo. `activeCombo` returns the run still open at the end of the stream,
- * which is the definition of "right now" - so this asks for that rather than
- * counting anything itself.
- *
- * Below COMBO_MIN_DISPLAY `activeCombo` returns null, and rather than showing
- * nothing this falls back to the single most recent reaction with a count of
- * one. That is not a second combo model: it is the same run, reported at
- * length one, and the caller decides whether a run that short is worth a
- * number beside it.
- *
- * WHY IT VANISHES ON ITS OWN
- *
- * `liveReactions` is the only clock in the path. When the last reaction passes
- * REACTION_TTL_MS this returns null, and every surface goes empty at the same
- * instant - no timestamps, no "recently", no decayed remnant kept to stop the
- * layout moving. If it is on screen, it is happening.
- */
-export interface RoomActivity {
-  emote: KickbackEmote
-  /** Distinct people in the run. One means a single reaction, not a combo. */
-  count: number
-}
-
-export function roomActivity(
-  reactions: readonly TogetherReaction[],
-  channel: string | null,
-  displayName: (userId: string) => string,
-  now: number = Date.now(),
-): RoomActivity | null {
-  const live = liveReactions(reactions, channel, now)
-  const last = live[live.length - 1]
-  if (!last) return null
-
-  const combo = activeCombo(reactionMessages(live, displayName))
-  // The run always ends on the last reaction, so its emote is that reaction's
-  // - taken from here rather than from the combo so the return type stays a
-  // Kickback emote without a cast.
-  return { emote: reactionEmote(last.reaction), count: combo?.count ?? 1 }
 }

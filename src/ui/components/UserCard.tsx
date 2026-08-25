@@ -49,6 +49,15 @@ export interface UserCardContext {
   friendIds: ReadonlySet<string>
   /** Friend requests the viewer has already sent. */
   outgoingRequestIds: ReadonlySet<string>
+  /**
+   * People this viewer has muted.
+   *
+   * Part of the card's context rather than a prop, for the reason the comment
+   * above gives about viewerActivity: the card is opened from five places now,
+   * and a mute control that silently did nothing at one of them would look
+   * like it had worked.
+   */
+  mutedUserIds?: readonly string[]
 }
 
 export interface UserCardProps {
@@ -64,6 +73,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
   // computing "is this a friend" three times is three chances to disagree.
   const isSelf = context.selfId !== null && user.id === context.selfId
   const isFriend = context.friendIds.has(user.id)
+  const muted = (context.mutedUserIds ?? []).includes(user.id)
   const requestPending = context.outgoingRequestIds.has(user.id)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
@@ -180,6 +190,28 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
             onClick={() => void act(() => client.sendFriendRequest(user.id), () => setSent(true))}
           >
             {sent || requestPending ? 'Request sent' : 'Add friend'}
+          </button>
+        )}
+
+        {/*
+          * Mute, which is a quiet and not a judgement.
+          *
+          * Local to this browser: they are not told, nothing about the
+          * friendship changes, and they keep participating normally for
+          * everybody else. It suppresses their room messages, their reactions,
+          * and their contribution to the combo counts THIS viewer sees.
+          *
+          * Deliberately not a block. Block has to affect the graph itself and
+          * is server-side; it is the next thing, and mute is not a substitute
+          * for it. See core/mute.ts.
+          */}
+        {!isSelf && (
+          <button
+            type="button"
+            className="kb-ghost-btn kb-ghost-btn-inline"
+            onClick={() => client.setUserMuted(user.id, !muted)}
+          >
+            {muted ? 'Unmute' : 'Mute'}
           </button>
         )}
 

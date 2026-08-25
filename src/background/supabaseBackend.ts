@@ -8,6 +8,8 @@ import type { AnalyticsBackend } from './analytics'
 import type { MetadataFetcher } from './metadata'
 import type { ReactionBackend } from './togetherReactions'
 import type { RoomBackend } from './streamRoom'
+import type { RoomMessageBackend } from './roomMessages'
+import { MAX_MESSAGES } from '../core/roomMessages'
 import type { Reaction } from '../core/together'
 import type { AnalyticsEvent } from '../core/analytics'
 import { IDLE } from '../core/types'
@@ -609,6 +611,45 @@ export function createSupabaseRoomBackend(supabase: SupabaseClient): RoomBackend
   }
 }
 
+/**
+ * Ephemeral room messages.
+ *
+ * Two calls and no third: send, which fans out server-side, and history,
+ * which reads this viewer's own inbox. There is deliberately no way to ask
+ * what was said on a channel - only what was said TO you - because the row
+ * addressed to you IS the authorization decision, made when it was written.
+ */
+export function createSupabaseRoomMessageBackend(supabase: SupabaseClient): RoomMessageBackend {
+  return {
+    async send(channel: string, body: string): Promise<number> {
+      const { data, error } = await supabase.rpc('send_room_message', {
+        p_channel: channel,
+        p_body: body,
+      })
+      if (error) throw new Error(describe(error))
+      return typeof data === 'number' ? data : 0
+    },
+
+    async history(channel: string): Promise<unknown> {
+      /*
+       * RLS is recipient_id = auth.uid(), so this cannot return anybody
+       * else's inbox however it is called. The channel filter is about
+       * showing the right conversation, not about who may see it.
+       *
+       * Ordered newest-first and capped so a long session cannot return an
+       * unbounded page; the client sorts back into reading order.
+       */
+      const { data, error } = await supabase
+        .from('room_messages')
+        .select('id, sender_id, channel, body, created_at')
+        .eq('channel', channel)
+        .order('created_at', { ascending: false })
+        .limit(MAX_MESSAGES)
+      if (error) throw new Error(describe(error))
+      return data
+    },
+  }
+}
 /**
  * Kickback's Twitch metadata endpoint.
  *

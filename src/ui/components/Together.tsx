@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { COMBO_MIN_DISPLAY } from '../../core/combos'
-import { roomActivity } from '../../core/together'
+import { roomActivity } from '../../core/roomMessages'
+import type { RoomMessage } from '../../core/roomMessages'
 import type { TogetherReaction } from '../../core/together'
+import { withoutMutedSenders } from '../../core/mute'
 import { directCount } from '../../core/streamRoom'
 import type { RoomMember } from '../../core/streamRoom'
 import type { Friend } from '../../client/types'
@@ -43,7 +45,18 @@ interface TogetherProps {
   /** Friends the panel already knows about, for combo attribution. */
   friends: readonly Friend[]
   reactions: readonly TogetherReaction[]
+  /**
+   * The conversation, for the activity preview only.
+   *
+   * An emote-only message counts towards a combo exactly as a reaction does,
+   * so the preview has to see both or it would show a smaller number than the
+   * session does. Nothing about the TEXT ever reaches this card.
+   */
+  messages: readonly RoomMessage[]
+  mutedUserIds: readonly string[]
   selfId: string | null
+  /** Waiting messages, so the doorway can say there is something to read. */
+  unread: number
   onOpen: () => void
 }
 
@@ -52,7 +65,10 @@ export function Together({
   members,
   friends,
   reactions,
+  messages,
+  mutedUserIds,
   selfId,
+  unread,
   onOpen,
 }: TogetherProps) {
   const analytics = useAnalytics()
@@ -74,9 +90,20 @@ export function Together({
   const nameOf = (userId: string) =>
     userId === selfId ? 'You' : (byId.get(userId)?.user.displayName ?? 'Someone')
 
-  // The clock lives inside roomActivity, so this stays a pure derivation - and
-  // it is the SAME derivation the room itself draws from.
-  const activity = roomActivity(reactions, channel, nameOf)
+  /*
+   * The clock lives inside roomActivity, so this stays a pure derivation - and
+   * it is the SAME derivation the session itself draws from, over the same
+   * merged stream of reactions and emote-only messages.
+   *
+   * Muted people are filtered first, so their contribution disappears from the
+   * count rather than merely from a list you cannot see from here anyway.
+   */
+  const activity = roomActivity(
+    withoutMutedSenders(reactions, mutedUserIds),
+    withoutMutedSenders(messages, mutedUserIds),
+    channel,
+    nameOf,
+  )
 
   /*
    * A combo is recorded once, when it reaches a size.
@@ -140,6 +167,14 @@ export function Together({
         }}
       >
         ROOM
+        {/*
+         * Something is waiting, said as quietly as possible.
+         *
+         * Unread is "somebody said something to me". It is NOT the combo above
+         * it, which is "something is happening right now" and is gone in eight
+         * seconds - a number that accrued for that would never settle.
+         */}
+        {unread > 0 && <span className="kb-together-unread">{unread > 9 ? '9+' : unread}</span>}
       </button>
     </div>
   )

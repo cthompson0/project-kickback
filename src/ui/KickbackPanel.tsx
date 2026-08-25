@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ChannelLabel, ChannelNameProvider } from './ChannelNames'
+import { ChannelLabel, ChannelNameProvider, useChannelName } from './ChannelNames'
 import { AnalyticsProvider } from './Analytics'
 import { describePresence } from '../core/personPresence'
 import type { KickbackClient } from '../client/types'
@@ -7,7 +7,7 @@ import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
 import { SocialGravity } from './components/SocialGravity'
-import { StreamRoom } from './components/StreamRoom'
+import { StreamSession } from './components/StreamSession'
 import { gravityOpportunities, socialGravity } from '../core/socialGravity'
 import { resolveArm } from '../core/experiment'
 import { FindFriends } from './components/FindFriends'
@@ -24,7 +24,53 @@ import {
   SignInCard,
 } from './components/AuthStates'
 
-type Tab = 'friends' | 'groups'
+/**
+ * Friends, the contextual session, Groups.
+ *
+ * 'session' only exists while there is one - see `sessionAvailable` - and
+ * selecting it is never automatic. A tab appearing must not move somebody's
+ * feet.
+ */
+type Tab = 'friends' | 'groups' | 'session'
+
+/**
+ * The contextual streamer tab.
+ *
+ * A component rather than markup inline in the panel, for the reason
+ * ChannelLabel exists: the shell RENDERS the ChannelNameProvider and
+ * therefore cannot consume it, so calling useChannelName() up there returns
+ * the identity fallback and the tab reads "lirik" where Twitch says "LIRIK".
+ * Down here it is inside the provider and gets the authoritative casing -
+ * for the label and, just as importantly, for the title that carries the
+ * full name when the label is truncated.
+ */
+function SessionTab({
+  channel,
+  active,
+  unread,
+  onSelect,
+}: {
+  channel: string
+  active: boolean
+  unread: number
+  onSelect: () => void
+}) {
+  const name = useChannelName()(channel)
+
+  return (
+    <button
+      type="button"
+      className={`kb-tab kb-tab-session${active ? ' kb-tab-active' : ''}`}
+      title={name}
+      onClick={onSelect}
+    >
+      <span className="kb-tab-streamer">{name}</span>
+      {unread > 0 && !active && (
+        <span className="kb-tab-badge">{unread > 9 ? '9+' : unread}</span>
+      )}
+    </button>
+  )
+}
 
 const COLLAPSED_KEY = 'kickback:collapsed'
 
@@ -70,7 +116,7 @@ export function KickbackPanel({
 }) {
   const view = useKickbackState(client)
   const [collapsed, setCollapsed] = useState(readCollapsed)
-  const [tab, setTab] = useState<Tab>('friends')
+
   const [accountOpen, setAccountOpen] = useState(false)
   const [finding, setFinding] = useState(false)
   const [openGroupId, setOpenGroupId] = useState<string | null>(null)
@@ -83,7 +129,18 @@ export function KickbackPanel({
    * room is open, so HERE, its count and its people are still there on the way
    * back rather than rebuilt.
    */
-  const [openRoomChannel, setOpenRoomChannel] = useState<string | null>(null)
+  /**
+   * Which tab the viewer has chosen, or null for "has not chosen yet".
+   *
+   * Their INTENT, never the answer. The session tab can stop existing under
+   * them, so the resolved `tab` below is derived - storing the resolved value
+   * would leave a frame where the panel is showing a room nobody is in.
+   *
+   * Null is what makes a Twitch refresh land back where they were: before any
+   * click, the worker's remembered selection decides, and the moment they
+   * choose anything - including Friends - their choice wins for good.
+   */
+  const [requestedTab, setRequestedTab] = useState<Tab | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
   const { layout, gesturing, sized, onDragStart, onResizeStart, reset } = usePanelLayout({
@@ -93,6 +150,21 @@ export function KickbackPanel({
   })
 
   const hint = useLayoutHint()
+
+  /**
+   * Choose a tab, and tell the worker when that choice is a session.
+   *
+   * The worker is what remembers it across a Twitch refresh, and what marks
+   * the conversation read - both of which have to outlive this component,
+   * because the panel is torn down on every navigation.
+   */
+  const chooseTab = (next: Tab) => {
+    setRequestedTab(next)
+    setFinding(false)
+    if (next === 'session' && sessionChannel) client.selectSession(sessionChannel)
+    // Leaving is remembered as leaving, so a refresh does not put them back.
+    else if (tab === 'session') client.selectSession(null)
+  }
 
   // Starting a gesture retires the hint: they have found it.
   const beginDrag = (event: React.PointerEvent) => {
@@ -105,23 +177,39 @@ export function KickbackPanel({
   }
 
   /*
-   * The room is only open while the viewer is still on that channel.
+   * Is there a session to be in?
    *
-   * Derived rather than stored, so leaving the channel closes it without
-   * anything having to notice: presence already moved, and a room for a stream
-   * you walked away from is a room you are not in. Rooms also require a live
-   * stream, so a stream ending closes it the same way, through the same
-   * derivation - see roomMembers, which the worker empties.
+   * The server's membership answers it, which already implies the stream is
+   * live and that we are on it - stream_room_members refuses otherwise. So
+   * this is one condition rather than four that could disagree.
    */
-  const roomOpen =
-    tab === 'friends' &&
-    !finding &&
-    openRoomChannel !== null &&
-    openRoomChannel === view.channel &&
-    view.roomMembers.length > 0
+  const sessionChannel = view.channel
+  const sessionAvailable = sessionChannel !== null && view.roomMembers.length > 0
 
-  // A conversation and a room are the two views worth the whole height budget.
-  const chatOpen = (tab === 'groups' && openGroupId !== null && !finding) || roomOpen
+  /*
+   * The tab actually shown.
+   *
+   * Two resolutions in one expression, and neither is stored:
+   *
+   *   * no choice yet, and the worker remembered a session that is still real
+   *     -> open it. That is refresh continuity, and it needs no effect;
+   *   * a session was chosen and has stopped existing -> Friends. Falling back
+   *     rather than clearing the request means the viewer is not permanently
+   *     ejected by a friend blinking out for a heartbeat.
+   */
+  const restorable = view.sessionChannel !== null && sessionAvailable
+  const tab: Tab =
+    requestedTab === null
+      ? restorable
+        ? 'session'
+        : 'friends'
+      : requestedTab === 'session' && !sessionAvailable
+        ? 'friends'
+        : requestedTab
+  const sessionOpen = tab === 'session' && !finding && sessionAvailable
+
+  // A conversation and a session are the two views worth the whole height.
+  const chatOpen = (tab === 'groups' && openGroupId !== null && !finding) || sessionOpen
 
   useEffect(() => writeCollapsed(collapsed), [collapsed])
 
@@ -141,6 +229,17 @@ export function KickbackPanel({
     if (collapsed || finding || tab !== 'groups' || view.status !== 'signed_in') return
     client.markKindSeen('group_invite')
   }, [collapsed, finding, tab, view.status, view.attention, client])
+
+  /*
+   * Looking at the conversation is what makes it read.
+   *
+   * Re-run as messages arrive while the tab is open, so unread does not
+   * start climbing behind a session somebody is actually watching.
+   */
+  useEffect(() => {
+    if (collapsed || !sessionOpen || !sessionChannel) return
+    client.selectSession(sessionChannel)
+  }, [collapsed, sessionOpen, sessionChannel, view.roomMessages.length, client])
 
   /*
    * Which arm this user is in.
@@ -277,8 +376,9 @@ export function KickbackPanel({
       viewerActivity: view.localActivity,
       friendIds: new Set(friends.map((friend) => friend.user.id)),
       outgoingRequestIds: new Set(view.outgoingRequests.map((request) => request.user.id)),
+      mutedUserIds: view.mutedUserIds,
     }),
-    [identity, view.localActivity, friends, view.outgoingRequests],
+    [identity, view.localActivity, friends, view.outgoingRequests, view.mutedUserIds],
   )
 
   const signedIn = status === 'signed_in'
@@ -424,6 +524,9 @@ export function KickbackPanel({
             })
           }}
           onResetLayout={reset}
+          mutedUserIds={view.mutedUserIds}
+          knownPeople={knownPeople}
+          onUnmute={(userId) => client.setUserMuted(userId, false)}
           onVisibilityChange={(mode) => {
             setActionError(null)
             client.setPresenceVisibility(mode).catch((cause: unknown) => {
@@ -484,10 +587,7 @@ export function KickbackPanel({
             <button
               type="button"
               className={`kb-tab${tab === 'friends' && !finding ? ' kb-tab-active' : ''}`}
-              onClick={() => {
-                setTab('friends')
-                setFinding(false)
-              }}
+              onClick={() => chooseTab('friends')}
             >
               Friends
               {friends.length > 0 && (
@@ -499,13 +599,31 @@ export function KickbackPanel({
                 <span className="kb-tab-badge">{incomingRequests.length}</span>
               )}
             </button>
+            {/*
+              * The contextual streamer tab.
+              *
+              * Between Friends and Groups because that is what it is between:
+              * the radar on one side, the durable circles on the other, and
+              * the thing happening right now in the middle. Labelled with the
+              * streamer and nothing else - a noun like "Room" would make it a
+              * feature name, and the name of who you are watching is already
+              * the most specific thing anybody could say about it.
+              *
+              * Truncation is CSS, so the full name survives in the title and
+              * inside the tab; slicing the string would lose it in both.
+              */}
+            {sessionAvailable && sessionChannel && (
+              <SessionTab
+                channel={sessionChannel}
+                active={tab === 'session' && !finding}
+                unread={view.roomUnread}
+                onSelect={() => chooseTab('session')}
+              />
+            )}
             <button
               type="button"
               className={`kb-tab${tab === 'groups' && !finding ? ' kb-tab-active' : ''}`}
-              onClick={() => {
-                setTab('groups')
-                setFinding(false)
-              }}
+              onClick={() => chooseTab('groups')}
             >
               Groups
               {view.groups.length > 0 && <span className="kb-tab-count">{view.groups.length}</span>}
@@ -525,26 +643,26 @@ export function KickbackPanel({
           </div>
 
           <div className={`kb-body${chatOpen ? ' kb-body-chat' : ''}`}>
-            {roomOpen && openRoomChannel ? (
+            {sessionOpen && sessionChannel ? (
               /*
-               * Arriving somewhere.
+               * The session, beside Friends rather than on top of it.
                *
-               * Rendered instead of the map rather than inside it, which is the
-               * whole correction: the previous version expanded a section of a
-               * card and called that a room. Nothing is created by getting
-               * here - membership is the connected component the server already
-               * computes from presence - so Back is genuinely just going back.
+               * There is no Back button: the tabs are the way out, which is
+               * the whole point of moving it here. Nothing is created by
+               * arriving - membership is the connected component the server
+               * already computes from presence.
                */
-              <StreamRoom
-                channel={openRoomChannel}
+              <StreamSession
+                channel={sessionChannel}
                 members={view.roomMembers}
                 friends={friends}
                 reactions={view.togetherReactions}
-                metadata={view.channelMetadata?.[openRoomChannel]}
+                messages={view.roomMessages}
+                mutedUserIds={view.mutedUserIds}
+                metadata={view.channelMetadata?.[sessionChannel]}
                 selfId={identity?.userId ?? null}
                 client={client}
                 cardContext={cardContext}
-                onBack={() => setOpenRoomChannel(null)}
               />
             ) : finding ? (
               <FindFriends
@@ -589,7 +707,10 @@ export function KickbackPanel({
                     metadata={view.channelMetadata}
                     reactions={view.togetherReactions}
                     roomMembers={view.roomMembers}
-                    onOpenRoom={setOpenRoomChannel}
+                    roomMessages={view.roomMessages}
+                    mutedUserIds={view.mutedUserIds}
+                    roomUnread={view.roomUnread}
+                    onOpenRoom={() => chooseTab('session')}
                   />
                 ) : (
                   /* The control arm keeps the flat list it always had. */

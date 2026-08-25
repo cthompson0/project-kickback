@@ -343,6 +343,31 @@ export function TestLab() {
                         {reaction}
                       </button>
                     ))}
+                    {/*
+                      * Make them SAY something.
+                      *
+                      * The lab supplies the event and never the answer: this
+                      * puts a message into the same buffer realtime would fill,
+                      * and every rule about who receives one - the connected
+                      * component, the split, the merge - is the server's and is
+                      * tested against real Postgres instead.
+                      */}
+                    <button
+                      type="button"
+                      className="lab-x"
+                      title={`${user.displayName} says something`}
+                      onClick={() => handle.say(user.id, `hey from ${user.displayName}`)}
+                    >
+                      say
+                    </button>
+                    <button
+                      type="button"
+                      className="lab-x"
+                      title={`${user.displayName} sends an emote`}
+                      onClick={() => handle.say(user.id, ':lol:')}
+                    >
+                      :lol:
+                    </button>
                   </div>
                 ))}
               </div>

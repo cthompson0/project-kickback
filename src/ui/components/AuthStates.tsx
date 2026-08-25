@@ -82,6 +82,47 @@ const VISIBILITY_OPTIONS: Array<{
   { value: 'invisible', label: 'Invisible', hint: 'Friends see you as offline' },
 ]
 
+/**
+ * Everyone this viewer has muted, and the way back.
+ *
+ * A mute you cannot find is a mute you cannot undo, so this exists for exactly
+ * one reason: to be the discoverable place that reverses it. Hidden entirely
+ * when nobody is muted - an empty list is a setting nobody needs to read.
+ */
+function MutedPeople({
+  mutedUserIds,
+  people,
+  onUnmute,
+}: {
+  mutedUserIds: readonly string[]
+  /** Everyone the panel can name, so a muted person is not just an id. */
+  people: readonly { id: string; displayName: string }[]
+  onUnmute: (userId: string) => void
+}) {
+  if (mutedUserIds.length === 0) return null
+
+  const nameOf = (userId: string) =>
+    people.find((person) => person.id === userId)?.displayName ?? 'Someone'
+
+  return (
+    <div className="kb-muted-list">
+      <div className="kb-section-label">Muted · {mutedUserIds.length}</div>
+      {mutedUserIds.map((userId) => (
+        <div className="kb-muted-row" key={userId}>
+          <span className="kb-cluster-name">{nameOf(userId)}</span>
+          <button
+            type="button"
+            className="kb-ghost-btn kb-ghost-btn-inline"
+            onClick={() => onUnmute(userId)}
+          >
+            Unmute
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function AccountCard({
   identity,
   onSignOut,
@@ -89,6 +130,9 @@ export function AccountCard({
   preferences,
   onPreferencesChange,
   onResetLayout,
+  mutedUserIds,
+  knownPeople,
+  onUnmute,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
@@ -97,6 +141,10 @@ export function AccountCard({
   onPreferencesChange: (patch: Partial<KickbackPreferences>) => void
   /** Back to the default position and size, without clearing storage by hand. */
   onResetLayout: () => void
+  /** Local mutes, and the one place they can be reversed. */
+  mutedUserIds: readonly string[]
+  knownPeople: readonly { id: string; displayName: string }[]
+  onUnmute: (userId: string) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -182,6 +230,8 @@ export function AccountCard({
             : 'No desktop alerts'}
         </div>
       </div>
+
+      <MutedPeople mutedUserIds={mutedUserIds} people={knownPeople} onUnmute={onUnmute} />
 
       <button type="button" className="kb-ghost-btn" onClick={onResetLayout}>
         Reset layout

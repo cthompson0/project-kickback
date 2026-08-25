@@ -5,7 +5,8 @@ import {
   isSocialViewing,
   watchTogetherState,
 } from '../../src/core/socialViewing'
-import { roomActivity, REACTION_TTL_MS } from '../../src/core/together'
+import { ACTIVITY_TTL_MS } from '../../src/core/together'
+import { roomActivity } from '../../src/core/roomMessages'
 import type { TogetherReaction } from '../../src/core/together'
 import { COMBO_MIN_DISPLAY } from '../../src/core/combos'
 import { STALE_TOLERANCE_MS } from '../../src/core/twitchMetadata'
@@ -175,11 +176,11 @@ const nameOf = (userId: string) => userId
 
 describe('the activity a room and its card both draw', () => {
   it('is nothing when nothing has happened', () => {
-    expect(roomActivity([], 'lirik', nameOf, NOW)).toBeNull()
+    expect(roomActivity([], [], 'lirik', nameOf, NOW)).toBeNull()
   })
 
   it('reports a single reaction as a run of one', () => {
-    const activity = roomActivity([reaction()], 'lirik', nameOf, NOW)
+    const activity = roomActivity([reaction()], [], 'lirik', nameOf, NOW)
     expect(activity?.emote.id).toBe('lol')
     expect(activity?.count).toBe(1)
     expect(activity!.count).toBeLessThan(COMBO_MIN_DISPLAY)
@@ -188,6 +189,7 @@ describe('the activity a room and its card both draw', () => {
   it('counts different people agreeing', () => {
     const activity = roomActivity(
       [reaction({ senderId: 'jake' }), reaction({ senderId: 'matt', at: NOW + 100 })],
+      [],
       'lirik',
       nameOf,
       NOW + 200,
@@ -202,6 +204,7 @@ describe('the activity a room and its card both draw', () => {
         reaction({ senderId: 'jake', at: NOW + 50 }),
         reaction({ senderId: 'jake', at: NOW + 100 }),
       ],
+      [],
       'lirik',
       nameOf,
       NOW + 200,
@@ -216,6 +219,7 @@ describe('the activity a room and its card both draw', () => {
         reaction({ senderId: 'matt', reaction: 'lol', at: NOW + 50 }),
         reaction({ senderId: 'jake', reaction: 'fire', at: NOW + 100 }),
       ],
+      [],
       'lirik',
       nameOf,
       NOW + 200,
@@ -231,8 +235,8 @@ describe('the activity a room and its card both draw', () => {
      * If it is on screen, it is happening.
      */
     const reactions = [reaction({ senderId: 'jake' }), reaction({ senderId: 'matt', at: NOW + 10 })]
-    expect(roomActivity(reactions, 'lirik', nameOf, NOW + 10)?.count).toBe(2)
-    expect(roomActivity(reactions, 'lirik', nameOf, NOW + REACTION_TTL_MS + 11)).toBeNull()
+    expect(roomActivity(reactions, [], 'lirik', nameOf, NOW + 10)?.count).toBe(2)
+    expect(roomActivity(reactions, [], 'lirik', nameOf, NOW + ACTIVITY_TTL_MS + 11)).toBeNull()
   })
 
   it('shrinks as contributors age out rather than freezing', () => {
@@ -240,35 +244,52 @@ describe('the activity a room and its card both draw', () => {
     // once true and is now decoration.
     const reactions = [
       reaction({ senderId: 'jake', at: NOW }),
-      reaction({ senderId: 'matt', at: NOW + REACTION_TTL_MS - 1 }),
+      reaction({ senderId: 'matt', at: NOW + ACTIVITY_TTL_MS - 1 }),
     ]
-    expect(roomActivity(reactions, 'lirik', nameOf, NOW)?.count).toBe(2)
-    expect(roomActivity(reactions, 'lirik', nameOf, NOW + REACTION_TTL_MS)?.count).toBe(1)
+    expect(roomActivity(reactions, [], 'lirik', nameOf, NOW)?.count).toBe(2)
+    expect(roomActivity(reactions, [], 'lirik', nameOf, NOW + ACTIVITY_TTL_MS)?.count).toBe(1)
   })
 
   it('belongs to one channel', () => {
-    expect(roomActivity([reaction({ channel: 'xqc' })], 'lirik', nameOf, NOW)).toBeNull()
-    expect(roomActivity([reaction()], null, nameOf, NOW)).toBeNull()
+    expect(roomActivity([reaction({ channel: 'xqc' })], [], 'lirik', nameOf, NOW)).toBeNull()
+    expect(roomActivity([reaction()], [], null, nameOf, NOW)).toBeNull()
   })
 })
 
 describe('there is one combo engine', () => {
   const TOGETHER = readFileSync('src/core/together.ts', 'utf8')
-  const ROOM = readFileSync('src/ui/components/StreamRoom.tsx', 'utf8')
+  const ROOM = readFileSync('src/ui/components/StreamSession.tsx', 'utf8')
   const CARD = readFileSync('src/ui/components/Together.tsx', 'utf8')
 
   it('is scanCombos, reached through activeCombo', () => {
-    expect(TOGETHER).toContain("import { activeCombo } from './combos'")
-    expect(TOGETHER).toContain('reactionMessages')
+    /*
+     * roomActivity lives beside the messages now rather than beside the
+     * reactions, because it reads BOTH - which is also what broke the import
+     * cycle the merge would otherwise have created.
+     */
+    const STREAM = readFileSync('src/core/roomMessages.ts', 'utf8')
+    expect(STREAM).toContain("import { activeCombo } from './combos'")
+    expect(STREAM).toContain('export function comboStream(')
+    expect(STREAM).toContain('export function roomActivity(')
   })
 
   it('is not reimplemented by either surface', () => {
+    /*
+     * Both surfaces ASK the engine; neither counts anything.
+     *
+     * The session calls scanCombos for the annotations beside each message,
+     * exactly as group chat does - that is using the engine, not duplicating
+     * it. What neither may do is decide for itself what a run is, so what is
+     * asserted is that both go through roomActivity for "what is happening
+     * now" and that the deleted burst aggregator has not come back.
+     */
     for (const [name, source] of [['room', ROOM], ['card', CARD]] as const) {
       expect(source, name).toContain('roomActivity')
-      expect(source, name).not.toContain('scanCombos')
-      expect(source, name).not.toContain('annotations')
       expect(source, name).not.toContain('reactionBursts')
+      expect(source, name).not.toContain('function scanCombos')
     }
+    // And the one merged stream both of them are counted over.
+    expect(ROOM).toContain('comboStream')
   })
 
   it('kept the burst aggregator deleted', () => {

@@ -15,6 +15,8 @@
   --kb-dim: #a6a6b0;
   --kb-faint: #74747f;
   --kb-accent: #ff8452;
+  /* A live broadcast, and nothing else. See .kb-live-dot. */
+  --kb-live: #e91916;
   --kb-accent-2: #ff4f8b;
   --kb-here: #2ee6a8;
   --kb-online: #6fd18c;
@@ -291,19 +293,35 @@
   letter-spacing: -0.01em;
 }
 
+/*
+ * LIVE is RED, and only LIVE is red.
+ *
+ * Kickback now has three signals that could all reach for a coloured dot, and
+ * they mean different things, so the palette is split by MEANING rather than
+ * by what looked good next to what:
+ *
+ *   red    - a broadcast is happening. The established convention everywhere
+ *            streaming exists, so it needs no explaining.
+ *   green  - a person is online and available. Presence, never broadcast.
+ *   accent - something to press: JOIN, selection, the active tab.
+ *
+ * This used to be #ff4f5e, which is the fire emote's background - close enough
+ * to read as red, and close enough to drift. A token, so the meaning is stated
+ * once and every LIVE badge in the panel cannot disagree.
+ */
 .kb-live-dot {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #ff4f5e;
-  box-shadow: 0 0 0 0 rgba(255, 79, 94, 0.6);
+  background: var(--kb-live);
+  box-shadow: 0 0 0 0 rgba(233, 25, 22, 0.6);
   animation: kb-pulse 2.2s infinite;
   flex: none;
 }
 
 @keyframes kb-pulse {
   70% {
-    box-shadow: 0 0 0 6px rgba(255, 79, 94, 0);
+    box-shadow: 0 0 0 6px rgba(233, 25, 22, 0);
   }
   100% {
     box-shadow: 0 0 0 0 rgba(255, 79, 94, 0);
@@ -384,6 +402,28 @@
   height: 2px;
   border-radius: 2px;
   background: linear-gradient(90deg, var(--kb-accent), var(--kb-accent-2));
+}
+
+/*
+ * The contextual streamer tab.
+ *
+ * It carries a name somebody else chose, so it is the one tab whose width
+ * cannot be predicted. It yields first: Friends and Groups keep their labels,
+ * and this ellipsises rather than pushing anything off the row. The full name
+ * survives in the title attribute and inside the tab itself.
+ */
+.kb-tab-session {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+}
+
+.kb-tab-streamer {
+  display: block;
+  max-width: 92px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .kb-tab-count {
@@ -2415,21 +2455,33 @@ a.kb-ghost-btn {
   gap: 5px;
 }
 
+/*
+ * LIVE, and the second .kb-live-dot that used to live here.
+ *
+ * This block redefined .kb-live-dot in --kb-here green, further down the file
+ * than the real definition, so every LIVE badge in the panel was quietly the
+ * colour of the HERE badge - and the two mean completely different things.
+ * Nothing looked broken, which is exactly why it survived: green is a
+ * perfectly reasonable colour for a dot.
+ *
+ * The duplicate is gone rather than recoloured. One definition, one meaning:
+ * red is a broadcast, green is a person being online, accent is something to
+ * press. Only the size override belongs here, because the badge on a Gravity
+ * card is smaller than the one in the session header.
+ */
 .kb-live {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  color: var(--kb-here);
+  color: var(--kb-live);
   font-weight: 700;
   font-size: 10px;
   letter-spacing: 0.06em;
 }
 
-.kb-live-dot {
+.kb-gravity-status .kb-live-dot {
   width: 6px;
   height: 6px;
-  border-radius: 50%;
-  background: var(--kb-here);
 }
 
 /*
@@ -2560,4 +2612,198 @@ a.kb-ghost-btn {
 
 .kb-gravity-quiet {
   padding-top: 2px;
+}
+
+/*
+ * ---------- the contextual stream session ----------
+ *
+ * A tab, not a view you navigate into. The destination context and the people
+ * are compact on purpose: they answer questions you ask once, and the log
+ * answers the one you keep asking. The first version of this room inverted
+ * that and had nothing to say.
+ */
+
+.kb-session {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.kb-session-head {
+  padding: 2px 2px 6px;
+}
+
+.kb-session-channel {
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kb-session-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 10.5px;
+  color: var(--kb-faint);
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.kb-session-game {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kb-session-viewers {
+  font-variant-numeric: tabular-nums;
+  flex: none;
+}
+
+/*
+ * Who is here, as one row.
+ *
+ * Faces plus a count, expanding to the full list on tap - because a room can
+ * hold somebody two hops away who needs a line of context under their name,
+ * and that is worth having but not worth a third of the panel.
+ */
+.kb-session-people {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 5px 4px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+}
+
+.kb-session-people:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-session-count {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: 0.09em;
+  color: var(--kb-dim);
+}
+
+.kb-session-chevron {
+  flex: none;
+  font-size: 10px;
+  color: var(--kb-faint);
+}
+
+/*
+ * Quick reactions, between the log and the composer.
+ *
+ * The fastest way to send an emote-only message, and counted by exactly the
+ * same engine - so pressing one can extend a combo somebody else started by
+ * typing an emote. Fixed size and `flex: none`, so five fit at the 260px
+ * minimum with room for whatever is landing beside them.
+ */
+.kb-session-react {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 2px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  min-height: 30px;
+}
+
+.kb-session-react-btn {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  padding: 0;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, transform 0.08s ease;
+}
+
+.kb-session-react-btn:hover {
+  background: var(--kb-bg-hover);
+}
+
+.kb-session-react-btn:active {
+  transform: scale(0.88);
+}
+
+/* What just landed, when there is no combo bar already saying it. */
+.kb-session-pulse {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  line-height: 1;
+  animation: kb-together-fade 8s linear forwards;
+}
+
+/*
+ * Something waiting, on the doorway.
+ *
+ * Unread is "somebody said something to me". It is NOT the combo beside it,
+ * which is "something is happening right now" and is gone in eight seconds.
+ * Keeping them visually distinct is the whole reason one is a number and the
+ * other is a symbol that fades.
+ */
+.kb-together-unread {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 13px;
+  height: 13px;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: var(--kb-accent);
+  color: #1a0d06;
+  font-size: 9px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The muted list, in the account card.
+ *
+ * A mute you cannot find is a mute you cannot undo, so this exists to be the
+ * discoverable way back. Absent entirely when nobody is muted.
+ */
+.kb-muted-list {
+  margin: 8px 0 4px;
+}
+
+.kb-muted-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 2px;
+}
+
+.kb-muted-row .kb-cluster-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kb-session-pulse {
+    animation: none;
+  }
+
+  .kb-session-react-btn:active {
+    transform: none;
+  }
 }

@@ -71,6 +71,22 @@ export type ClientMessage =
    * does, so there is exactly one way for one to appear.
    */
   | { type: 'reaction'; reaction: string }
+  /**
+   * An ephemeral room message, on whatever channel the worker knows this
+   * user is on.
+   *
+   * Fire-and-forget for the same reason a reaction is: nothing is drawn
+   * optimistically, so the sender's own copy arrives back through the same
+   * inbox as everybody else's and there is exactly one way for a message to
+   * appear. The channel is not a parameter - the worker owns which one is
+   * eligible, and a client that could name one could talk into a room it is
+   * not in.
+   */
+  | { type: 'roomMessage'; body: string }
+  /** The viewer opened, or left, the contextual stream session. */
+  | { type: 'selectSession'; channel: string | null }
+  /** Mute or unmute somebody. Local to this browser; never sent onwards. */
+  | { type: 'mute'; userId: string; muted: boolean }
   /*
    * ------------------------------------------------------------- analytics
    *

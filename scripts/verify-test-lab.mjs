@@ -73,6 +73,7 @@ function readPanel() {
       bursts: card.querySelectorAll('.kb-together-burst').length,
       combos: [...card.querySelectorAll('.kb-together-count')].map((el) => el.textContent.trim()),
       roomButton: Boolean(card.querySelector('.kb-together-open')),
+      cardUnread: card.querySelector('.kb-together-unread')?.textContent?.trim() ?? null,
       /* The row must not grow when a reaction lands. */
       barHeight: Math.round(
         card.querySelector('.kb-together')?.getBoundingClientRect().height ?? 0,
@@ -80,30 +81,56 @@ function readPanel() {
       cardHeight: Math.round(card.getBoundingClientRect().height),
     })),
     /*
-     * The room VIEW, which replaces the map rather than expanding inside it.
+     * The tab bar, which is where the session lives now.
      *
-     * `open` is the whole correction in one boolean: there is a distinct
-     * surface, the map is not on screen behind it, and Back returns.
+     * It used to be a view that replaced the Friends map; that fixed the
+     * disclosure triangle and cost the social radar. `session` here is the
+     * contextual streamer tab: its label, its unread, and whether it is the
+     * one selected.
      */
-    room: {
-      open: Boolean(document.querySelector('.kb-room-people')),
+    tabs: [...document.querySelectorAll('.kb-tab')].map((el) => ({
+      label: el.textContent.trim(),
+      streamer: el.querySelector('.kb-tab-streamer')?.textContent?.trim() ?? null,
+      title: el.getAttribute('title'),
+      active: el.classList.contains('kb-tab-active'),
+      badge: el.querySelector('.kb-tab-badge')?.textContent?.trim() ?? null,
+      /* Whether the label overflowed its box rather than the row. */
+      clipped: (() => {
+        const name = el.querySelector('.kb-tab-streamer')
+        return name ? name.scrollWidth > name.clientWidth : false
+      })(),
+    })),
+    tabsWidth: (() => {
+      const bar = document.querySelector('.kb-tabs')
+      return bar ? Math.round(bar.scrollWidth - bar.clientWidth) : 0
+    })(),
+    /* The session itself, once its tab is selected. */
+    session: {
+      open: Boolean(document.querySelector('.kb-session')),
       mapVisible: Boolean(document.querySelector('.kb-gravity')),
-      back: Boolean(document.querySelector('.kb-back')),
-      channel: document.querySelector('.kb-room-channel')?.textContent?.trim() ?? null,
-      count: document.querySelector('.kb-room-count')?.textContent?.trim() ?? null,
+      channel: document.querySelector('.kb-session-channel')?.textContent?.trim() ?? null,
+      count: document.querySelector('.kb-session-count')?.textContent?.trim() ?? null,
+      live: Boolean(document.querySelector('.kb-session-sub .kb-live')),
+      liveColor: (() => {
+        const dot = document.querySelector('.kb-session-sub .kb-live-dot')
+        return dot ? getComputedStyle(dot).backgroundColor : null
+      })(),
+      rosterOpen: Boolean(document.querySelector('.kb-room-people')),
       people: [...document.querySelectorAll('.kb-room-people .kb-cluster-name')].map((el) =>
         el.textContent.trim(),
       ),
       via: [...document.querySelectorAll('.kb-room-via')].map((el) => el.textContent.trim()),
-      buttons: document.querySelectorAll('.kb-room-react-btn').length,
-      combos: [...document.querySelectorAll('.kb-room-combo .kb-together-count')].map((el) =>
+      messages: [...document.querySelectorAll('.kb-chat-log .kb-msg')].map((el) =>
         el.textContent.trim(),
       ),
-      symbols: document.querySelectorAll('.kb-room-combo').length,
-      /* The reaction bar must not move when something lands above it. */
-      barTop: Math.round(
-        document.querySelector('.kb-room-react')?.getBoundingClientRect().top ?? 0,
+      composer: Boolean(document.querySelector('.kb-composer-input')),
+      maxLength: document.querySelector('.kb-composer-input')?.getAttribute('maxlength') ?? null,
+      buttons: document.querySelectorAll('.kb-session-react-btn').length,
+      combos: [...document.querySelectorAll('.kb-combo-active-count')].map((el) =>
+        el.textContent.trim(),
       ),
+      pulses: document.querySelectorAll('.kb-session-pulse').length,
+      broken: document.querySelectorAll('.kb-combo-broken').length,
     },
     quiet: [...document.querySelectorAll('.kb-section-label')].map((el) => el.textContent),
     events: [...document.querySelectorAll('.lab-log li strong')].map((el) => el.textContent),
@@ -129,33 +156,80 @@ function labReact(index, reaction) {
 }
 
 /**
- * Walks into the room.
+ * Opens the session from the HERE card's affordance.
  *
  * Idempotent, because a preset change leaves the panel wherever it was: if the
- * room view is already up, clicking a doorway that is no longer rendered would
- * throw. There is no toggle to get wrong any more - the door only opens.
+ * session is already up, the doorway is not rendered and clicking it would
+ * throw.
  */
 function openRoom() {
-  if (document.querySelector('.kb-room-people')) return true
+  if (document.querySelector('.kb-session')) return true
   const button = document.querySelector('.kb-together-open')
   if (!button) throw new Error('no ROOM control on the card')
   button.click()
   return true
 }
 
-/** Comes back out. */
+/** Opens it from the tab instead, which is the other way in. */
+function openSessionTab() {
+  const tab = document.querySelector('.kb-tab-session')
+  if (!tab) throw new Error('no contextual streamer tab')
+  tab.click()
+  return true
+}
+
+/** Back to the radar. Tabs are the way out; there is no back button. */
 function leaveRoom() {
-  const button = document.querySelector('.kb-back')
-  if (!button) throw new Error('no way back out of the room')
+  const tabs = [...document.querySelectorAll('.kb-tab')]
+  const friends = tabs.find((el) => el.textContent.trim().startsWith('Friends'))
+  if (!friends) throw new Error('no Friends tab')
+  friends.click()
+  return true
+}
+
+/** Reacts from inside the session, which is the only place reactions live. */
+function reactInRoom(index = 0) {
+  const buttons = [...document.querySelectorAll('.kb-session-react-btn')]
+  if (!buttons[index]) throw new Error('no reaction button in the session')
+  buttons[index].click()
+  return true
+}
+
+/** Expands the compact participant row. */
+function openRoster() {
+  const button = document.querySelector('.kb-session-people')
+  if (!button) throw new Error('no participant row')
+  if (button.getAttribute('aria-expanded') !== 'true') button.click()
+  return true
+}
+
+/** Makes a simulated person say something, through the lab's own controls. */
+function labSay(index, kind) {
+  const rows = [...document.querySelectorAll('.lab-users .lab-row')].filter((row) =>
+    [...row.querySelectorAll('button')].some((b) => (b.textContent ?? '').trim() === kind),
+  )
+  const row = rows[index]
+  if (!row) throw new Error('no say control for person ' + index)
+  const button = [...row.querySelectorAll('button')].find(
+    (b) => (b.textContent ?? '').trim() === kind,
+  )
   button.click()
   return true
 }
 
-/** Reacts from inside the room, which is the only place reactions live now. */
-function reactInRoom(index = 0) {
-  const buttons = [...document.querySelectorAll('.kb-room-react-btn')]
-  if (!buttons[index]) throw new Error('no reaction button in the room')
-  buttons[index].click()
+/** Types into the session composer and sends. */
+function sendInSession(text) {
+  const input = document.querySelector('.kb-composer-input')
+  if (!input) throw new Error('no composer in the session')
+  const setter = Object.getOwnPropertyDescriptor(
+    window.HTMLInputElement.prototype,
+    'value',
+  ).set
+  setter.call(input, text)
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  const send = [...document.querySelectorAll('.kb-send')].pop()
+  if (!send) throw new Error('no send button')
+  send.click()
   return true
 }
 
@@ -403,7 +477,7 @@ async function main() {
     check(narrow.cards[0]?.overflows === false, 'a long title or category overflowed the card')
     check(narrow.cards[0]?.join === true, 'a long title pushed JOIN off the card')
 
-    // --- the room, from outside it ---------------------------------------
+    // --- the card outside the session ------------------------------------
 
     await page.evaluate(clickPreset, 'Room · A↔B')
     await settle(page)
@@ -412,16 +486,15 @@ async function main() {
     check(together.here === true, 'the card did not become the HERE card')
     check(together.join === false, 'the HERE card still offered a JOIN')
     check(together.count === 1, `room counted ${together.count} friends, expected 1`)
-    check(together.together === true, 'no room surface inside the HERE card')
+    check(together.together === true, 'no doorway inside the HERE card')
     check(together.roomButton === true, 'no ROOM control')
 
     /*
-     * The correction, asserted as an absence.
+     * Both older shapes, asserted as absences.
      *
-     * Five permanent reaction buttons and a roster used to live on this card,
-     * which made the social map a thing to operate rather than a thing to
-     * read. Both are inside the room now, and a well-meaning change putting
-     * either back fails here.
+     * First the card carried five reaction buttons and a roster, which made
+     * the social map a thing to operate. Then the room became a view that
+     * replaced the map, which cost the radar. Either coming back fails here.
      */
     check(
       together.reactionButtons === 0,
@@ -433,95 +506,187 @@ async function main() {
     )
     check(together.bursts === 0, 'reactions appeared before anybody reacted')
 
-    /*
-     * One card, not two. The whole UX claim is that Gravity BECOMES the way in
-     * rather than being joined by a second thing.
-     */
+    // --- the contextual streamer tab --------------------------------------
+
+    const bar = await page.evaluate(readPanel)
+    const sessionTab = bar.tabs.find((t) => t.streamer !== null)
+    check(Boolean(sessionTab), 'no contextual streamer tab while a session exists')
     check(
-      (await page.evaluate(readPanel)).cards.length === 1,
-      'a second card appeared alongside the HERE one',
+      sessionTab?.streamer === 'LIRIK',
+      `tab read "${sessionTab?.streamer}", expected the authoritative casing LIRIK`,
     )
+    check(sessionTab?.active === false, 'the session tab selected itself when it appeared')
+    check(
+      bar.tabs.some((t) => t.label.startsWith('Friends') && t.active),
+      'Friends was not still the selected tab',
+    )
+    check(bar.session.open === false, 'the session opened without being asked')
+    check(bar.cards.length === 1, 'the map disappeared while Friends was selected')
 
-    // --- walking in, and coming back -------------------------------------
-
-    const mapBefore = (await page.evaluate(readPanel)).cards[0] ?? {}
-
+    // The affordance on the card selects the tab.
     await page.evaluate(openRoom)
     await settle(page, 300)
-    const inside = (await page.evaluate(readPanel)).room ?? {}
-    check(inside.open === true, 'ROOM did not open a room view')
-    check(inside.mapVisible === false, 'the room expanded the card instead of replacing the map')
-    check(inside.back === true, 'the room offered no way back')
+    const opened = await page.evaluate(readPanel)
+    check(opened.session.open === true, 'ROOM did not open the session')
+    check(opened.session.mapVisible === false, 'the session did not take the body')
     check(
-      (inside.count ?? '').includes('WATCHING TOGETHER'),
-      `the room did not say who it is with: ${inside.count}`,
+      opened.tabs.find((t) => t.streamer !== null)?.active === true,
+      'ROOM opened a session without selecting its tab',
     )
-    check(inside.people.includes('You'), 'the room did not include the viewer')
-    check(inside.buttons === 5, `the room drew ${inside.buttons} reaction buttons, expected 5`)
+    check(
+      (opened.session.count ?? '').includes('WATCHING TOGETHER'),
+      `the session did not say who it is with: ${opened.session.count}`,
+    )
+    check(opened.session.composer === true, 'the session has no composer')
+    check(
+      opened.session.maxLength === '280',
+      `composer capped at ${opened.session.maxLength}, expected 280`,
+    )
+    check(opened.session.buttons === 5, `session drew ${opened.session.buttons} reactions`)
+    check(
+      opened.session.people.length === 0,
+      'the participant list was expanded before anybody asked',
+    )
 
+    // And the tab is the way back to the radar.
     await page.evaluate(leaveRoom)
     await settle(page, 300)
-    const returned = await page.evaluate(readPanel)
-    check(returned.room.open === false, 'Back did not leave the room')
-    check(returned.cards.length === 1, 'Back did not restore the map')
+    const back = await page.evaluate(readPanel)
+    check(back.session.open === false, 'Friends did not leave the session')
+    check(back.cards.length === 1, 'Friends did not restore the map')
     check(
-      returned.cards[0].here === true && returned.cards[0].count === mapBefore.count,
+      back.cards[0].here === true && back.cards[0].count === together.count,
       'the HERE card did not survive the round trip',
     )
 
-    // --- reacting, and what leaks outward --------------------------------
-
-    await page.evaluate(openRoom)
+    // The tab itself is the other way in.
+    await page.evaluate(openSessionTab)
     await settle(page, 300)
-    const quiet = (await page.evaluate(readPanel)).room ?? {}
-    check(quiet.symbols === 0, 'the room showed activity before anybody reacted')
-
-    // The friend reacts.
-    await page.evaluate(labReact, 0, 'lol')
-    await settle(page, 300)
-    const one = (await page.evaluate(readPanel)).room ?? {}
-    check(one.symbols === 1, `expected one reaction, saw ${one.symbols}`)
-    check(one.combos.length === 0, 'a single reaction was drawn as a combo')
     check(
-      one.barTop === quiet.barTop,
-      `the reaction bar moved ${quiet.barTop}px -> ${one.barTop}px when a reaction landed`,
+      (await page.evaluate(readPanel)).session.open === true,
+      'the streamer tab did not open the session',
     )
 
-    /*
-     * The viewer agrees: a combo, drawn as ONE badge.
-     *
-     * The stacking bug in one assertion - two people reacting the same way
-     * must collapse to a single ×2, not two symbols side by side.
-     */
+    // --- the conversation -------------------------------------------------
+
+    await page.evaluate(labSay, 0, 'say')
+    await settle(page, 300)
+    const said = (await page.evaluate(readPanel)).session
+    check(said.messages.length === 1, `expected one message, saw ${said.messages.length}`)
+    check(
+      said.messages[0].includes('Bianca'),
+      `the message did not name its sender: ${said.messages[0]}`,
+    )
+
+    await page.evaluate(sendInSession, 'and one from me')
+    await settle(page, 300)
+    const both = (await page.evaluate(readPanel)).session
+    check(both.messages.length === 2, `expected two messages, saw ${both.messages.length}`)
+    check(
+      both.messages.some((m) => m.includes('and one from me')),
+      'the viewer\'s own message did not appear',
+    )
+
+    // --- one combo stream, over reactions AND emote-only messages ---------
+
+    await page.evaluate(clickPreset, 'Room · A↔B')
+    await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 8500)
+
+    await page.evaluate(labReact, 0, 'lol')
+    await settle(page, 300)
+    const one = (await page.evaluate(readPanel)).session
+    check(one.combos.length === 0, 'a single reaction was drawn as a combo')
+    check(one.pulses === 1, `expected one pulse, saw ${one.pulses}`)
+
     await page.evaluate(reactInRoom, 0)
     await settle(page, 300)
-    const combo = (await page.evaluate(readPanel)).room ?? {}
-    check(combo.combos.length === 1, `expected one combo counter, saw ${combo.combos.length}`)
+    const combo = (await page.evaluate(readPanel)).session
     check(combo.combos[0] === '×2', `combo read "${combo.combos[0]}", expected ×2`)
-    check(combo.symbols === 1, `combo drew ${combo.symbols} symbols, expected one badge`)
 
     /*
-     * The same combo, seen from the map.
+     * The same run, extended by an emote-only MESSAGE.
      *
-     * This is the leak that is meant to happen: a glance at Kickback shows
-     * something is going on right now. What must NOT leak is who - no names,
-     * no narration.
+     * A reaction is an emote and an emote-only message is the same emote sent
+     * the slow way, so they collide on one run. Two combo engines would show
+     * two numbers here.
      */
+    await page.evaluate(clickPreset, 'Room · A↔B↔C')
+    await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 8500)
+    // The VIEWER reacts, and Bianca answers with an emote MESSAGE. Two
+    // different people, one run - which is the whole claim.
+    await page.evaluate(reactInRoom, 0)
+    await settle(page, 200)
+    await page.evaluate(labSay, 0, ':lol:')
+    await settle(page, 300)
+    const merged = (await page.evaluate(readPanel)).session
+    check(
+      merged.combos[0] === '×2',
+      `a reaction and an emote message read "${merged.combos[0]}", expected ×2`,
+    )
+
+    // Text does not contribute - it ENDS a run.
+    await page.evaluate(labSay, 0, 'say')
+    await settle(page, 300)
+    const ended = (await page.evaluate(readPanel)).session
+    check(ended.combos.length === 0, 'text extended a combo instead of closing it')
+
+    // --- what leaks outward, and for how long -----------------------------
+
+    await page.evaluate(clickPreset, 'Room · A↔B')
+    await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 8500)
+    await page.evaluate(labReact, 0, 'lol')
+    await settle(page, 200)
+    await page.evaluate(reactInRoom, 0)
+    await settle(page, 300)
     await page.evaluate(leaveRoom)
     await settle(page, 300)
+
     const outside = (await page.evaluate(readPanel)).cards[0] ?? {}
     check(
       outside.combos[0] === '×2',
-      `the card showed "${outside.combos[0]}" for a ×2 combo in the room`,
+      `the card showed "${outside.combos[0]}" for a ×2 combo in the session`,
     )
     check(outside.bursts === 1, `the card drew ${outside.bursts} symbols, expected one`)
 
-    // And it vanishes on its own. Nothing keeps a stale combo to fill space.
     await settle(page, 8500)
     const faded = (await page.evaluate(readPanel)).cards[0] ?? {}
     check(faded.bursts === 0, 'an expired combo stayed on the card')
     check(faded.combos.length === 0, 'an expired combo left its counter behind')
     check(faded.roomButton === true, 'the doorway disappeared with the combo')
+
+    // --- unread -----------------------------------------------------------
+
+    await page.evaluate(labSay, 0, 'say')
+    await page.evaluate(labSay, 0, 'say')
+    await settle(page, 400)
+    const waiting = await page.evaluate(readPanel)
+    check(
+      waiting.cards[0]?.cardUnread === '2',
+      `doorway showed unread "${waiting.cards[0]?.cardUnread}", expected 2`,
+    )
+    check(
+      waiting.tabs.find((t) => t.streamer !== null)?.badge === '2',
+      'the streamer tab did not carry the unread count',
+    )
+
+    await page.evaluate(openRoom)
+    await settle(page, 400)
+    await page.evaluate(leaveRoom)
+    await settle(page, 400)
+    const read = await page.evaluate(readPanel)
+    check(read.cards[0]?.cardUnread === null, 'looking at the session did not clear unread')
+
+    // A reaction is activity, not something waiting.
+    await page.evaluate(labReact, 0, 'fire')
+    await settle(page, 300)
+    const reacted = await page.evaluate(readPanel)
+    check(reacted.cards[0]?.cardUnread === null, 'a reaction incremented the message unread')
 
     // One person hammering a button is not a combo.
     await page.evaluate(clickPreset, 'Room · A↔B')
@@ -535,110 +700,150 @@ async function main() {
       'one person pressing a button repeatedly formed a combo: ' + JSON.stringify(burst.combos),
     )
 
-    // --- a room needs a stream -------------------------------------------
-    //
-    // The bug this checkpoint began with: two accounts on an offline channel,
-    // and Kickback reporting a room, reactions and shared watch time.
+    // --- a session needs a stream -----------------------------------------
 
     await page.evaluate(clickPreset, 'Room · stream ended')
     await settle(page)
-    const ended = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(ended.here === true, 'the offline destination lost its card')
-    check(ended.offline === true, 'the OFFLINE label was hidden rather than the room removed')
-    check(ended.people.length === 1, 'presence stopped reporting who is on the channel')
-    check(ended.together === false, 'a room formed on a channel with no stream')
-    check(ended.roomButton === false, 'the card offered a way into a room that cannot exist')
+    const ended2 = await page.evaluate(readPanel)
+    check(ended2.cards[0]?.here === true, 'the offline destination lost its card')
+    check(ended2.cards[0]?.offline === true, 'the OFFLINE label was hidden rather than the session')
+    check(ended2.cards[0]?.people.length === 1, 'presence stopped reporting who is on the channel')
+    check(ended2.cards[0]?.roomButton === false, 'a doorway appeared for a channel with no stream')
+    check(
+      ended2.tabs.every((t) => t.streamer === null),
+      'a contextual tab appeared for a channel with no stream',
+    )
+    check(ended2.session.open === false, 'a session survived the stream ending')
 
     await page.evaluate(clickPreset, 'Room · Twitch has not answered')
     await settle(page)
-    const unsure = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(unsure.here === true, 'an unknown destination lost its card')
-    check(unsure.together === false, 'uncertainty was treated as a live stream')
+    const unsure = await page.evaluate(readPanel)
+    check(
+      unsure.tabs.every((t) => t.streamer === null),
+      'uncertainty was treated as a live stream',
+    )
 
     await page.evaluate(clickPreset, 'Room · just went live')
     await settle(page)
-    const relit = (await page.evaluate(readPanel)).cards[0] ?? {}
-    check(relit.together === true, 'the room did not come back when the stream did')
-    check(relit.roomButton === true, 'no way into the room once the stream was live')
+    const relit = await page.evaluate(readPanel)
+    check(
+      relit.tabs.some((t) => t.streamer !== null),
+      'the session tab did not come back when the stream did',
+    )
+    check(
+      relit.tabs.find((t) => t.streamer !== null)?.active === false,
+      'the tab returning selected itself',
+    )
 
     // --- the graphs two Twitch accounts cannot build ---------------------
 
     await page.evaluate(clickPreset, 'Room · A↔B↔C')
     await settle(page)
     await page.evaluate(openRoom)
+    await page.evaluate(openRoster)
     await settle(page, 300)
-    const chain = (await page.evaluate(readPanel)).room ?? {}
+    const chain = (await page.evaluate(readPanel)).session
     check(
       chain.people.length === 3,
-      `A↔B↔C room held ${chain.people.length} people including the viewer, expected 3`,
+      `A↔B↔C session held ${chain.people.length} people including the viewer, expected 3`,
     )
     check(
       chain.via.some((text) => text.startsWith('Friend of')),
       `no connecting-friend context for the two-hop person: ${JSON.stringify(chain.via)}`,
     )
 
-    await page.evaluate(leaveRoom)
     await page.evaluate(clickPreset, 'Room · two clusters')
     await settle(page)
     await page.evaluate(openRoom)
+    await page.evaluate(openRoster)
     await settle(page, 300)
-    const split = (await page.evaluate(readPanel)).room ?? {}
+    const split = (await page.evaluate(readPanel)).session
     check(
       split.people.length === 2,
       `an unrelated cluster leaked in: ${JSON.stringify(split.people)}`,
     )
 
-    await page.evaluate(leaveRoom)
     await page.evaluate(clickPreset, 'Room · clusters merged')
     await settle(page)
     await page.evaluate(openRoom)
+    await page.evaluate(openRoster)
     await settle(page, 300)
-    const merged = (await page.evaluate(readPanel)).room ?? {}
+    const merged2 = (await page.evaluate(readPanel)).session
     check(
-      merged.people.length === 4,
-      `merged room held ${merged.people.length} people including the viewer, expected 4`,
+      merged2.people.length === 4,
+      `merged session held ${merged2.people.length} people including the viewer, expected 4`,
     )
 
-    await page.evaluate(leaveRoom)
     await page.evaluate(clickPreset, 'Room · bridge left')
     await settle(page)
     const bridged = await page.evaluate(readPanel)
     check(
       bridged.cards.every((card) => card.together === false),
-      'the room survived the bridge leaving',
+      'the doorway survived the bridge leaving',
     )
-    check(bridged.room.open === false, 'the room view survived its own membership emptying')
+    check(bridged.session.open === false, 'the session survived its own membership emptying')
+    check(
+      bridged.tabs.every((t) => t.streamer === null),
+      'the contextual tab survived the room emptying',
+    )
 
     await page.evaluate(clickPreset, 'Room · unrelated stranger')
     await settle(page)
     await page.evaluate(openRoom)
+    await page.evaluate(openRoster)
     await settle(page, 300)
-    const stranger = (await page.evaluate(readPanel)).room ?? {}
+    const stranger = (await page.evaluate(readPanel)).session
     check(
       stranger.people.length === 2,
-      `a stranger on the same stream joined the room: ${JSON.stringify(stranger.people)}`,
+      `a stranger on the same stream joined the session: ${JSON.stringify(stranger.people)}`,
     )
 
-    // Ten in a chain at the narrowest panel: three hops, and the bar still fits.
-    await page.evaluate(leaveRoom)
+    // Ten in a chain at the narrowest panel: three hops, and it still fits.
     await page.evaluate(clickPreset, 'Room · 10 people')
     await settle(page)
     await page.evaluate(openRoom)
+    await page.evaluate(openRoster)
     await page.evaluate(() => {
       document.querySelector('.kb-panel').style.setProperty('--kb-w', '260px')
     })
     await settle(page, 300)
-    const tight = (await page.evaluate(readPanel)).room ?? {}
+    const tight = (await page.evaluate(readPanel)).session
     check(tight.buttons === 5, 'reaction buttons were lost at 260px')
     check(
       tight.people.length === 4,
       `the hop limit let ${tight.people.length - 1} people in, expected 3`,
     )
 
+    /*
+     * A long streamer name must not break the tab row.
+     *
+     * Truncation is CSS, so the label clips inside its own box and the bar
+     * does not scroll - and the full name is still in the title attribute.
+     */
     await page.evaluate(leaveRoom)
+    const narrowTabs = await page.evaluate(readPanel)
+    const long = narrowTabs.tabs.find((t) => t.streamer !== null)
+    check(narrowTabs.tabsWidth <= 1, `the tab row overflowed by ${narrowTabs.tabsWidth}px at 260px`)
+    check(long?.title === 'LIRIK', 'the tab lost the full streamer name from its title')
+
     await page.evaluate(() => {
       document.querySelector('.kb-panel').style.removeProperty('--kb-w')
     })
+    await settle(page, 200)
+
+    // --- LIVE is red ------------------------------------------------------
+
+    await page.evaluate(clickPreset, 'Together · live metadata')
+    await settle(page)
+    await page.evaluate(openRoom)
+    await settle(page, 300)
+    const lit = (await page.evaluate(readPanel)).session
+    check(lit.live === true, 'a live session did not say LIVE')
+    check(
+      lit.liveColor === 'rgb(233, 25, 22)',
+      `the LIVE dot is ${lit.liveColor}, expected the semantic red rgb(233, 25, 22)`,
+    )
+    await page.evaluate(leaveRoom)
     await settle(page, 200)
 
     // --- the user card opened from a Gravity member ----------------------
@@ -723,8 +928,9 @@ async function main() {
 
   console.log('Test Lab boots, renders the real panel, and drives Gravity 1/2/3/5/10.')
   console.log('Metadata states render: live, offline+demoted, unavailable, casing, long text.')
-  console.log('Stream Rooms are a place you enter and come back from; the map keeps the pulse.')
-  console.log('A room needs a live stream: offline and unknown destinations produce none.')
+  console.log('The contextual streamer tab appears, never selects itself, and carries a conversation.')
+  console.log('One combo stream over reactions and emote messages; text closes a run, never extends it.')
+  console.log('A session needs a live stream: offline and unknown destinations produce no tab.')
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
 }

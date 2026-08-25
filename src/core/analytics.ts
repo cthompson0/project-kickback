@@ -130,6 +130,28 @@ export interface AnalyticsEventMap {
   automatic_room_opened: {
     participant_count: number
     direct_friend_count: number
+    /**
+     * Which way in was used.
+     *
+     * The whole navigation bet is that a contextual tab gets opened on its own
+     * rather than only from the affordance it used to hide behind, so the
+     * answer has to be in the event. 'restored' is a selection that survived a
+     * Twitch refresh, which is a different claim again - it says the session
+     * was worth coming back to.
+     */
+    opened_from: RoomOpenedFrom
+  }
+  /**
+   * An ephemeral message was sent in a Stream Room.
+   *
+   * Length bucket and an emote flag only. The body is never recorded - it
+   * answers no question we have, and a conversation among four people watching
+   * a stream is not ours to keep.
+   */
+  automatic_room_message_sent: {
+    length_bucket: LengthBucket
+    has_emote: boolean
+    participant_count: number
   }
   automatic_room_reaction: {
     participant_count: number
@@ -211,6 +233,14 @@ export interface AnalyticsEventMap {
 
 export type AnalyticsEventName = keyof AnalyticsEventMap
 
+/**
+ * How the contextual stream session was reached.
+ *
+ * Not an AnalyticsSurface: `source` says which product surface an event came
+ * from, and all three of these are the same surface reached three ways.
+ */
+export type RoomOpenedFrom = 'here_card' | 'tab' | 'restored'
+
 export type SessionEndReason = 'idle' | 'signed_out'
 /**
  * Why a shared watch or the retention after it ended.
@@ -271,7 +301,8 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   ],
 
   automatic_room_entered: ['participant_count', 'direct_friend_count'],
-  automatic_room_opened: ['participant_count', 'direct_friend_count'],
+  automatic_room_opened: ['participant_count', 'direct_friend_count', 'opened_from'],
+  automatic_room_message_sent: ['length_bucket', 'has_emote', 'participant_count'],
   automatic_room_reaction: ['participant_count', 'direction'],
   automatic_room_combo: ['combo_size', 'participant_count'],
 

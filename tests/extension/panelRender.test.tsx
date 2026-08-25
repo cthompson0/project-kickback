@@ -159,6 +159,9 @@ describe('resetting the layout', () => {
         onVisibilityChange={() => {}}
         preferences={{ gatheringNotifications: true }}
         onPreferencesChange={() => {}}
+        mutedUserIds={[]}
+        knownPeople={[]}
+        onUnmute={() => {}}
         onResetLayout={() => {}}
       />,
     )

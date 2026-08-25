@@ -6,6 +6,7 @@ import type { ChannelMetadata } from '../../core/twitchMetadata'
 import type { Activity } from '../../core/types'
 import type { Friend, KickbackClient } from '../../client/types'
 import type { TogetherReaction } from '../../core/together'
+import type { RoomMessage } from '../../core/roomMessages'
 import type { RoomMember } from '../../core/streamRoom'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
@@ -72,6 +73,11 @@ interface SocialGravityProps {
    * shipped before rooms existed.
    */
   roomMembers?: readonly RoomMember[]
+  /** The conversation, for the activity preview only. Never rendered as text. */
+  roomMessages?: readonly RoomMessage[]
+  mutedUserIds?: readonly string[]
+  /** Messages waiting in that session. */
+  roomUnread?: number
   /**
    * Ask the panel to open the Stream Room for a channel.
    *
@@ -202,6 +208,9 @@ function DestinationCard({
   meta,
   reactions,
   roomMembers,
+  roomMessages,
+  mutedUserIds,
+  roomUnread,
   friends,
   client,
   cardContext,
@@ -213,6 +222,9 @@ function DestinationCard({
   meta?: ChannelMetadata
   reactions?: readonly TogetherReaction[]
   roomMembers?: readonly RoomMember[]
+  roomMessages?: readonly RoomMessage[]
+  mutedUserIds?: readonly string[]
+  roomUnread?: number
   friends: readonly Friend[]
   client: KickbackClient
   cardContext: UserCardContext
@@ -378,7 +390,10 @@ function DestinationCard({
           members={roomMembers ?? []}
           friends={friends}
           reactions={reactions ?? []}
+          messages={roomMessages ?? []}
+          mutedUserIds={mutedUserIds ?? []}
           selfId={cardContext.selfId}
+          unread={roomUnread ?? 0}
           onOpen={() => onOpenRoom(section.channel!)}
         />
       )}
@@ -408,6 +423,9 @@ export function SocialGravity({
   metadata,
   reactions,
   roomMembers,
+  roomMessages,
+  mutedUserIds,
+  roomUnread,
   onOpenRoom,
 }: SocialGravityProps) {
   const [openCardId, setOpenCardId] = useState<string | null>(null)
@@ -450,6 +468,9 @@ export function SocialGravity({
               meta={section.channel ? metadata?.[section.channel] : undefined}
               reactions={section.kind === 'here' ? reactions : undefined}
               roomMembers={section.kind === 'here' ? roomMembers : undefined}
+              roomMessages={section.kind === 'here' ? roomMessages : undefined}
+              mutedUserIds={mutedUserIds}
+              roomUnread={section.kind === 'here' ? roomUnread : undefined}
               friends={friends}
               client={client}
               cardContext={cardContext}

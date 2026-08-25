@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SocialGravity } from '../../src/ui/components/SocialGravity'
-import { StreamRoom } from '../../src/ui/components/StreamRoom'
+import { StreamSession } from '../../src/ui/components/StreamSession'
 import { ChannelNameProvider } from '../../src/ui/ChannelNames'
 import { createTestLabClient } from '../../src/testlab/client'
 import { PRESETS, preset } from '../../src/testlab/presets'
@@ -61,6 +61,9 @@ function draw(world: SimWorld): string {
         metadata={channelMetadata(world, Date.now())}
         reactions={state.togetherReactions}
         roomMembers={state.roomMembers}
+        roomMessages={state.roomMessages}
+        mutedUserIds={state.mutedUserIds}
+        roomUnread={state.roomUnread}
         onOpenRoom={() => {}}
       />
     </ChannelNameProvider>,
@@ -76,11 +79,13 @@ function drawRoom(world: SimWorld): string {
 
   return renderToStaticMarkup(
     <ChannelNameProvider people={state.friends.map((f) => f.user)} seen={state.channelNames}>
-      <StreamRoom
+      <StreamSession
         channel={channel}
         members={state.roomMembers}
         friends={state.friends}
         reactions={state.togetherReactions}
+        messages={state.roomMessages}
+        mutedUserIds={state.mutedUserIds}
         metadata={channelMetadata(world, Date.now())[channel]}
         selfId={state.identity?.userId ?? null}
         client={handle.client as KickbackClient}
@@ -90,7 +95,6 @@ function drawRoom(world: SimWorld): string {
           friendIds: new Set(state.friends.map((f) => f.user.id)),
           outgoingRequestIds: new Set(),
         }}
-        onBack={() => {}}
       />
     </ChannelNameProvider>,
   )
@@ -138,9 +142,11 @@ describe('A ↔ B ↔ C: a friend of a friend is in the room', () => {
      * her name, and the one hop of context that makes it mean anything.
      */
     const html = drawRoom(world)
-    expect(html).toContain('WATCHING TOGETHER')
+    expect(html).toContain('WATCHING TOGETHER · 3')
     expect(html).toContain('Bianca')
-    expect(html).toContain('Friend of Bianca')
+    // The two-hop person has no presence, so the panel can only name them from
+    // room membership - which it does, with a neutral mark rather than an
+    // invented avatar. The "Friend of" line is behind the roster toggle.
     expect(html).toContain('kb-room-unknown')
   })
 })
@@ -326,6 +332,9 @@ describe('reactions in the lab', () => {
           metadata={channelMetadata(world, Date.now())}
           reactions={state.togetherReactions}
           roomMembers={state.roomMembers}
+          roomMessages={state.roomMessages}
+          mutedUserIds={state.mutedUserIds}
+          roomUnread={state.roomUnread}
           onOpenRoom={() => {}}
         />
       </ChannelNameProvider>,
@@ -348,11 +357,13 @@ describe('reactions in the lab', () => {
 
     const inside = renderToStaticMarkup(
       <ChannelNameProvider people={[]} seen={{}}>
-        <StreamRoom
+        <StreamSession
           channel="lirik"
           members={handle.client.getState().roomMembers}
           friends={handle.client.getState().friends}
           reactions={handle.client.getState().togetherReactions}
+          messages={handle.client.getState().roomMessages}
+          mutedUserIds={handle.client.getState().mutedUserIds}
           selfId={handle.client.getState().identity?.userId ?? null}
           client={handle.client as KickbackClient}
           cardContext={{
@@ -361,12 +372,11 @@ describe('reactions in the lab', () => {
             friendIds: new Set(),
             outgoingRequestIds: new Set(),
           }}
-          onBack={() => {}}
         />
       </ChannelNameProvider>,
     )
     expect(inside).toContain('×2')
-    expect((inside.match(/kb-room-combo/g) ?? []).length).toBe(1)
+    expect((inside.match(/class="kb-combo-active"/g) ?? []).length).toBe(1)
   })
 
   it('has no combo breaker to fire, because a room has no ordinary messages', () => {
@@ -387,11 +397,13 @@ describe('reactions in the lab', () => {
 
     const inside = renderToStaticMarkup(
       <ChannelNameProvider people={[]} seen={{}}>
-        <StreamRoom
+        <StreamSession
           channel="lirik"
           members={handle.client.getState().roomMembers}
           friends={handle.client.getState().friends}
           reactions={handle.client.getState().togetherReactions}
+          messages={handle.client.getState().roomMessages}
+          mutedUserIds={handle.client.getState().mutedUserIds}
           selfId={handle.client.getState().identity?.userId ?? null}
           client={handle.client as KickbackClient}
           cardContext={{
@@ -400,12 +412,11 @@ describe('reactions in the lab', () => {
             friendIds: new Set(),
             outgoingRequestIds: new Set(),
           }}
-          onBack={() => {}}
         />
       </ChannelNameProvider>,
     )
-    // The trailing run is one person on 'sad': shown, but not a combo.
-    expect(inside).toContain('kb-room-combo')
+    // The trailing run is one person on 'sad': shown as a pulse, not a combo.
+    expect(inside).toContain('kb-session-pulse')
     expect(inside).not.toContain('×')
     expect(inside).not.toMatch(/broke|breaker/i)
   })
@@ -544,6 +555,7 @@ describe('the lab still calls nothing', () => {
       // it stands in for - so what is asserted is that nothing CALLS it.
       expect(text, path).not.toContain('rpc(')
       expect(text, path).not.toContain('send_together_reaction')
+      expect(text, path).not.toContain('send_room_message')
       expect(text, path).not.toContain('consume_rate_budget')
     }
   })

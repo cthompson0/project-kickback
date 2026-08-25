@@ -24,6 +24,14 @@ import { resolveChannelName } from '../core/channelNames'
 import type { AnalyticsEvent } from '../core/analytics'
 import type { Presence, User } from '../core/types'
 import { isReaction, pruneReactions, withReaction } from '../core/together'
+import {
+  MAX_MESSAGE_LENGTH,
+  pruneMessages,
+  unreadCount,
+  withMessage,
+} from '../core/roomMessages'
+import type { RoomMessage } from '../core/roomMessages'
+import { withMuted, withoutMuted } from '../core/mute'
 import type { Reaction, TogetherReaction } from '../core/together'
 import {
   canonicalChannel,
@@ -84,6 +92,8 @@ export interface TestLabHandle {
    * prove nothing about the original.
    */
   react(userId: string, reaction: Reaction, at?: number): void
+  /** Make a simulated person say something, as if it had arrived over realtime. */
+  say(userId: string, body: string, at?: number): void
   /** Replace the simulated world. The panel re-renders from production state. */
   setWorld(next: SimWorld): void
   getWorld(): SimWorld
@@ -268,6 +278,40 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     publish()
   }
 
+  // --- room conversation ---------------------------------------------------
+
+  /*
+   * The same treatment reactions get: a local buffer fed at exactly the
+   * boundary production reads from, so the panel cannot tell a simulated
+   * message from one that arrived over realtime.
+   *
+   * The lab holds no subscription, no RPC, no rate limit, no fan-out and no
+   * sweep. Those belong to the server, and a copy of them here would prove
+   * nothing about the original - which is why merge, split and retention are
+   * tested against real Postgres in tests/db/roomMessages.test.ts instead.
+   */
+  let messages: RoomMessage[] = []
+  let messageSeq = 0
+  let sessionChannel: string | null = null
+  let readAt: Record<string, number> = {}
+  let mutedUserIds: string[] = []
+
+  function say(userId: string, body: string, at = Date.now()): void {
+    const here = observerChannel()
+    // A conversation only exists on the channel the viewer is on - the same
+    // rule production follows, because that is the only inbox it filters to.
+    if (!here) return
+
+    messages = withMessage(pruneMessages(messages, Date.now()), {
+      id: `lab-msg-${messageSeq++}`,
+      senderId: userId,
+      channel: here,
+      body,
+      at,
+    })
+    publish()
+  }
+
   // --- deriving state from the world --------------------------------------
 
   function observerChannel(): string | null {
@@ -330,6 +374,26 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       // Computed by the lab because production computes it in SQL, which the
       // lab has no access to. Checked against that SQL by a test.
       roomMembers: roomMembers(world, now),
+      roomMessages: pruneMessages(messages, now),
+      roomUnread: unreadCount(
+        messages,
+        observerChannel(),
+        readAt[observerChannel() ?? ''] ?? 0,
+        world.observer.id,
+        now,
+      ),
+      /*
+       * The lab applies the same three conditions production does: same
+       * destination, and a room that still exists on it. Eligibility is
+       * already inside roomMembers, which will not form one for an offline
+       * or unknown channel.
+       */
+      sessionChannel:
+        sessionChannel && sessionChannel === observerChannel() &&
+        roomMembers(world, now).length > 0
+          ? sessionChannel
+          : null,
+      mutedUserIds,
       attention: attention.getState().items,
       unread: attention.getState().unread,
     }
@@ -480,6 +544,31 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
        */
       if (isReaction(reaction)) react(world.observer.id, reaction)
     },
+
+    sendRoomMessage(body) {
+      // Into the same buffer a friend's message lands in, for the same
+      // reason: production never draws the sender's own copy optimistically.
+      const text = body.trim()
+      if (text.length > 0 && text.length <= MAX_MESSAGE_LENGTH) {
+        say(world.observer.id, text)
+      }
+    },
+
+    selectSession(channel) {
+      const here = observerChannel()
+      if (channel && channel.toLowerCase() === here) {
+        sessionChannel = here
+        readAt = { ...readAt, [here]: Date.now() }
+      } else {
+        sessionChannel = null
+      }
+      publish()
+    },
+
+    setUserMuted(userId, muted) {
+      mutedUserIds = muted ? withMuted(mutedUserIds, userId) : withoutMuted(mutedUserIds, userId)
+      publish()
+    },
     async setPresenceVisibility(mode: PresenceVisibility) {
       mutate({ ...world, observer: { ...world.observer, visibility: mode } })
     },
@@ -528,6 +617,7 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
   return {
     client,
     react,
+    say,
     setWorld(next) {
       world = next
       publish()

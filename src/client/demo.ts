@@ -187,6 +187,9 @@ export function createDemoClient(): KickbackClient {
     track: () => {},
     // The demo build has no backend and no friends to react with.
     sendReaction: () => {},
+    sendRoomMessage: () => {},
+    selectSession: () => {},
+    setUserMuted: () => {},
     recordJoin: () => {},
     reportExposure: () => {},
 
