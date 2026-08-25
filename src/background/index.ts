@@ -158,6 +158,27 @@ const socialSync = createSocialSync({
  */
 let presenceIndex: PresenceIndex = {}
 
+/**
+ * Who was last seen on the viewer's own channel, as a comparable string.
+ *
+ * Not a count: two people swapping places keeps the count and changes the
+ * room. Sorted ids, so the same set in a different order is the same set.
+ */
+function coPresenceKey(channel: string | null): string {
+  if (!channel) return ''
+  const viewer: Activity = { type: 'watching', platform: 'twitch', channel }
+  const selfId = authState.identity?.userId ?? null
+
+  const here: string[] = []
+  for (const [userId, presence] of Object.entries(presenceIndex)) {
+    if (userId === selfId) continue
+    if (describePresence(presence, viewer).kind === 'watching_with_you') here.push(userId)
+  }
+  return here.sort().join(',')
+}
+
+let coPresence = ''
+
 function indexPresence(next: PresenceIndex): void {
   if (next === presenceIndex) return
   presenceIndex = next
@@ -165,6 +186,26 @@ function indexPresence(next: PresenceIndex): void {
   // exactly what starts and ends a shared watch, so it is re-evaluated here
   // rather than only when the local user navigates.
   updateTogether()
+
+  /*
+   * And it is also the only thing that changes who is in the room.
+   *
+   * Membership is cached for two heartbeats, which is right for an answer
+   * that rarely differs - but nothing was re-asking, because presence updates
+   * do not run pushActivity. A friend arriving was therefore invisible to the
+   * room until the viewer navigated, hid the tab, or half an hour passed.
+   *
+   * Keyed on WHO is here rather than on every presence tick, so this is one
+   * query per actual arrival or departure, not one per heartbeat per friend.
+   */
+  const here = socialChannel()
+  const key = coPresenceKey(here)
+  if (key !== coPresence) {
+    coPresence = key
+    room.invalidate()
+  }
+  room.want(here)
+
   broadcast()
 }
 
@@ -212,6 +253,15 @@ const presenceReporter = createPresenceReporter({
    * shared-watch machine never had.
    */
   onHeartbeat: () => updateTogether(),
+  /*
+   * Our own presence row now exists, which is a precondition for the room
+   * query - so this is the moment to ask. Without it the debounce would leave
+   * the first eligible page load with nothing to re-trigger on.
+   *
+   * `pushActivity` re-enters `setActivity`, which returns immediately when
+   * the desired and reported activity already agree - which, here, they do.
+   */
+  onReported: () => pushActivity(),
   onError: logError,
 })
 
@@ -602,7 +652,30 @@ function wantMetadata(): void {
 function socialChannel(): string | null {
   if (authState.status !== 'signed_in') return null
   const here = currentChannel()
-  return canWatchTogether(here, metadata.snapshot()) ? here : null
+  if (!canWatchTogether(here, metadata.snapshot())) return null
+
+  /*
+   * And we must already be visibly there.
+   *
+   * `stream_room_members` refuses unless the caller's own presence row says
+   * they are on the channel, which is what stops it being an oracle for "who
+   * is watching X". The client has to respect the same precondition, because
+   * asking too early does not fail - it returns an empty room, and an empty
+   * room is cached exactly as a real one is.
+   *
+   * That is what the real-browser bug was. Presence writes are debounced by a
+   * second; metadata often resolves from the hydrated cache in the same tick
+   * as the first activity report. So the membership query fired while our own
+   * presence row did not yet exist, came back empty, and stayed empty - on
+   * both accounts, every page load, symmetrically.
+   *
+   * `lastReported()` is the write, not the intent, so this is true only once
+   * the row is really there. See presence.ts.
+   */
+  const reported = presenceReporter.lastReported()
+  if (reported?.type !== 'watching' || reported.channel !== here) return null
+
+  return here
 }
 
 function refreshAttention(): void {

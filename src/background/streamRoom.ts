@@ -50,6 +50,16 @@ export interface StreamRoom {
   snapshot(): RoomMember[]
   /** The channel the current membership belongs to. */
   channel(): string | null
+  /**
+   * Throw away the cached answer without forgetting the channel.
+   *
+   * For when something the SERVER's answer depended on has demonstrably
+   * changed - somebody arriving on or leaving this channel - which the
+   * refresh interval would otherwise sit on for up to ninety seconds. The
+   * next `want` asks again; nothing is cleared in the meantime, so a room on
+   * screen does not blink while the new answer is in flight.
+   */
+  invalidate(): void
   /** Sign-out, or a different account. */
   reset(): void
   /** For tests and diagnostics. */
@@ -123,6 +133,10 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
 
     snapshot: () => members,
     channel: () => channel,
+
+    invalidate(): void {
+      fetchedAt = 0
+    },
 
     reset(): void {
       generation += 1

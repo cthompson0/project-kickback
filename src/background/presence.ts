@@ -40,6 +40,18 @@ export interface PresenceReporterDeps {
    * the same thing from the far side of the gap.
    */
   onHeartbeat?: () => void
+  /**
+   * Called once a write has landed, with what the world can now see.
+   *
+   * The one moment anything downstream can know our own presence ROW exists,
+   * which some server calls require. `stream_room_members` refuses unless the
+   * caller's presence says they are on the channel - so a client that asked
+   * before this fired got a correct, empty, and permanently cached answer.
+   *
+   * Fires on the write, not on the intent: `setActivity` is debounced by a
+   * second, and the gap between the two is exactly where that race lived.
+   */
+  onReported?: (activity: Activity) => void
   onError?: (context: string, error: unknown) => void
 }
 
@@ -104,6 +116,7 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
       }
       reported = activity
       stopHeartbeat()
+      deps.onReported?.(activity)
       return
     }
 
@@ -118,6 +131,7 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
     }
     reported = activity
     startHeartbeat()
+    deps.onReported?.(activity)
   }
 
   function flushSoon(): void {
