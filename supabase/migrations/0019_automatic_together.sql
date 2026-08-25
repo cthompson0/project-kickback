@@ -31,6 +31,23 @@
 -- and there is deliberately no index that would make one cheap.
 -- ===========================================================================
 
+-- One transaction, as every migration from 0009 onwards is meant to be: a
+-- failure part-way through must leave nothing behind.
+begin;
+
+/*
+ * Dropped first, so the bundle can be re-run after 0020 has already reshaped
+ * this table.
+ *
+ * The bundle applies every migration in order, every time - so on a database
+ * that has seen 0020, this file meets a together_reactions with recipient_id
+ * and sender_id rather than user_id. `create table if not exists` would skip
+ * silently and the policy below would then fail on a column that no longer
+ * exists. Starting from nothing costs nothing: the table holds at most a
+ * minute of ephemeral events, and 0020 recreates it moments later anyway.
+ */
+drop table if exists public.together_reactions;
+
 create table if not exists public.together_reactions (
   id         uuid        primary key default gen_random_uuid(),
   user_id    uuid        not null references public.users(id) on delete cascade,
@@ -81,7 +98,19 @@ create policy together_reactions_select on public.together_reactions
  * together" check would mean re-deriving presence in SQL, which is a second
  * answer to a question the client already answers from the same rows.
  */
-create or replace function public.send_together_reaction(p_channel text, p_reaction text)
+/*
+ * Dropped first, for the same reason 0020 drops it: the bundle re-runs every
+ * migration in order, so on a database that has already seen 0020 this meets a
+ * send_together_reaction returning INTEGER and CREATE OR REPLACE cannot turn it
+ * back into one returning uuid.
+ *
+ * Both files therefore drop before creating, and the pair converges on 0020's
+ * definition however many times the bundle is applied. Exactly what 0009 had to
+ * do to list_groups() after 0008.
+ */
+drop function if exists public.send_together_reaction(text, text);
+
+create function public.send_together_reaction(p_channel text, p_reaction text)
 returns uuid
 language plpgsql
 volatile
@@ -187,3 +216,5 @@ insert into public.analytics_event_names (name, description, allowed_properties)
 on conflict (name) do update
   set description        = excluded.description,
       allowed_properties = excluded.allowed_properties;
+
+commit;

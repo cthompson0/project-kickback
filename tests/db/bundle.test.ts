@@ -186,6 +186,101 @@ describe('the generated bundle', () => {
     await db.close()
   })
 
+  it('applies on top of a database that stopped at the Together prototype', async () => {
+    /*
+     * The 42P13 this file was written for, a second time.
+     *
+     * 0019 created send_together_reaction(text, text) returning a uuid - the id
+     * of the single row it inserted. 0020 fans the reaction out to a whole room
+     * and returns a COUNT, and Postgres refuses to let CREATE OR REPLACE change
+     * a function's return type. Exactly the shape of the list_groups() failure
+     * above, and it reached the hosted database because this suite was not run.
+     *
+     * 0019 is a real deployed state - it shipped, and reactions worked in one
+     * direction - so a bundle that cannot be applied on top of it is a bundle
+     * that cannot be deployed.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0019')
+    await expect(applyBundle(db)).resolves.not.toThrow()
+    await db.close()
+  })
+
+  it('applies on top of a database where 0020 stopped half-way', async () => {
+    /*
+     * The state the failed deploy actually left behind.
+     *
+     * 0017-0020 had no begin/commit of their own, so the SQL editor committed
+     * 0020 statement by statement: the table was dropped and recreated in its
+     * new shape, and then the function failed - leaving a database whose
+     * together_reactions has recipient_id while send_together_reaction still
+     * writes user_id.
+     *
+     * Reproduced by hand rather than trusted: apply through 0019, then replay
+     * only the part of 0020 that committed, then require the fixed bundle to
+     * repair it with no manual intervention.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0019')
+
+    const partial = readFileSync(join(MIGRATIONS, '0020_stream_rooms.sql'), 'utf8')
+    const upToTheFailure = partial.slice(0, partial.indexOf('drop function if exists public.send_together_reaction'))
+    // Without the transaction wrapper, the way the hosted editor ran it.
+    await db.exec(upToTheFailure.replace(/^begin;$/m, ''))
+
+    // The half-converged state, confirmed before asserting the repair.
+    const columns = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'together_reactions'`,
+    )
+    const names = columns.rows.map((row) => row.column_name)
+    expect(names).toContain('recipient_id')
+    expect(names).not.toContain('user_id')
+
+    await expect(applyBundle(db)).resolves.not.toThrow()
+    await db.close()
+  })
+
+  it('leaves send_together_reaction returning a count, however it got there', async () => {
+    // Forwards and on top of 0019 must agree, or the extension gets whichever
+    // shape the database happened to end up with.
+    const fresh = await freshDb()
+    await applyBundle(fresh)
+
+    const stopped = await freshDb()
+    await applyThrough(stopped, '0019')
+    await applyBundle(stopped)
+
+    for (const db of [fresh, stopped]) {
+      const result = await db.query<{ returns: string }>(`
+        select pg_catalog.format_type(p.prorettype, null) as returns
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'send_together_reaction'
+      `)
+      expect(result.rows.map((row) => row.returns)).toEqual(['integer'])
+      await db.close()
+    }
+  })
+
+  it('gives every migration its own transaction, which is what the header promises', () => {
+    /*
+     * The bundle's header says a failure "rolls back only the one that failed".
+     * That is only true if each file wraps itself, and 0017-0020 did not - which
+     * is why a failure inside 0020 committed everything before it instead of
+     * leaving the database untouched.
+     *
+     * Checked from 0009, which is where the convention starts.
+     */
+    for (const file of migrationFiles()) {
+      const ordinal = Number(file.slice(0, 4))
+      if (ordinal < 9) continue
+      const sql = readFileSync(join(MIGRATIONS, file), 'utf8')
+      expect(/^begin;$/m.test(sql), `${file} has no begin`).toBe(true)
+      expect(/^commit;$/m.test(sql), `${file} has no commit`).toBe(true)
+    }
+  })
+
   it('keeps the lifecycle views usable after repeated runs', async () => {
     // 0014 creates the together and funnel views and 0016 replaces them. Run
     // the whole thing three times and the newest shape must still be what is

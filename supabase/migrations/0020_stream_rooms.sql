@@ -38,6 +38,11 @@
 -- all without a recursive predicate in RLS.
 -- ===========================================================================
 
+-- One transaction, so the drop-and-recreate below is atomic: a failure at any
+-- point leaves the database exactly as it was, rather than half-converged with
+-- a new table and an old function that cannot write to it.
+begin;
+
 -- --------------------------------------------------- presence, by channel
 --
 -- The component walk starts from "everyone present on this channel". Without
@@ -62,7 +67,18 @@ create index if not exists presence_channel_idx
 --
 -- Global presence RLS is untouched. Nothing here loosens a policy.
 
-create or replace function public.stream_room_members(p_channel text)
+/*
+ * Dropped first, as 0009 had to drop list_groups().
+ *
+ * Postgres refuses to let CREATE OR REPLACE change what a function returns, and
+ * a set-returning function's column list is part of that. This one is new, so
+ * the drop is a no-op on a fresh database - it is here so that re-running the
+ * bundle after a run that stopped part-way finds a clean slate, and so that
+ * changing these columns later is a one-line edit rather than a failed deploy.
+ */
+drop function if exists public.stream_room_members(text);
+
+create function public.stream_room_members(p_channel text)
 returns table (user_id uuid, hops int, via_user_id uuid)
 language plpgsql
 stable
@@ -201,7 +217,28 @@ create policy together_reactions_select on public.together_reactions
  * does. One way for a reaction to appear, and no optimistic rendering to take
  * back if the send fails.
  */
-create or replace function public.send_together_reaction(p_channel text, p_reaction text)
+/*
+ * THE DROP THIS MIGRATION FAILED WITHOUT.
+ *
+ * 0019 created send_together_reaction(text, text) returning the uuid of the one
+ * row it inserted. Fanning out to a whole room returns a COUNT instead, and
+ * Postgres will not let CREATE OR REPLACE change a function's return type:
+ *
+ *   42P13: cannot change return type of existing function
+ *   HINT:  Use DROP FUNCTION send_together_reaction(text,text) first.
+ *
+ * Exactly the failure 0009 hit with list_groups(), and the same remedy. The
+ * signature is unchanged, so this drops precisely the 0019 function and nothing
+ * else; its grants go with it and are re-issued below.
+ *
+ * Nothing depends on it: no view, no trigger, and PL/pgSQL resolves calls at
+ * run time rather than recording a dependency. The extension calls it over
+ * PostgREST, so the only exposure is the instant between drop and create -
+ * which this migration's own transaction closes.
+ */
+drop function if exists public.send_together_reaction(text, text);
+
+create function public.send_together_reaction(p_channel text, p_reaction text)
 returns integer
 language plpgsql
 volatile
@@ -347,3 +384,5 @@ insert into public.analytics_event_names (name, description, allowed_properties)
 on conflict (name) do update
   set description        = excluded.description,
       allowed_properties = excluded.allowed_properties;
+
+commit;

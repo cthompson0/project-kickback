@@ -20,6 +20,10 @@
 -- caller chooses nothing except how many logins they asked about.
 -- ===========================================================================
 
+-- One transaction, as every migration from 0009 onwards is meant to be: a
+-- failure part-way through must leave nothing behind.
+begin;
+
 /*
  * Charge this caller for a metadata request.
  *
@@ -68,3 +72,5 @@ grant execute on function public.consume_metadata_budget(int) to authenticated;
  */
 grant select, insert, update, delete on table public.twitch_metadata_cache to service_role;
 grant execute on function public.sweep_twitch_metadata_cache(interval) to service_role;
+
+commit;

@@ -563,7 +563,11 @@ describe('every reaction row has exactly one interested subscriber', () => {
 
 describe('the server decides who is in the room, and who receives', () => {
   it('walks the graph itself and returns members, never edges', () => {
-    expect(MIGRATION).toContain('create or replace function public.stream_room_members(p_channel text)')
+    // Plain CREATE, preceded by a DROP: Postgres will not let CREATE OR
+    // REPLACE change what a set-returning function returns, and a bundle that
+    // re-runs every migration has to survive meeting its own later self.
+    expect(MIGRATION).toContain('drop function if exists public.stream_room_members(text)')
+    expect(MIGRATION).toContain('create function public.stream_room_members(p_channel text)')
     expect(MIGRATION).toContain('returns table (user_id uuid, hops int, via_user_id uuid)')
     expect(MIGRATION).toContain('security definer')
     // No parameter names a user: the walk is seeded at the caller.

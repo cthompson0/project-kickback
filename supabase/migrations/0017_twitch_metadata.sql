@@ -14,6 +14,10 @@
 -- client secret.
 -- ===========================================================================
 
+-- One transaction, as every migration from 0009 onwards is meant to be: a
+-- failure part-way through must leave nothing behind.
+begin;
+
 -- ------------------------------------------------------- the metadata cache
 --
 -- One row per channel, holding the record exactly as the function will hand it
@@ -107,3 +111,5 @@ insert into public.analytics_event_names (name, description, allowed_properties)
 on conflict (name) do update
   set description        = excluded.description,
       allowed_properties = excluded.allowed_properties;
+
+commit;
