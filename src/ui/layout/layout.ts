@@ -347,6 +347,23 @@ export function resizeTo(
 }
 
 /**
+ * How far a pointer may travel before the gesture stops being a click.
+ *
+ * The collapsed launcher is a button AND a handle, so something has to decide
+ * which one a given press was. A few pixels is enough to separate a deliberate
+ * move from the wobble in an ordinary click - people are not perfectly still on
+ * a mouse, and on a trackpad they are less still than that.
+ */
+export const CLICK_SLOP = 4
+
+/** Whether a gesture has travelled far enough to be a drag rather than a click. */
+export function movedBeyondSlop(start: Point, pointer: Point): boolean {
+  return (
+    Math.abs(pointer.x - start.x) > CLICK_SLOP || Math.abs(pointer.y - start.y) > CLICK_SLOP
+  )
+}
+
+/**
  * True when a drag should not start from this element.
  *
  * The header carries controls as well as empty space, and a drag that begins

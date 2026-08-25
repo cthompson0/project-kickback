@@ -98,14 +98,19 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
       if (cardRef.current && !path.includes(cardRef.current)) onClose()
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key !== 'Escape') return
+      // Marks it handled, so an Escape that closed this card does not also close
+      // whatever is behind it. Capture, so this runs first whatever else is
+      // listening - the innermost open thing is what Escape means.
+      event.preventDefault()
+      onClose()
     }
     // Capture, because the shadow root retargets events on the way up.
     window.addEventListener('pointerdown', onDown, true)
-    window.addEventListener('keydown', onKey)
+    window.addEventListener('keydown', onKey, true)
     return () => {
       window.removeEventListener('pointerdown', onDown, true)
-      window.removeEventListener('keydown', onKey)
+      window.removeEventListener('keydown', onKey, true)
     }
   }, [onClose])
 

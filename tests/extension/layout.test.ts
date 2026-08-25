@@ -8,6 +8,7 @@ import {
   MIN_VISIBLE_X,
   MIN_VISIBLE_Y,
   MIN_WIDTH,
+  CLICK_SLOP,
   clampCollapsed,
   clampLayout,
   clampPosition,
@@ -16,6 +17,7 @@ import {
   dragTo,
   fitIntoViewport,
   isInteractive,
+  movedBeyondSlop,
   parseStoredLayout,
   resizeTo,
   serializeLayout,
@@ -484,5 +486,86 @@ describe('the collapsed launcher', () => {
         expect(at.y + LAUNCHER_SIZE).toBeLessThanOrEqual(viewport.height)
       }
     }
+  })
+})
+
+// ------------------------------------------------- dragging the launcher
+
+describe('telling a launcher drag from a launcher click', () => {
+  /*
+   * The collapsed launcher is a button AND a handle, so something has to decide
+   * which one a given press was. A click always follows a press, so without this
+   * distinction every drag would also open the panel - and moving Kickback out
+   * of the way would be the one gesture that puts it back in the way.
+   */
+  it('treats a still press as a click', () => {
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100, y: 100 })).toBe(false)
+  })
+
+  it('forgives the wobble in an ordinary click', () => {
+    // Nobody is perfectly still on a mouse, and on a trackpad they are less
+    // still than that.
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100 + CLICK_SLOP, y: 100 })).toBe(false)
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100, y: 100 - CLICK_SLOP })).toBe(false)
+  })
+
+  it('calls anything further a drag, in any direction', () => {
+    const past = CLICK_SLOP + 1
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100 + past, y: 100 })).toBe(true)
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100 - past, y: 100 })).toBe(true)
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100, y: 100 + past })).toBe(true)
+    expect(movedBeyondSlop({ x: 100, y: 100 }, { x: 100, y: 100 - past })).toBe(true)
+  })
+})
+
+describe('where a dragged launcher may be left', () => {
+  const LAUNCHER = { width: LAUNCHER_SIZE, height: LAUNCHER_SIZE }
+
+  it('moves with the pointer', () => {
+    const start = { layout: layout({ x: 600, y: 300 }), pointer: { x: 610, y: 310 } }
+    const moved = dragTo(start, { x: 400, y: 500 }, DESKTOP, LAUNCHER)
+    // The pointer started 10px inside the launcher, and that offset is kept.
+    expect(moved.x).toBe(390)
+    expect(moved.y).toBe(490)
+  })
+
+  it('cannot be thrown off screen', () => {
+    for (const viewport of [DESKTOP, LAPTOP, TINY]) {
+      for (const target of [
+        { x: -5_000, y: -5_000 },
+        { x: 5_000, y: 5_000 },
+        { x: 5_000, y: -5_000 },
+      ]) {
+        const start = { layout: layout({ x: 600, y: 300 }), pointer: { x: 600, y: 300 } }
+        const moved = dragTo(start, target, viewport, LAUNCHER)
+        expect(moved.x).toBeGreaterThanOrEqual(0)
+        expect(moved.y).toBeGreaterThanOrEqual(0)
+        expect(moved.x + LAUNCHER_SIZE).toBeLessThanOrEqual(viewport.width)
+        expect(moved.y + LAUNCHER_SIZE).toBeLessThanOrEqual(viewport.height)
+      }
+    }
+  })
+
+  it('leaves a panel that opens there still reachable', () => {
+    /*
+     * The one thing a launcher drag can do that a panel drag cannot: a 42px
+     * launcher sits in the bottom-right corner quite happily, and the 320px
+     * panel that opens from it cannot. Expanding re-applies the panel's own
+     * clamp, which is a no-op for every position a panel drag produced.
+     */
+    const corner = dragTo(
+      { layout: layout({ x: 600, y: 300 }), pointer: { x: 600, y: 300 } },
+      { x: 5_000, y: 5_000 },
+      DESKTOP,
+      LAUNCHER,
+    )
+    const expanded = clampPosition(corner, corner, DESKTOP)
+    expect(expanded.x + MIN_VISIBLE_X).toBeLessThanOrEqual(DESKTOP.width)
+    expect(expanded.y + MIN_VISIBLE_Y).toBeLessThanOrEqual(DESKTOP.height)
+  })
+
+  it('leaves a position a panel drag chose exactly alone', () => {
+    const parked = clampLayout(layout({ x: 1400, y: 700 }), DESKTOP)
+    expect(clampPosition(parked, parked, DESKTOP)).toEqual({ x: parked.x, y: parked.y })
   })
 })

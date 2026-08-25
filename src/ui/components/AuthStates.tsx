@@ -107,6 +107,7 @@ function MutedPeople({
   return (
     <div className="kb-muted-list">
       <div className="kb-section-label">Muted · {mutedUserIds.length}</div>
+      <div className="kb-manage-scroll">
       {mutedUserIds.map((userId) => (
         <div className="kb-muted-row" key={userId}>
           <span className="kb-cluster-name">{nameOf(userId)}</span>
@@ -119,6 +120,7 @@ function MutedPeople({
           </button>
         </div>
       ))}
+      </div>
     </div>
   )
 }
@@ -143,6 +145,12 @@ function BlockedPeople({
   return (
     <div className="kb-muted-list">
       <div className="kb-section-label">Blocked · {blocked.length}</div>
+      {/*
+        * Bounded, so a long list scrolls instead of pushing Sign out off the
+        * bottom of the panel. See .kb-manage-scroll - below the cap it looks
+        * and behaves exactly as it did.
+        */}
+      <div className="kb-manage-scroll">
       {blocked.map((entry) => (
         <div className="kb-muted-row" key={entry.user.id}>
           <span className="kb-cluster-name">{entry.user.displayName}</span>
@@ -162,6 +170,7 @@ function BlockedPeople({
           </button>
         </div>
       ))}
+      </div>
     </div>
   )
 }
@@ -178,6 +187,7 @@ export function AccountCard({
   onUnmute,
   blocked,
   onUnblock,
+  onClose,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
@@ -193,12 +203,38 @@ export function AccountCard({
   /** Server-enforced blocks, listed separately from the local mutes. */
   blocked: readonly { user: { id: string; displayName: string } }[]
   onUnblock: (userId: string) => void
+  /**
+   * Dismisses the panel, and does nothing else.
+   *
+   * Not sign out, not reset layout, not any account change - closing a settings
+   * view should be the one action in it that cannot cost you anything.
+   */
+  onClose: () => void
 }) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
 
   return (
     <div className="kb-account">
+      {/*
+        * The way out, where people already look for it.
+        *
+        * The panel opens from the avatar in the header and used to close only by
+        * pressing that avatar again - which nobody finds, because nothing on
+        * screen says the avatar is a toggle. Escape closes it too; this is the
+        * discoverable half of the same door.
+        */}
+      <div className="kb-account-head">
+        <span className="kb-account-title">Account</span>
+        <button
+          type="button"
+          className="kb-account-close"
+          aria-label="Close account panel"
+          onClick={onClose}
+        >
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
       <div className="kb-account-row">
         <span className="kb-account-label">Signed in as</span>
         <span className="kb-account-value">{identity.displayName}</span>

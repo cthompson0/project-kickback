@@ -164,7 +164,8 @@ describe('resetting the layout', () => {
         onUnmute={() => {}}
         blocked={[]}
         onUnblock={() => {}}
-        onResetLayout={() => {}}
+        onClose={() => {}}
+      onResetLayout={() => {}}
       />,
     )
     expect(html).toContain('Reset layout')

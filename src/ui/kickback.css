@@ -8,6 +8,18 @@
 
 .kb-root {
   --kb-bg: rgba(21, 21, 25, 0.97);
+  /*
+   * For surfaces that float over Kickback's OWN content, not over Twitch.
+   *
+   * --kb-bg is 97% opaque and is paired with a backdrop blur on .kb-panel, which
+   * is the right recipe against a video page: a little of Twitch shows through,
+   * softened. It is the wrong recipe over our own text. A popover sitting on top
+   * of a busy Gravity card let 3% of unblurred names and channels through behind
+   * its own names and channels, and text ghosting under text does not read as
+   * translucency - it reads as broken rendering. So popovers get an opaque
+   * surface, one step lighter than the panel so it still reads as layered.
+   */
+  --kb-bg-popover: #1e1e24;
   --kb-bg-raised: rgba(255, 255, 255, 0.04);
   --kb-bg-hover: rgba(255, 255, 255, 0.07);
   --kb-line: rgba(255, 255, 255, 0.09);
@@ -949,6 +961,52 @@
   border: 1px solid var(--kb-line);
 }
 
+/*
+ * The account panel's own header, carrying the way out.
+ *
+ * The panel opens from the avatar and used to close only by pressing the avatar
+ * again - an interaction nobody discovers, because nothing on screen says the
+ * avatar is a toggle. A x in the corner is the convention people already know.
+ */
+.kb-account-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 1px;
+}
+
+.kb-account-title {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--kb-faint);
+}
+
+/* Quiet until wanted: the way out of a panel should not compete with what is
+   in it. Hit area is 22px even though the glyph is small. */
+.kb-account-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: -2px -3px -2px 0;
+  border-radius: 6px;
+  flex: none;
+  font-size: 15px;
+  line-height: 1;
+  color: var(--kb-faint);
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.kb-account-close:hover,
+.kb-account-close:focus-visible {
+  background: var(--kb-bg-hover);
+  color: var(--kb-text);
+}
+
 .kb-account-row {
   display: flex;
   align-items: baseline;
@@ -1793,7 +1851,8 @@
   z-index: 5;
   padding: 9px;
   border-radius: 10px;
-  background: var(--kb-bg);
+  /* Opaque, deliberately. See --kb-bg-popover. */
+  background: var(--kb-bg-popover);
   border: 1px solid rgba(255, 132, 82, 0.32);
   box-shadow: var(--kb-shadow);
   animation: kb-pop 0.14s ease-out;
@@ -2823,6 +2882,21 @@ a.kb-ghost-btn {
  */
 .kb-muted-list {
   margin: 8px 0 4px;
+}
+
+/*
+ * The rosters are bounded, so the account panel is not.
+ *
+ * One muted person is a row; a hundred blocked people would otherwise be a
+ * hundred rows, and the panel would grow until Sign out was somewhere below the
+ * fold. The list scrolls inside itself instead - the same rule the emote picker
+ * already uses, and for the same reason. Below the cap nothing is scrollable and
+ * nothing looks different, so the common case is untouched.
+ */
+.kb-manage-scroll {
+  max-height: min(24vh, 168px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .kb-muted-row {

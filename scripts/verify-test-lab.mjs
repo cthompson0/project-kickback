@@ -361,6 +361,32 @@ function readUserCard() {
   }
 }
 
+/** Collapses the panel to the launcher, through its own control. */
+function minimize() {
+  const button = [...document.querySelectorAll('.kb-icon-btn')].find(
+    (element) => element.title === 'Minimize Kickback',
+  )
+  button?.click()
+  return Boolean(button)
+}
+
+/** Where the launcher is, and whether the panel is open behind it. */
+function readShell() {
+  const launcher = document.querySelector('.kb-launcher')
+  const rect = launcher?.getBoundingClientRect()
+  return {
+    launcher: rect ? { x: Math.round(rect.x), y: Math.round(rect.y) } : null,
+    panelOpen: Boolean(document.querySelector('.kb-panel')),
+    stored: window.localStorage.getItem('kickback:layout'),
+  }
+}
+
+/** Puts the lab back the way it was found. */
+function resetShell() {
+  window.localStorage.removeItem('kickback:layout')
+  window.localStorage.removeItem('kickback:collapsed')
+}
+
 function clickJoin() {
   const join = document.querySelector('.kb-gravity-card .kb-join')
   if (!join) throw new Error('no JOIN button on the top destination')
@@ -1133,6 +1159,58 @@ async function main() {
       `no gravity impression captured: ${JSON.stringify(joined.events)}`,
     )
 
+    // --- the collapsed launcher, dragged with a real mouse ---------------
+    //
+    // Real input rather than synthetic events, because the whole question here
+    // is whether one press becomes a drag or a click - and a dispatched
+    // PointerEvent would prove nothing about the browser's own answer.
+
+    check(await page.evaluate(minimize), 'no minimize control in the panel header')
+    await settle(page, 300)
+
+    const collapsed = await page.evaluate(readShell)
+    check(collapsed.launcher !== null, 'the launcher did not appear after minimizing')
+    check(!collapsed.panelOpen, 'the panel stayed open after minimizing')
+
+    const from = collapsed.launcher ?? { x: 0, y: 0 }
+    const grab = { x: from.x + 20, y: from.y + 20 }
+    const drop = { x: grab.x - 220, y: grab.y + 150 }
+
+    await page.mouse('mousePressed', grab.x, grab.y)
+    // Several moves, so the gesture looks like a drag rather than a teleport.
+    for (let step = 1; step <= 4; step += 1) {
+      await page.mouse(
+        'mouseMoved',
+        grab.x + ((drop.x - grab.x) * step) / 4,
+        grab.y + ((drop.y - grab.y) * step) / 4,
+      )
+    }
+    await page.mouse('mouseReleased', drop.x, drop.y)
+    await settle(page, 300)
+
+    const dragged = await page.evaluate(readShell)
+    check(dragged.launcher !== null, 'the launcher vanished during the drag')
+    check(
+      !dragged.panelOpen,
+      'dragging the launcher also opened the panel - the click guard did not hold',
+    )
+    check(
+      Math.abs((dragged.launcher?.x ?? 0) - (from.x - 220)) <= 2 &&
+        Math.abs((dragged.launcher?.y ?? 0) - (from.y + 150)) <= 2,
+      `the launcher did not follow the pointer: ${JSON.stringify(dragged.launcher)} from ${JSON.stringify(from)}`,
+    )
+    check(Boolean(dragged.stored), 'the dragged position was not persisted')
+
+    // And an ordinary click, with no movement, still opens Kickback.
+    await page.mouse('mousePressed', drop.x, drop.y)
+    await page.mouse('mouseReleased', drop.x, drop.y)
+    await settle(page, 300)
+
+    const reopened = await page.evaluate(readShell)
+    check(reopened.panelOpen, 'clicking the launcher no longer opens Kickback')
+
+    await page.evaluate(resetShell)
+
     const stillClean = await page.evaluate(readPanel)
     check(!stillClean.error, `the lab threw while being driven: ${stillClean.error}`)
   } finally {
@@ -1155,6 +1233,7 @@ async function main() {
   console.log('Unread and the way in both live on the streamer tab; the card carries neither.')
   console.log('The user card opened from a Gravity member keeps a readable width, even at 260px.')
   console.log('JOIN reaches the navigation boundary and stops there; analytics is captured.')
+  console.log('The collapsed launcher drags with a real mouse, persists, and still opens on a click.')
 }
 
 await main()

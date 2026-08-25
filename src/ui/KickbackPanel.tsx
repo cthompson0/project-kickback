@@ -143,13 +143,39 @@ export function KickbackPanel({
   const [requestedTab, setRequestedTab] = useState<Tab | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
 
-  const { layout, gesturing, sized, onDragStart, onResizeStart, reset } = usePanelLayout({
+  const {
+    layout,
+    gesturing,
+    sized,
+    onDragStart,
+    onLauncherDragStart,
+    wasDragged,
+    onResizeStart,
+    reset,
+  } = usePanelLayout({
     collapsed,
     topOffset,
     reservedRight,
   })
 
   const hint = useLayoutHint()
+
+  /*
+   * Escape closes the account panel.
+   *
+   * Registered in the bubble phase while the UserCard listens in capture, so an
+   * open card gets first refusal and marks the event handled. Innermost thing
+   * wins, which is what a person pressing Escape means by it.
+   */
+  useEffect(() => {
+    if (!accountOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      setAccountOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [accountOpen])
 
   /**
    * Choose a tab, and tell the worker when that choice is a session.
@@ -174,6 +200,10 @@ export function KickbackPanel({
   const beginResize = (edge: Parameters<typeof onResizeStart>[0]) => (event: React.PointerEvent) => {
     hint.dismiss()
     onResizeStart(edge)(event)
+  }
+  const beginLauncherDrag = (event: React.PointerEvent) => {
+    hint.dismiss()
+    onLauncherDragStart(event)
   }
 
   /*
@@ -445,7 +475,14 @@ export function KickbackPanel({
         className="kb-launcher"
         style={position}
         title="Open Kickback"
-        onClick={() => setCollapsed(false)}
+        onPointerDown={beginLauncherDrag}
+        // A click always follows a press, so without this every drag would also
+        // open the panel - and moving Kickback out of the way would be the one
+        // gesture that puts it back in the way.
+        onClick={() => {
+          if (wasDragged()) return
+          setCollapsed(false)
+        }}
       >
         <KickbackMark size={22} />
         {/* Unseen, actionable things only. A friend changing channel is not
@@ -550,6 +587,7 @@ export function KickbackPanel({
           knownPeople={knownPeople}
           onUnmute={(userId) => client.setUserMuted(userId, false)}
           blocked={view.blockedUsers}
+          onClose={() => setAccountOpen(false)}
           onUnblock={(userId) => {
             setActionError(null)
             client.unblockUser(userId).catch((cause: unknown) => {

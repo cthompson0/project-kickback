@@ -2,10 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   LAUNCHER_SIZE,
   clampCollapsed,
+  clampPosition,
   defaultLayout,
   dragTo,
   fitIntoViewport,
   isInteractive,
+  movedBeyondSlop,
   parseStoredLayout,
   resizeTo,
   serializeLayout,
@@ -40,6 +42,24 @@ export interface PanelLayoutApi {
   sized: boolean
   /** Attach to the drag handle. */
   onDragStart: (event: React.PointerEvent) => void
+  /**
+   * Attach to the collapsed launcher, which is a button as well as a handle.
+   *
+   * Same gesture as the panel's, with two differences it cannot share. It does
+   * not refuse to start on an interactive element, because the launcher IS one -
+   * the guard exists so a drag from the panel header does not swallow the
+   * minimise button, and there is no such button here. And it does not
+   * preventDefault, so the press still becomes a click when it turns out not to
+   * have been a drag.
+   */
+  onLauncherDragStart: (event: React.PointerEvent) => void
+  /**
+   * Whether the gesture that just ended actually moved anything.
+   *
+   * Read this in the launcher's onClick: a click always follows a press, so
+   * without it every drag would also open the panel.
+   */
+  wasDragged: () => boolean
   /** Attach to a resize grip. */
   onResizeStart: (edge: ResizeEdge) => (event: React.PointerEvent) => void
   /** Back to the default position and size, forgetting what was stored. */
@@ -106,6 +126,14 @@ export function usePanelLayout({
   const [viewport, setViewport] = useState<Viewport>(readViewport)
   const [gesturing, setGesturing] = useState(false)
   const gesture = useRef<Gesture | null>(null)
+  /*
+   * Survives the end of the gesture on purpose.
+   *
+   * The click arrives after pointerup, so this has to still be true when the
+   * launcher's onClick asks. It is cleared by the next press, not by the
+   * release.
+   */
+  const dragged = useRef(false)
   /** Whether the user has ever placed the panel themselves. */
   const placed = useRef(readStored() !== null)
   // Follow the default while the user has not chosen a position of their own,
@@ -145,16 +173,39 @@ export function usePanelLayout({
     writeStored(layout, sized)
   }, [layout, sized])
   const begin = useCallback(
-    (kind: Gesture['kind'], edge: ResizeEdge, event: React.PointerEvent) => {
+    (
+      kind: Gesture['kind'],
+      edge: ResizeEdge,
+      event: React.PointerEvent,
+      options: { fromHandle?: boolean } = {},
+    ) => {
+      const fromHandle = options.fromHandle ?? true
       if (event.button !== 0) return
-      if (kind === 'drag' && isInteractive(event.target as Element)) return
-      event.preventDefault()
+      if (kind === 'drag' && fromHandle && isInteractive(event.target as Element)) return
+      // Only the panel's own handle suppresses the default. On the launcher the
+      // press has to be allowed to become a click if it never becomes a drag.
+      if (fromHandle) event.preventDefault()
       event.stopPropagation()
+      dragged.current = false
       setLayout((current) => {
+        /*
+         * A collapsed launcher is drawn at a clamped position, not at the
+         * stored one, so the gesture has to start from what is on screen.
+         *
+         * Starting from the stored rectangle instead gives the launcher a dead
+         * zone: a panel parked at the bottom edge collapses to a launcher that
+         * was pulled up to stay reachable, and a drag would then spend its
+         * first fifty pixels moving a number nobody can see before the launcher
+         * itself budged.
+         */
+        const base =
+          collapsed && kind === 'drag'
+            ? { ...current, ...clampCollapsed(current, readViewport()) }
+            : current
         gesture.current = {
           kind,
           edge,
-          start: { layout: current, pointer: { x: event.clientX, y: event.clientY } },
+          start: { layout: base, pointer: { x: event.clientX, y: event.clientY } },
           pointerId: event.pointerId,
           // When collapsed the thing on screen is a 42px launcher, so that is
           // the footprint a drag has to keep reachable.
@@ -181,6 +232,7 @@ export function usePanelLayout({
       if (!active || event.pointerId !== active.pointerId) return
       const live = readViewport()
       const pointer = { x: event.clientX, y: event.clientY }
+      if (movedBeyondSlop(active.start.pointer, pointer)) dragged.current = true
       setLayout(
         active.kind === 'drag'
           ? dragTo(active.start, pointer, live, active.footprint)
@@ -209,7 +261,19 @@ export function usePanelLayout({
    * and only what is drawn moves. Expanding again puts it straight back.
    */
   const rendered = useMemo(
-    () => (collapsed ? { ...layout, ...clampCollapsed(layout, viewport) } : layout),
+    () =>
+      collapsed
+        ? { ...layout, ...clampCollapsed(layout, viewport) }
+        : /*
+           * Expanded, the same loose rule a panel drag obeys: keep a grabbable
+           * corner on screen and otherwise leave the position alone.
+           *
+           * A no-op for any layout a panel drag produced - it was clamped this
+           * way already. It earns its place for the ones a LAUNCHER drag
+           * produced: a 42px launcher can sit in the bottom-right corner quite
+           * happily, and the 320px panel that opens from it cannot.
+           */
+          { ...layout, ...clampPosition(layout, layout, viewport) },
     [collapsed, layout, viewport],
   )
   const reset = useCallback(() => {
@@ -222,9 +286,23 @@ export function usePanelLayout({
     (event: React.PointerEvent) => begin('drag', 's', event),
     [begin],
   )
+  const onLauncherDragStart = useCallback(
+    (event: React.PointerEvent) => begin('drag', 's', event, { fromHandle: false }),
+    [begin],
+  )
+  const wasDragged = useCallback(() => dragged.current, [])
   const onResizeStart = useMemo(
     () => (edge: ResizeEdge) => (event: React.PointerEvent) => begin('resize', edge, event),
     [begin],
   )
-  return { layout: rendered, gesturing, sized, onDragStart, onResizeStart, reset }
+  return {
+    layout: rendered,
+    gesturing,
+    sized,
+    onDragStart,
+    onLauncherDragStart,
+    wasDragged,
+    onResizeStart,
+    reset,
+  }
 }
