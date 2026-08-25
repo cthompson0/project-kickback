@@ -438,6 +438,15 @@ class QuietFriendsBackend implements FriendsBackend {
   async removeFriend() {
     return { value: true }
   }
+  async blockUser() {
+    return { value: true as const }
+  }
+  async unblockUser() {
+    return { value: true as const }
+  }
+  async listBlocked() {
+    return { value: [] }
+  }
 }
 
 function friendOf(userId: string, name: string): Friend {

@@ -4,6 +4,7 @@ import type { FriendsBackend } from '../../src/background/friends'
 import { createSupabaseFriendsBackend } from '../../src/background/supabaseBackend'
 import type { BackendResult } from '../../src/background/auth'
 import type {
+  BlockedUser,
   Friend,
   FriendRequest,
   SearchResult,
@@ -71,7 +72,10 @@ class FakeBackend implements FriendsBackend {
   searchResults: SearchResult[] = []
   sendOutcome: SendRequestOutcome = 'requested'
 
+  blocked: BlockedUser[] = []
+
   failListWith: string | null = null
+  failBlockedListWith: string | null = null
   failSearchWith: string | null = null
   failMutationWith: string | null = null
 
@@ -120,6 +124,41 @@ class FakeBackend implements FriendsBackend {
     this.calls.push(`remove:${userId}`)
     if (this.failMutationWith) return { value: null, error: this.failMutationWith }
     return { value: true }
+  }
+
+  async blockUser(userId: string): Promise<BackendResult<true>> {
+    this.calls.push(`block:${userId}`)
+    if (this.failMutationWith) return { value: null, error: this.failMutationWith }
+    // What the real server does in the same transaction, so the service sees
+    // the friendship disappear the way it actually would.
+    this.friends = this.friends.filter((friend) => friend.user.id !== userId)
+    this.requests = this.requests.filter(
+      (request) => request.user.id !== userId,
+    )
+    this.blocked.push({
+      user: {
+        id: userId,
+        username: userId,
+        displayName: userId,
+        avatarUrl: null,
+        accentColor: '#ff8452',
+      },
+      blockedAt: '2026-01-01T00:00:00.000Z',
+    })
+    return { value: true }
+  }
+
+  async unblockUser(userId: string): Promise<BackendResult<true>> {
+    this.calls.push(`unblock:${userId}`)
+    if (this.failMutationWith) return { value: null, error: this.failMutationWith }
+    this.blocked = this.blocked.filter((entry) => entry.user.id !== userId)
+    return { value: true }
+  }
+
+  async listBlocked(): Promise<BackendResult<BlockedUser[]>> {
+    this.calls.push('listBlocked')
+    if (this.failBlockedListWith) return { value: null, error: this.failBlockedListWith }
+    return { value: [...this.blocked] }
   }
 }
 

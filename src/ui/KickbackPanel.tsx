@@ -391,8 +391,16 @@ export function KickbackPanel({
       friendIds: new Set(friends.map((friend) => friend.user.id)),
       outgoingRequestIds: new Set(view.outgoingRequests.map((request) => request.user.id)),
       mutedUserIds: view.mutedUserIds,
+      blockedUserIds: new Set(view.blockedUsers.map((entry) => entry.user.id)),
     }),
-    [identity, view.localActivity, friends, view.outgoingRequests, view.mutedUserIds],
+    [
+      identity,
+      view.localActivity,
+      friends,
+      view.outgoingRequests,
+      view.mutedUserIds,
+      view.blockedUsers,
+    ],
   )
 
   const signedIn = status === 'signed_in'
@@ -541,6 +549,13 @@ export function KickbackPanel({
           mutedUserIds={view.mutedUserIds}
           knownPeople={knownPeople}
           onUnmute={(userId) => client.setUserMuted(userId, false)}
+          blocked={view.blockedUsers}
+          onUnblock={(userId) => {
+            setActionError(null)
+            client.unblockUser(userId).catch((cause: unknown) => {
+              setActionError(cause instanceof Error ? cause.message : 'Could not unblock.')
+            })
+          }}
           onVisibilityChange={(mode) => {
             setActionError(null)
             client.setPresenceVisibility(mode).catch((cause: unknown) => {

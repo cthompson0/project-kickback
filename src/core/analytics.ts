@@ -227,6 +227,19 @@ export interface AnalyticsEventMap {
   group_opened: { member_count: number }
   /** Shape only. No body, no emote identity - see docs/ANALYTICS.md. */
   group_message_sent: { length_bucket: LengthBucket; has_emote: boolean }
+  /**
+   * Somebody blocked, or unblocked, another user.
+   *
+   * No properties at all, and that is deliberate. Who was blocked - as an id, a
+   * login or a name - would turn this table into a record of who dislikes whom,
+   * which is far more sensitive than anything else Kickback keeps and answers no
+   * question we have. Whether people need the feature is answered by a count.
+   *
+   * There is no reason field either. That would be Report, which is a different
+   * feature with different obligations.
+   */
+  user_blocked: Record<string, never>
+  user_unblocked: Record<string, never>
   combo_formed: { count: number }
   combo_broken: { count: number }
 }
@@ -330,6 +343,8 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   group_created: [],
   group_opened: ['member_count'],
   group_message_sent: ['length_bucket', 'has_emote'],
+  user_blocked: [],
+  user_unblocked: [],
   combo_formed: ['count'],
   combo_broken: ['count'],
 }

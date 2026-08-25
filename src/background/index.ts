@@ -150,7 +150,21 @@ const friends = createFriendsService({
  */
 const socialSync = createSocialSync({
   channel: createSupabaseSocialChannel(supabase),
-  onInvalidate: () => void friends.refresh(),
+  onInvalidate: () => {
+    void friends.refresh()
+    /*
+     * The room walk depends on the social graph too, so it re-asks here.
+     *
+     * Membership is otherwise only re-asked when somebody arrives on or leaves
+     * this channel, and a block is neither. Worse, the person a block removes
+     * may be a bridge the viewer has never seen: A reaches C only through B,
+     * so when A blocks B nothing about C's presence changes for A - C was
+     * never visible to A in the first place. Without this the stale membership
+     * would stand until the refresh interval happened to lapse.
+     */
+    room.invalidate()
+    room.want(sessionChannel())
+  },
   onStatusChange: (status) => console.info('[Kickback] social sync', status),
   onError: logError,
 })
@@ -1006,6 +1020,7 @@ function currentState(): KickbackState {
     roomUnread: roomUnread(),
     sessionChannel: restoredSession(),
     mutedUserIds: sessionTab.muted(),
+    blockedUsers: friendsState.blocked,
   }
 }
 
@@ -1178,6 +1193,22 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   removeFriend: async ([userId]) => {
     await friends.remove(String(userId))
     analytics.track('friend_removed')
+  },
+  blockUser: async ([userId]) => {
+    await friends.block(String(userId))
+    /*
+     * That it happened, and nothing about who.
+     *
+     * A user id, a login or a display name would each turn analytics into a
+     * record of who dislikes whom - far more sensitive than anything else
+     * Kickback keeps, and it answers no question we have. Whether people need
+     * this feature at all is answered by a bare count.
+     */
+    analytics.track('user_blocked')
+  },
+  unblockUser: async ([userId]) => {
+    await friends.unblock(String(userId))
+    analytics.track('user_unblocked')
   },
   refreshFriends: () => friends.refresh(),
   createGroup: async ([name, icon]) => {

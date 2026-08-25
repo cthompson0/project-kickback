@@ -214,6 +214,14 @@ export interface KickbackState {
   sessionChannel: string | null
   /** People this viewer has muted. Local only; the server never learns. */
   mutedUserIds: string[]
+  /**
+   * People this viewer has blocked, for the management list.
+   *
+   * Separate from mutedUserIds and deliberately so: mute is a local
+   * preference about noise, block is a server-enforced fact about the social
+   * graph. Merging them into one list would invite merging the concepts.
+   */
+  blockedUsers: BlockedUser[]
 }
 
 export const INITIAL_STATE: KickbackState = {
@@ -248,6 +256,7 @@ export const INITIAL_STATE: KickbackState = {
   roomUnread: 0,
   sessionChannel: null,
   mutedUserIds: [],
+  blockedUsers: [],
 }
 
 export interface KickbackClient {
@@ -275,6 +284,16 @@ export interface KickbackClient {
   acceptFriendRequestFrom(userId: string): Promise<'accepted'>
   cancelFriendRequest(requestId: string): Promise<void>
   removeFriend(userId: string): Promise<void>
+  /**
+   * Block somebody.
+   *
+   * Server-enforced and destructive: it ends the friendship, cancels any
+   * pending request, and cuts the pair out of each other's presence and
+   * room graph. The caller is expected to confirm first.
+   */
+  blockUser(userId: string): Promise<void>
+  /** Remove a block. Restores nothing else - see docs/checkpoints. */
+  unblockUser(userId: string): Promise<void>
   refreshFriends(): Promise<void>
 
   // --- presence ------------------------------------------------------------
@@ -417,6 +436,18 @@ export interface GroupInvite {
   fromUserId: string
   fromName: string
   createdAt: string
+}
+
+/**
+ * Somebody this viewer has blocked.
+ *
+ * Only ever the viewer's OWN blocks. "Who has blocked me" is not a question
+ * Kickback answers, so there is no shape here that could carry the answer.
+ */
+export interface BlockedUser {
+  user: User
+  /** ISO timestamp, for ordering the management list. */
+  blockedAt: string
 }
 
 export interface ChatMessage {

@@ -1830,6 +1830,37 @@
   gap: 5px;
 }
 
+/*
+ * The block confirmation, inside the card.
+ *
+ * Not a browser confirm() and not a page-level modal: the question is about
+ * the person whose card is open, so the answer belongs on that card, next to
+ * their name. It replaces the action row rather than sitting under it, which
+ * is what makes it read as a step instead of one more button.
+ */
+.kb-usercard-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.kb-usercard-confirm-text {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--kb-dim);
+}
+
+/*
+ * The one thing a blocked person's card says.
+ *
+ * Where their friendship controls used to be. Offering Add friend to somebody
+ * the server will refuse would be a button that exists to fail.
+ */
+.kb-usercard-blocked {
+  font-size: 11.5px;
+  color: var(--kb-dim);
+}
+
 /* An anchor styled as one of our buttons. */
 a.kb-ghost-btn {
   display: inline-flex;

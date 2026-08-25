@@ -2,6 +2,7 @@ import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
 import type { BackendResult } from './auth'
 import type {
+  BlockedUser,
   Friend,
   FriendRequest,
   SearchResult,
@@ -34,12 +35,30 @@ export interface FriendsBackend {
   ): Promise<BackendResult<'accepted' | 'declined'>>
   cancelFriendRequest(requestId: string): Promise<BackendResult<'cancelled'>>
   removeFriend(userId: string): Promise<BackendResult<boolean>>
+  /**
+   * Block, unblock, and who is blocked.
+   *
+   * These live beside the friend operations because that is what blocking acts
+   * on: the server takes the friendship apart and cancels any pending request
+   * in the same transaction, so a block is a friendship mutation that happens
+   * to leave a row behind.
+   */
+  blockUser(userId: string): Promise<BackendResult<true>>
+  unblockUser(userId: string): Promise<BackendResult<true>>
+  listBlocked(): Promise<BackendResult<BlockedUser[]>>
 }
 
 export interface FriendsState {
   friends: Friend[]
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
+  /**
+   * People this viewer has blocked.
+   *
+   * Only ever their own blocks - the server will not answer "who has blocked
+   * me", and the panel has no reason to ask.
+   */
+  blocked: BlockedUser[]
   friendsLoading: boolean
   friendsError: string | null
 }
@@ -48,6 +67,7 @@ export const EMPTY_FRIENDS_STATE: FriendsState = {
   friends: [],
   incomingRequests: [],
   outgoingRequests: [],
+  blocked: [],
   friendsLoading: false,
   friendsError: null,
 }
@@ -86,6 +106,15 @@ export interface FriendsService {
   acceptFrom(userId: string): Promise<'accepted'>
   cancel(requestId: string): Promise<void>
   remove(userId: string): Promise<void>
+  /**
+   * Block somebody, which also ends the friendship server-side.
+   *
+   * Goes through the same re-read every other mutation does, and that is not
+   * tidiness: the server has just deleted a friendship, and without the re-read
+   * the panel would keep drawing somebody the graph no longer contains.
+   */
+  block(userId: string): Promise<void>
+  unblock(userId: string): Promise<void>
 }
 
 /** Turns a backend failure into something a person can read. */
@@ -101,6 +130,10 @@ function friendlyError(context: string): string {
       return 'Could not cancel that request.'
     case 'remove':
       return 'Could not remove that friend.'
+    case 'block':
+      return 'Could not block that user.'
+    case 'unblock':
+      return 'Could not unblock that user.'
     default:
       return "Kickback can't reach its server right now."
   }
@@ -135,9 +168,10 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
   async function refresh(): Promise<void> {
     setState({ friendsLoading: true })
 
-    const [friends, requests] = await Promise.all([
+    const [friends, requests, blocked] = await Promise.all([
       deps.backend.listFriends(),
       deps.backend.listFriendRequests(),
+      deps.backend.listBlocked(),
     ])
 
     if (friends.error || requests.error) {
@@ -146,8 +180,17 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
       return
     }
 
+    /*
+     * A failed block list is not a failed refresh.
+     *
+     * It only feeds a management list in the settings card; the friends list is
+     * what the panel is for. Keeping the previous value rather than emptying it
+     * follows the same rule every other read here does - never invent, never
+     * blank out to look tidy.
+     */
     const all = requests.value ?? []
     setState({
+      blocked: blocked.error ? state.blocked : (blocked.value ?? []),
       friends: friends.value ?? [],
       incomingRequests: all.filter((request) => request.direction === 'incoming'),
       outgoingRequests: all.filter((request) => request.direction === 'outgoing'),
@@ -249,6 +292,14 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
 
     async remove(userId) {
       await mutate('remove', () => deps.backend.removeFriend(userId))
+    },
+
+    async block(userId) {
+      await mutate('block', () => deps.backend.blockUser(userId))
+    },
+
+    async unblock(userId) {
+      await mutate('unblock', () => deps.backend.unblockUser(userId))
     },
   }
 }

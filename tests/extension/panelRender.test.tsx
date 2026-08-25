@@ -162,6 +162,8 @@ describe('resetting the layout', () => {
         mutedUserIds={[]}
         knownPeople={[]}
         onUnmute={() => {}}
+        blocked={[]}
+        onUnblock={() => {}}
         onResetLayout={() => {}}
       />,
     )

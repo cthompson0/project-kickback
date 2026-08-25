@@ -265,6 +265,94 @@ describe('the generated bundle', () => {
     await db.close()
   })
 
+  it('applies on top of 0021, which is the transition Block makes', async () => {
+    /*
+     * The upgrade that has to happen next.
+     *
+     * 0022 does not only add a table: it redefines is_friend, shares_group_with,
+     * stream_room_members, send_room_message, send_together_reaction,
+     * send_friend_request, respond_to_friend_request, invite_to_group and
+     * search_users on top of whatever 0003-0021 left behind. Every one of those
+     * is a replacement of an existing function, and stream_room_members is the
+     * kind that needs a DROP first. This is asserted rather than assumed.
+     */
+    const db = await freshDb()
+    await applyThrough(db, '0021')
+    await expect(applyBundle(db)).resolves.not.toThrow()
+
+    const table = await db.query<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'blocks'`,
+    )
+    expect(table.rows.map((row) => row.column_name).sort()).toEqual([
+      'blocked_id',
+      'blocker_id',
+      'created_at',
+    ])
+    await db.close()
+  })
+
+  it('leaves one block_user however the database got there', async () => {
+    // Forwards and on top of 0021 must agree. An overload pair here would mean
+    // some clients calling a version that does not sever the friendship.
+    const fresh = await freshDb()
+    await applyBundle(fresh)
+
+    const upgraded = await freshDb()
+    await applyThrough(upgraded, '0021')
+    await applyBundle(upgraded)
+
+    for (const db of [fresh, upgraded]) {
+      const result = await db.query<{ proname: string }>(`
+        select p.proname
+        from pg_proc p
+        join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public'
+          and p.proname in ('block_user', 'unblock_user', 'list_blocked_users')
+        order by p.proname
+      `)
+      expect(result.rows.map((row) => row.proname)).toEqual([
+        'block_user',
+        'list_blocked_users',
+        'unblock_user',
+      ])
+      await db.close()
+    }
+  })
+
+  it('never hands blocked_pair to a client, however many times it runs', async () => {
+    /*
+     * The one function that must stay unreachable.
+     *
+     * blocked_pair answers "are these two blocked", and a client that could
+     * call it could ask whether somebody had blocked THEM - the single fact
+     * this feature exists not to disclose. A re-run that quietly granted it
+     * back would undo that, silently.
+     */
+    const db = await freshDb()
+    await applyBundle(db)
+    await applyBundle(db)
+
+    const result = await db.query<{ has: boolean }>(`
+      select has_function_privilege('authenticated', p.oid, 'execute') as has
+      from pg_proc p
+      join pg_namespace n on n.oid = p.pronamespace
+      where n.nspname = 'public' and p.proname = 'blocked_pair'
+    `)
+    expect(result.rows).toHaveLength(1)
+    expect(result.rows[0].has).toBe(false)
+
+    // And no client may write the table directly, which would be the other way
+    // to manufacture or erase a block.
+    for (const privilege of ['insert', 'update', 'delete']) {
+      const table = await db.query<{ has: boolean }>(
+        `select has_table_privilege('authenticated', 'public.blocks', '${privilege}') as has`,
+      )
+      expect(table.rows[0].has).toBe(false)
+    }
+    await db.close()
+  })
+
   it('leaves send_room_message callable however the database got there', async () => {
     // Forwards and on top of 0020 must agree, or the extension gets whichever
     // shape the database happened to end up with.

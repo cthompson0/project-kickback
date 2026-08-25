@@ -123,6 +123,49 @@ function MutedPeople({
   )
 }
 
+/**
+ * Everyone this viewer has blocked, and the way back.
+ *
+ * Deliberately a SEPARATE list from Muted rather than one combined roster.
+ * They are different promises - mute is a local preference about noise, block
+ * is a server-enforced fact about the social graph - and a single list would
+ * invite treating them as one thing. Hidden entirely when nobody is blocked.
+ */
+function BlockedPeople({
+  blocked,
+  onUnblock,
+}: {
+  blocked: readonly { user: { id: string; displayName: string } }[]
+  onUnblock: (userId: string) => void
+}) {
+  if (blocked.length === 0) return null
+
+  return (
+    <div className="kb-muted-list">
+      <div className="kb-section-label">Blocked · {blocked.length}</div>
+      {blocked.map((entry) => (
+        <div className="kb-muted-row" key={entry.user.id}>
+          <span className="kb-cluster-name">{entry.user.displayName}</span>
+          {/*
+            * No confirmation on the way back.
+            *
+            * Unblocking is not destructive: it removes the block and nothing
+            * else - no friendship returns, no request is revived. If they want
+            * to be friends again, somebody sends a request.
+            */}
+          <button
+            type="button"
+            className="kb-ghost-btn kb-ghost-btn-inline"
+            onClick={() => onUnblock(entry.user.id)}
+          >
+            Unblock
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 export function AccountCard({
   identity,
   onSignOut,
@@ -133,6 +176,8 @@ export function AccountCard({
   mutedUserIds,
   knownPeople,
   onUnmute,
+  blocked,
+  onUnblock,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
@@ -145,6 +190,9 @@ export function AccountCard({
   mutedUserIds: readonly string[]
   knownPeople: readonly { id: string; displayName: string }[]
   onUnmute: (userId: string) => void
+  /** Server-enforced blocks, listed separately from the local mutes. */
+  blocked: readonly { user: { id: string; displayName: string } }[]
+  onUnblock: (userId: string) => void
 }) {
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -232,6 +280,8 @@ export function AccountCard({
       </div>
 
       <MutedPeople mutedUserIds={mutedUserIds} people={knownPeople} onUnmute={onUnmute} />
+
+      <BlockedPeople blocked={blocked} onUnblock={onUnblock} />
 
       <button type="button" className="kb-ghost-btn" onClick={onResetLayout}>
         Reset layout

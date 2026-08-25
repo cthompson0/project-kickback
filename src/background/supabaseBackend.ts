@@ -9,6 +9,7 @@ import type { MetadataFetcher } from './metadata'
 import type { ReactionBackend } from './togetherReactions'
 import type { RoomBackend } from './streamRoom'
 import type { RoomMessageBackend } from './roomMessages'
+import type { BlockedUser } from '../client/types'
 import { MAX_MESSAGES } from '../core/roomMessages'
 import type { Reaction } from '../core/together'
 import type { AnalyticsEvent } from '../core/analytics'
@@ -342,7 +343,43 @@ export function createSupabaseFriendsBackend(supabase: SupabaseClient): FriendsB
 
     removeFriend: (userId) =>
       call<boolean, boolean>('remove_friend', { p_other: userId }, (rows) => rows[0] === true),
+
+    /*
+     * Block, unblock, and the caller's own list.
+     *
+     * No actor parameter anywhere, as everywhere else: the database uses
+     * auth.uid(), so there is nothing for a modified client to supply. Block
+     * also removes the friendship and cancels pending requests inside its own
+     * transaction - see 0022 - so there is no sequence here to get wrong.
+     */
+    blockUser: (userId) =>
+      call<null, true>('block_user', { p_target: userId }, () => true),
+
+    unblockUser: (userId) =>
+      call<null, true>('unblock_user', { p_target: userId }, () => true),
+
+    listBlocked: () =>
+      call<BlockedRow, BlockedUser[]>('list_blocked_users', {}, (rows) =>
+        rows.map((row) => ({
+          user: {
+            id: row.user_id,
+            username: row.twitch_login ?? row.display_name,
+            displayName: row.display_name,
+            avatarUrl: row.avatar_url,
+            accentColor: '#ff8452',
+          },
+          blockedAt: row.created_at,
+        })),
+      ),
   }
+}
+
+interface BlockedRow {
+  user_id: string
+  display_name: string
+  avatar_url: string | null
+  twitch_login: string | null
+  created_at: string
 }
 
 // ----------------------------------------------------------------- presence

@@ -24,6 +24,8 @@ export type RpcMethod =
   | 'acceptFriendRequestFrom'
   | 'cancelFriendRequest'
   | 'removeFriend'
+  | 'blockUser'
+  | 'unblockUser'
   | 'refreshFriends'
   | 'setPresenceVisibility'
   | 'setPreferences'

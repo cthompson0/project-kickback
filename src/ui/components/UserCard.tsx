@@ -58,6 +58,13 @@ export interface UserCardContext {
    * like it had worked.
    */
   mutedUserIds?: readonly string[]
+  /**
+   * People this viewer has blocked.
+   *
+   * Only their own blocks: the server will not say who has blocked THEM, so
+   * there is no shape here that could carry that.
+   */
+  blockedUserIds?: ReadonlySet<string>
 }
 
 export interface UserCardProps {
@@ -74,11 +81,13 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
   const isSelf = context.selfId !== null && user.id === context.selfId
   const isFriend = context.friendIds.has(user.id)
   const muted = (context.mutedUserIds ?? []).includes(user.id)
+  const blocked = context.blockedUserIds?.has(user.id) ?? false
   const requestPending = context.outgoingRequestIds.has(user.id)
   const [busy, setBusy] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
+  const [confirmBlock, setConfirmBlock] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
   const channelName = useChannelName()
 
@@ -163,6 +172,13 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
 
       {error && <div className="kb-inline-note">{error}</div>}
 
+      {/*
+        * The ordinary controls stand down while the block confirmation is up.
+        *
+        * Otherwise two buttons reading Block would be on screen at once, and
+        * the one that does nothing is the more prominent of the two.
+        */}
+      {!confirmBlock && (
       <div className="kb-usercard-actions">
         {/* Never offered when they are already where the viewer is. Your own
             card needs no separate guard: describeSelf never reports anywhere
@@ -182,7 +198,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
           Profile
         </a>
 
-        {!isSelf && !isFriend && (
+        {!isSelf && !isFriend && !blocked && (
           <button
             type="button"
             className="kb-ghost-btn kb-ghost-btn-inline"
@@ -192,6 +208,15 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
             {sent || requestPending ? 'Request sent' : 'Add friend'}
           </button>
         )}
+
+        {/*
+          * Somebody you have blocked gets no friendship controls at all.
+          *
+          * Offering Add friend to a person the server will refuse would be a
+          * button that exists to fail. Unblocking is the way back, and it lives
+          * in the account card - the one place that lists them.
+          */}
+        {!isSelf && blocked && <span className="kb-usercard-blocked">Blocked</span>}
 
         {/*
           * Mute, which is a quiet and not a judgement.
@@ -205,7 +230,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
           * is server-side; it is the next thing, and mute is not a substitute
           * for it. See core/mute.ts.
           */}
-        {!isSelf && (
+        {!isSelf && !blocked && (
           <button
             type="button"
             className="kb-ghost-btn kb-ghost-btn-inline"
@@ -244,7 +269,53 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
             </button>
           )
         )}
+
+        {/*
+          * Block, last in the row and quiet.
+          *
+          * It is an infrequent safety action, not a thing to reach for - so it
+          * sits after the ordinary controls and looks like the rest of them.
+          * What it does is not quiet at all, which is why it asks first: it
+          * ends the friendship, cancels any pending request, and takes the two
+          * of you out of each other's presence and rooms server-side.
+          */}
+        {!isSelf && !blocked && (
+          <button
+            type="button"
+            className="kb-ghost-btn kb-ghost-btn-inline"
+            onClick={() => setConfirmBlock(true)}
+          >
+            Block
+          </button>
+        )}
       </div>
+      )}
+
+      {confirmBlock && !isSelf && (
+        <div className="kb-usercard-confirm" role="group" aria-label="Confirm block">
+          <div className="kb-usercard-confirm-text">
+            Block {user.displayName}? You won't see each other's Kickback activity or be
+            put in stream sessions together. This also removes them as a friend.
+          </div>
+          <div className="kb-usercard-actions">
+            <button
+              type="button"
+              className="kb-ghost-btn kb-ghost-btn-inline"
+              onClick={() => setConfirmBlock(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="kb-ghost-btn kb-ghost-btn-inline kb-confirm-yes"
+              disabled={busy}
+              onClick={() => void act(() => client.blockUser(user.id), onClose)}
+            >
+              Block
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

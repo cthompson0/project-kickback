@@ -538,6 +538,22 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     async cancelFriendRequest(requestId: string) {
       mutate(updateUser(world, requestId.replace(/^req-/, ''), { relationship: 'stranger' }))
     },
+    /*
+     * Block is server-enforced, and the lab has no server.
+     *
+     * Every rule that matters about it - the friendship coming apart, the walk
+     * refusing to traverse a blocked person, recipients being filtered
+     * pairwise - lives in SQL and is tested against real Postgres in
+     * tests/db/blocks.test.ts. A lab imitation would prove nothing about the
+     * original and could disagree with it, so the lab declines instead.
+     */
+    async blockUser() {
+      throw new Error('Blocking is not available in the Test Lab.')
+    },
+    async unblockUser() {
+      throw new Error('Blocking is not available in the Test Lab.')
+    },
+
     async removeFriend(userId: string) {
       mutate(updateUser(world, userId, { relationship: 'stranger' }))
     },
