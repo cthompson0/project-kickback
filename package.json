@@ -25,7 +25,9 @@
     "verify:analytics": "node scripts/verify-analytics.mjs",
     "dev:lab": "vite -c vite.testlab.config.ts",
     "test:lab": "vitest run tests/testlab",
-    "verify:lab": "node scripts/verify-test-lab.mjs"
+    "verify:lab": "node scripts/verify-test-lab.mjs",
+    "verify:store": "node scripts/verify-store-readiness.mjs",
+    "package:store": "node scripts/package-beta.mjs --store"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

@@ -187,6 +187,12 @@ describe('manifest', () => {
 })
 
 describe('the shipped identity and version', () => {
+  /*
+   * Kept as a literal rather than imported from scripts/extension-identity.mjs:
+   * a test that reads its expectation from the thing under test proves nothing.
+   * `npm run verify:store` scans every .ts and .md file for an ID that is not
+   * ours, so a rotation cannot leave this one behind.
+   */
   const EXPECTED_ID = 'almhfkicihekhiloapoimglfdoneglni'
 
   /** Chrome derives an ID from the first 128 bits of SHA-256 over the key. */

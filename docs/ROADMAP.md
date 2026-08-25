@@ -3,7 +3,7 @@
 Where things stand, and — more usefully — what has already been decided so it
 does not get re-decided by accident.
 
-**Last updated:** 2026-08-25, at the final pre-beta checkpoint.
+**Last updated:** 2026-08-25, at the Chrome Web Store readiness checkpoint.
 
 ---
 
@@ -55,6 +55,35 @@ behaviour is data about what the product is.
 ---
 
 ## Decided, and not to be re-opened without new evidence
+
+### Distribution — **CHROME WEB STORE, PRIVATE**
+
+Preferred over hand-distributed ZIPs. Not for convenience: it gives real update
+delivery, controlled access, and a stable install destination that invites can
+eventually point at.
+
+- **Visibility: Private**, via a Google Group. Every tester needs a Google
+  account and must be signed into Chrome with it.
+- **The ZIP remains** as the fallback and as the local packaged-build test
+  artifact. `npm run package:beta` is unchanged.
+- **Store packaging is separate** — `npm run package:store`. The store requires
+  `manifest.json` at the root of the archive and mints its own extension ID, so
+  the store package is flat and carries no manifest `key`.
+- **The extension ID changes at upload.** Our pinned key is a local invention;
+  the store's is the real one. Adopting it is a two-line rotation plus a
+  Supabase redirect allow-list entry — see the checkpoint. Nothing in `src/`
+  reads the ID.
+- **No CI/CD.** Two commands and a browser upload, for 20 people.
+- **No rollback exists.** The only remedy for a bad release is a higher version.
+
+See [chrome-web-store-private-beta-readiness.md](checkpoints/chrome-web-store-private-beta-readiness.md).
+
+### Privacy policy — **WRITTEN, NOT YET HOSTED**
+
+[PRIVACY.md](PRIVACY.md), written against the implementation rather than from a
+template. The store requires a **publicly reachable URL**; GitHub Pages on this
+repository is the recommendation, so the policy stays version-controlled beside
+the code that makes it true.
 
 ### Feedback — **SHIPPED**
 
@@ -196,4 +225,6 @@ creator value, platform value, B2B, cross-platform strategic value.
 | No generic Twitch watch time | Only shared-watch duration and post-social retention on attributed destinations |
 | **Incremental Social Watch Hours does not exist** | Do not quote it. The nearest honest proxy is attributed-arrival dwell |
 | Empty state does not sell the value proposition | Matters for organic installs, not for a hand-delivered cohort |
-| Developer mode required to install | Inherent to unpacked distribution |
+| Developer mode required to install | Solved by Chrome Web Store distribution; the ZIP fallback still needs it |
+| `https://cdn.7tv.app/*` host permission is probably unnecessary | Emote images are `<img>` loads, which do not need one - `static-cdn.jtvnw.net` is the proof, used the same way with no permission. Not removed before submission because the failure mode is silent; permissions can be reduced later without user re-consent |
+| Account deletion is a manual email request | Correct and complete, but not self-service. Fine for this cohort, a real gap before public launch |

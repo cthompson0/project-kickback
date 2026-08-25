@@ -13,6 +13,10 @@
  *   - the staged files are exactly the runtime files, nothing else
  *   - neither the staged files nor the finished archive contain a secret
  *
+ * Two shapes, one set of guarantees: --store produces the flat, key-free
+ * archive the Chrome Web Store requires; without it, the nested one a tester
+ * selects in Load unpacked.
+ *
  * Every check fails loudly. A beta that half-works is worse than no beta,
  * because the tester's report is then about our packaging rather than the
  * product.
@@ -37,6 +41,7 @@ import { join, relative } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listZip, writeZip } from './zip.mjs'
 import { verifyGroupSchema } from './verify-group-schema.mjs'
+import { EXPECTED_EXTENSION_ID, extensionIdFromKey } from './extension-identity.mjs'
 import { verifyAnalyticsSchema } from './verify-analytics.mjs'
 
 const DIST = 'dist'
@@ -44,7 +49,23 @@ const RELEASES = 'releases'
 /** The folder name a tester selects in Load unpacked. */
 const FOLDER = 'Kickback'
 
-const EXPECTED_EXTENSION_ID = 'almhfkicihekhiloapoimglfdoneglni'
+/**
+ * Two archives, because the two destinations disagree about shape.
+ *
+ *   sideload  every entry under Kickback/, so Load unpacked has one folder to
+ *             select and a tester cannot pick the wrong thing.
+ *   store     manifest.json at the ROOT. The Chrome Web Store rejects a package
+ *             whose manifest is nested, with an error about the manifest being
+ *             missing - which reads as a corrupt file rather than a wrong shape.
+ *
+ * The store package also drops the manifest `key`. Our key is a local invention
+ * that fixes the ID for sideloaded builds; the Web Store mints its own and
+ * validates the field against it, so shipping ours is at best ignored and at
+ * worst rejected. Once the store has assigned an ID we adopt ITS public key
+ * into the manifest, and then the two builds finally agree - see
+ * scripts/extension-identity.mjs.
+ */
+const STORE = process.argv.includes('--store')
 
 /**
  * Exactly what a tester needs at runtime, and nothing else.
@@ -164,12 +185,6 @@ function run(command, args, env) {
   })
 }
 
-/** Extension IDs are the first 128 bits of SHA-256 over the DER public key. */
-function extensionIdFromKey(base64Key) {
-  const hash = createHash('sha256').update(Buffer.from(base64Key, 'base64')).digest('hex')
-  return [...hash.slice(0, 32)].map((c) => String.fromCharCode(parseInt(c, 16) + 97)).join('')
-}
-
 function walk(dir, base = dir) {
   const out = []
   for (const entry of readdirSync(dir)) {
@@ -262,7 +277,7 @@ async function main() {
     fail('manifest has no pinned key - the extension ID would be random per machine')
   } else {
     const id = extensionIdFromKey(manifest.key)
-    console.log(`  extension id   : ${id}`)
+    console.log(`  extension id   : ${id}${STORE ? ' (key removed from the store package)' : ''}`)
     if (id !== EXPECTED_EXTENSION_ID) {
       fail(`extension id ${id} does not match the OAuth allow-list (${EXPECTED_EXTENSION_ID})`)
     }
@@ -295,7 +310,7 @@ async function main() {
   // ------------------------------------------------------------ stage
   step('Staging the package')
   const staging = mkdtempSync(join(tmpdir(), 'kickback-pkg-'))
-  const root = join(staging, FOLDER)
+  const root = STORE ? staging : join(staging, FOLDER)
   mkdirSync(root, { recursive: true })
 
   for (const file of RUNTIME_FILES) {
@@ -303,13 +318,23 @@ async function main() {
     mkdirSync(join(target, '..'), { recursive: true })
     cpSync(join(DIST, file), target)
   }
-  writeFileSync(join(root, 'README-TESTERS.txt'), readmeForTesters(version), 'utf8')
+
+  if (STORE) {
+    // Same manifest, minus the one field the store owns.
+    const { key, ...withoutKey } = manifest
+    if (!key) fail('expected a key to remove from the store manifest')
+    writeFileSync(join(root, 'manifest.json'), `${JSON.stringify(withoutKey, null, 2)}\n`, 'utf8')
+  } else {
+    // Install, use, update and troubleshooting, for somebody who has never
+    // opened chrome://extensions. Pointless inside a store package.
+    writeFileSync(join(root, 'README-TESTERS.txt'), readmeForTesters(version), 'utf8')
+  }
 
   const staged = walk(root).sort()
   console.log(`  ${staged.length} files`)
   for (const file of staged) console.log(`    ${file}`)
 
-  const expected = [...RUNTIME_FILES, 'README-TESTERS.txt'].sort()
+  const expected = (STORE ? [...RUNTIME_FILES] : [...RUNTIME_FILES, 'README-TESTERS.txt']).sort()
   if (JSON.stringify(staged) !== JSON.stringify(expected)) {
     fail(`staged files do not match the allow-list\n  got:      ${staged}\n  expected: ${expected}`)
   }
@@ -321,12 +346,18 @@ async function main() {
   // -------------------------------------------------------------- zip
   step('Writing the archive')
   mkdirSync(RELEASES, { recursive: true })
-  const zipPath = join(RELEASES, `Kickback-Private-Beta-v${version}.zip`)
+  const zipPath = join(
+    RELEASES,
+    STORE ? `Kickback-Store-v${version}.zip` : `Kickback-Private-Beta-v${version}.zip`,
+  )
   rmSync(zipPath, { force: true })
 
   writeZip(
     zipPath,
-    staged.map((file) => ({ name: `${FOLDER}/${file}`, source: join(root, file) })),
+    staged.map((file) => ({
+      name: STORE ? file : `${FOLDER}/${file}`,
+      source: join(root, file),
+    })),
   )
   console.log(`  ${zipPath}  (${(statSync(zipPath).size / 1024).toFixed(1)} KB)`)
 
@@ -335,7 +366,7 @@ async function main() {
   const entries = listZip(zipPath).sort()
   for (const entry of entries) console.log(`    ${entry}`)
 
-  const expectedEntries = expected.map((file) => `${FOLDER}/${file}`).sort()
+  const expectedEntries = expected.map((file) => (STORE ? file : `${FOLDER}/${file}`)).sort()
   if (JSON.stringify(entries) !== JSON.stringify(expectedEntries)) {
     fail(`archive contents do not match the allow-list\n  got: ${entries}`)
   }
@@ -343,7 +374,14 @@ async function main() {
   // that actually gets sent to someone.
   checkPaths(entries, 'archive')
 
-  if (!entries.every((entry) => entry.startsWith(`${FOLDER}/`))) {
+  if (STORE) {
+    // The one thing that makes it a store package rather than a sideload one.
+    if (!entries.includes('manifest.json')) {
+      fail('manifest.json must be at the ROOT of a store package, not inside a folder')
+    }
+    const staleKey = JSON.parse(readFileSync(join(root, 'manifest.json'), 'utf8')).key
+    if (staleKey) fail('the store package still carries a manifest key')
+  } else if (!entries.every((entry) => entry.startsWith(`${FOLDER}/`))) {
     fail(`every entry must live under ${FOLDER}/ so Load unpacked has one folder to select`)
   }
 
@@ -353,8 +391,18 @@ async function main() {
 
   console.log(`\nPackaged Kickback v${version}`)
   console.log(`  ${zipPath}`)
-  console.log(`  extension id ${EXPECTED_EXTENSION_ID}`)
-  console.log('\nNext: extract it somewhere fresh and load it with chrome://extensions.')
+  // Printed so a report can quote the exact artifact, rather than "the zip".
+  console.log(`  sha256 ${createHash('sha256').update(readFileSync(zipPath)).digest('hex')}`)
+
+  if (STORE) {
+    console.log('  no manifest key - the Chrome Web Store assigns the ID')
+    console.log('\nNext: upload it at the Chrome Web Store developer dashboard.')
+    console.log('Once the item exists, copy its public key into public/manifest.json,')
+    console.log('update EXPECTED_EXTENSION_ID, and add the new redirect URL in Supabase.')
+  } else {
+    console.log(`  extension id ${EXPECTED_EXTENSION_ID}`)
+    console.log('\nNext: extract it somewhere fresh and load it with chrome://extensions.')
+  }
   return 0
 }
 
