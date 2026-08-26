@@ -28,110 +28,315 @@ select now() as private_beta_day_zero;
 
 ---
 
-## Part 1 — Audit first (read-only, changes nothing)
+## Part 1 — Audit first (read-only, one query)
 
-Run all of this and read it before running Part 2. Nothing below writes.
+Paste this whole block into the Supabase SQL editor and run it once. It returns
+a single grid — `seq | section | subject | details` — containing everything the
+cleanup plan needs. Copy the whole grid back.
 
-```sql
--- 1. How much of everything there is.
-select 'analytics_events'      as t, count(*) from public.analytics_events
-union all select 'analytics_actors',       count(*) from public.analytics_actors
-union all select 'feedback',               count(*) from public.feedback
-union all select 'presence',               count(*) from public.presence
-union all select 'presence_rate',          count(*) from public.presence_rate
-union all select 'rate_limits',            count(*) from public.rate_limits
-union all select 'room_messages',          count(*) from public.room_messages
-union all select 'together_reactions',     count(*) from public.together_reactions
-union all select 'users',                  count(*) from public.users
-union all select 'connected_accounts',     count(*) from public.connected_accounts
-union all select 'friendships',            count(*) from public.friendships
-union all select 'friend_requests',        count(*) from public.friend_requests
-union all select 'blocks',                 count(*) from public.blocks
-union all select 'groups',                 count(*) from public.groups
-union all select 'group_members',          count(*) from public.group_members
-union all select 'group_invites',          count(*) from public.group_invites
-union all select 'group_messages',         count(*) from public.group_messages
-union all select 'user_preferences',       count(*) from public.user_preferences
-union all select 'twitch_metadata_cache',  count(*) from public.twitch_metadata_cache
-union all select 'auth.users',             count(*) from auth.users
-order by 1;
-```
+It is **read-only**: SELECTs, CTEs, joins, aggregation and JSON construction
+only. No DELETE, UPDATE, INSERT, TRUNCATE, ALTER or DROP, and it calls no
+function that mutates anything — `analytics_reset_environment` is *not* invoked
+here, only in Part 2.
+
+It has been validated against the real migrations on a real Postgres, with
+seeded accounts, friendships, a block, a group, invites and analytics in two
+environments — so the column and function names are known-good rather than
+assumed. (That validation is how the two-argument signature of
+`display_name_from_meta` was caught.)
+
+**Nothing secret is emitted.** No tokens, no passwords, no JWTs, no session
+rows, no raw auth metadata — the Twitch login and display name come out through
+the same helper functions the product itself uses.
 
 ```sql
--- 2. Analytics, split by environment. This is what Part 2 clears.
-select environment,
-       count(*)                 as events,
-       count(distinct actor_id) as actors,
-       min(occurred_at)         as first_seen,
-       max(occurred_at)         as last_seen
-from public.analytics_events
-group by environment
-order by environment;
-```
-
-```sql
--- 3. Which actors are marked internal.
+-- ===========================================================================
+-- KICKBACK — BETA DAY 0 AUDIT.  READ ONLY.  Run once, copy the whole grid back.
 --
--- IMPORTANT: analytics_reset_environment deletes actor rows that end up with no
--- events in ANY environment - and the is_internal flag lives on that row. If an
--- account only ever sent private_beta events, the reset removes the flag too.
--- Copy this output; Part 3 puts it back.
-select a.user_id, u.display_name, a.is_internal, a.environments,
-       a.first_seen_at, a.last_seen_at
-from public.analytics_actors a
-join public.users u on u.id = a.user_id
-order by a.is_internal desc, a.first_seen_at;
-```
+-- Contains only SELECTs, CTEs, joins, aggregation and JSON construction.
+-- No DELETE / UPDATE / INSERT / TRUNCATE / ALTER / DROP, and it calls no
+-- function that mutates anything.
+--
+-- Emits one grid: seq | section | subject | details(jsonb)
+-- ===========================================================================
+with
+env_counts as (
+  select environment, count(*) as events, count(distinct actor_id) as actors,
+         min(occurred_at) as first_seen, max(occurred_at) as last_seen
+  from public.analytics_events group by environment
+),
+-- Per-actor event split, which is what decides whether the private_beta reset
+-- would take an analytics_actors row (and its is_internal flag) with it.
+actor_events as (
+  select u.id as user_id,
+         count(e.id) filter (where e.environment = 'private_beta')  as beta_events,
+         count(e.id) filter (where e.environment <> 'private_beta') as other_events,
+         count(e.id) as total_events
+  from public.users u
+  left join public.analytics_events e on e.actor_id = u.id
+  group by u.id
+),
+person as (
+  select u.id,
+         u.display_name,
+         u.created_at as kickback_created_at,
+         ca.platform_login  as twitch_login,
+         au.created_at      as auth_created_at,
+         au.last_sign_in_at,
+         public.login_from_meta(au.raw_user_meta_data) as meta_login,
+         public.display_name_from_meta(
+           au.raw_user_meta_data,
+           public.login_from_meta(au.raw_user_meta_data)
+         ) as meta_display_name,
+         a.is_internal,
+         a.environments as analytics_environments,
+         coalesce(ae.beta_events, 0)  as beta_events,
+         coalesce(ae.other_events, 0) as other_events,
+         coalesce(ae.total_events, 0) as total_events,
+         (select count(*) from public.friendships f     where f.user_id  = u.id) as friends,
+         (select count(*) from public.friend_requests r where (r.from_user = u.id or r.to_user = u.id)
+                                                          and r.status = 'pending')          as pending_requests,
+         (select count(*) from public.blocks b          where b.blocker_id = u.id)           as blocks_made,
+         (select count(*) from public.blocks b          where b.blocked_id = u.id)           as blocked_by,
+         (select count(*) from public.group_members gm  where gm.user_id = u.id)             as groups_joined,
+         (select count(*) from public.group_messages gmsg where gmsg.user_id = u.id)         as group_messages,
+         (select count(*) from public.feedback fb       where fb.user_id = u.id)             as feedback_sent,
+         (select presence_visibility from public.user_preferences p where p.user_id = u.id)  as presence_visibility
+  from public.users u
+  left join auth.users au on au.id = u.id
+  left join public.connected_accounts ca on ca.user_id = u.id and ca.platform = 'twitch'
+  left join public.analytics_actors a on a.user_id = u.id
+  left join actor_events ae on ae.user_id = u.id
+),
+-- Auth users with no public.users row are orphans worth seeing.
+orphan_auth as (
+  select au.id, au.created_at, au.last_sign_in_at,
+         public.login_from_meta(au.raw_user_meta_data) as meta_login
+  from auth.users au
+  left join public.users u on u.id = au.id
+  where u.id is null
+)
 
-```sql
--- 4. Every account, with its Twitch identity and how much it has done.
---    This is the table you use to decide what is test residue.
-select u.id,
-       u.display_name,
-       ca.platform_login                as twitch_login,
-       au.created_at                    as account_created,
-       au.last_sign_in_at,
-       (select count(*) from public.friendships f    where f.user_id = u.id) as friends,
-       (select count(*) from public.group_members gm where gm.user_id = u.id) as groups,
-       (select count(*) from public.analytics_events e where e.actor_id = u.id) as events
-from public.users u
-left join public.connected_accounts ca on ca.user_id = u.id and ca.platform = 'twitch'
-left join auth.users au on au.id = u.id
-order by au.created_at;
-```
+-- ------------------------------------------------------------- 1. SUMMARY
+select 100 as seq, 'SUMMARY' as section, 'context' as subject,
+       jsonb_build_object(
+         'now', now(),
+         'analytics_schema_version', public.analytics_schema_version()
+       ) as details
+union all
+select 110, 'SUMMARY', 'row_counts',
+       jsonb_build_object(
+         'analytics_events',      (select count(*) from public.analytics_events),
+         'analytics_actors',      (select count(*) from public.analytics_actors),
+         'analytics_event_names', (select count(*) from public.analytics_event_names),
+         'analytics_environments',(select count(*) from public.analytics_environments),
+         'feedback',              (select count(*) from public.feedback),
+         'presence',              (select count(*) from public.presence),
+         'presence_rate',         (select count(*) from public.presence_rate),
+         'rate_limits',           (select count(*) from public.rate_limits),
+         'room_messages',         (select count(*) from public.room_messages),
+         'together_reactions',    (select count(*) from public.together_reactions),
+         'users',                 (select count(*) from public.users),
+         'auth_users',            (select count(*) from auth.users),
+         'connected_accounts',    (select count(*) from public.connected_accounts),
+         'user_preferences',      (select count(*) from public.user_preferences),
+         'friendships',           (select count(*) from public.friendships),
+         'friend_requests',       (select count(*) from public.friend_requests),
+         'blocks',                (select count(*) from public.blocks),
+         'groups',                (select count(*) from public.groups),
+         'group_members',         (select count(*) from public.group_members),
+         'group_invites',         (select count(*) from public.group_invites),
+         'group_messages',        (select count(*) from public.group_messages),
+         'twitch_metadata_cache', (select count(*) from public.twitch_metadata_cache)
+       )
+union all
+select 120, 'SUMMARY', 'analytics_by_environment: ' || environment,
+       jsonb_build_object('events', events, 'actors', actors,
+                          'first_seen', first_seen, 'last_seen', last_seen)
+from env_counts
+union all
+select 130, 'SUMMARY', 'registered_environments',
+       jsonb_build_object('names', (select jsonb_agg(name order by name)
+                                    from public.analytics_environments))
 
-```sql
--- 5. The social graph, in full. Small enough to read row by row.
-select 'friendship' as kind, a.display_name as one, b.display_name as two, null as detail
+-- ---------------------------------------------------------- 2. AUTH USERS
+union all
+select 200, 'AUTH USERS',
+       coalesce(twitch_login, meta_login, display_name, id::text),
+       jsonb_build_object(
+         'user_id', id,
+         'display_name', display_name,
+         'twitch_login', twitch_login,
+         'meta_login', meta_login,
+         'meta_display_name', meta_display_name,
+         'auth_created_at', auth_created_at,
+         'kickback_created_at', kickback_created_at,
+         'last_sign_in_at', last_sign_in_at,
+         'friends', friends,
+         'pending_requests', pending_requests,
+         'blocks_made', blocks_made,
+         'blocked_by', blocked_by,
+         'groups_joined', groups_joined,
+         'group_messages', group_messages,
+         'feedback_sent', feedback_sent,
+         'presence_visibility', presence_visibility,
+         'analytics_events_total', total_events,
+         'analytics_events_private_beta', beta_events,
+         'analytics_events_other_env', other_events,
+         'is_internal', is_internal,
+         'analytics_environments', analytics_environments
+       )
+from person
+union all
+select 210, 'AUTH USERS', 'ORPHAN auth user (no public.users row): ' || coalesce(meta_login, id::text),
+       jsonb_build_object('user_id', id, 'created_at', created_at,
+                          'last_sign_in_at', last_sign_in_at, 'meta_login', meta_login)
+from orphan_auth
+
+-- ------------------------------------------------------- 3. RELATIONSHIPS
+union all
+-- One row per pair. Friendships are stored as two rows, so this collapses them
+-- and reports whether the reciprocal row is actually there - a missing one is
+-- corruption worth seeing, not a friendship.
+select 300, 'RELATIONSHIPS',
+       'friendship: ' || a.display_name || ' <-> ' || b.display_name,
+       jsonb_build_object('user_a', f.user_id, 'user_b', f.friend_id,
+                          'login_a', ca.platform_login, 'login_b', cb.platform_login,
+                          'created_at', f.created_at,
+                          'reciprocal_row_exists',
+                            exists (select 1 from public.friendships r
+                                     where r.user_id = f.friend_id and r.friend_id = f.user_id))
 from public.friendships f
 join public.users a on a.id = f.user_id
 join public.users b on b.id = f.friend_id
+left join public.connected_accounts ca on ca.user_id = a.id and ca.platform = 'twitch'
+left join public.connected_accounts cb on cb.user_id = b.id and cb.platform = 'twitch'
+where f.user_id < f.friend_id
 union all
-select 'request', a.display_name, b.display_name, r.status
+select 310, 'RELATIONSHIPS',
+       'request(' || r.status || '): ' || a.display_name || ' -> ' || b.display_name,
+       jsonb_build_object('id', r.id, 'from_user', r.from_user, 'to_user', r.to_user,
+                          'from_login', ca.platform_login, 'to_login', cb.platform_login,
+                          'status', r.status, 'created_at', r.created_at,
+                          'responded_at', r.responded_at)
 from public.friend_requests r
 join public.users a on a.id = r.from_user
 join public.users b on b.id = r.to_user
+left join public.connected_accounts ca on ca.user_id = a.id and ca.platform = 'twitch'
+left join public.connected_accounts cb on cb.user_id = b.id and cb.platform = 'twitch'
+
+-- ---------------------------------------------------------------- 4. BLOCKS
 union all
-select 'block', a.display_name, b.display_name, null
+select 400, 'BLOCKS',
+       'block: ' || a.display_name || ' -> ' || b.display_name,
+       jsonb_build_object('blocker_id', bl.blocker_id, 'blocked_id', bl.blocked_id,
+                          'blocker_login', ca.platform_login, 'blocked_login', cb.platform_login,
+                          'created_at', bl.created_at)
 from public.blocks bl
 join public.users a on a.id = bl.blocker_id
 join public.users b on b.id = bl.blocked_id
+left join public.connected_accounts ca on ca.user_id = a.id and ca.platform = 'twitch'
+left join public.connected_accounts cb on cb.user_id = b.id and cb.platform = 'twitch'
+
+-- ---------------------------------------------------------------- 5. GROUPS
 union all
-select 'group', g.name, u.display_name, m.role
+select 500, 'GROUPS', 'group: ' || g.name,
+       jsonb_build_object(
+         'group_id', g.id, 'name', g.name, 'created_at', g.created_at,
+         'owner_id', g.owner_id, 'owner', o.display_name,
+         'member_count',  (select count(*) from public.group_members m  where m.group_id = g.id),
+         'invite_count',  (select count(*) from public.group_invites i  where i.group_id = g.id and i.status = 'pending'),
+         'message_count', (select count(*) from public.group_messages x where x.group_id = g.id),
+         'members', (select jsonb_agg(u2.display_name order by u2.display_name)
+                     from public.group_members m2
+                     join public.users u2 on u2.id = m2.user_id
+                     where m2.group_id = g.id),
+         'grants_presence_visibility_between_members', true
+       )
+from public.groups g
+join public.users o on o.id = g.owner_id
+
+-- -------------------------------------------------------- 6. GROUP MEMBERS
+union all
+select 600, 'GROUP MEMBERS', g.name || ': ' || u.display_name,
+       jsonb_build_object('group_id', m.group_id, 'group_name', g.name,
+                          'user_id', m.user_id, 'login', ca.platform_login,
+                          'role', m.role, 'joined_at', m.joined_at)
 from public.group_members m
 join public.groups g on g.id = m.group_id
 join public.users u on u.id = m.user_id
-order by kind, one, two;
+left join public.connected_accounts ca on ca.user_id = u.id and ca.platform = 'twitch'
+
+-- -------------------------------------------------------- 7. GROUP INVITES
+union all
+select 700, 'GROUP INVITES',
+       g.name || ' (' || i.status || '): ' || a.display_name || ' -> ' || b.display_name,
+       jsonb_build_object('id', i.id, 'group_id', i.group_id, 'group_name', g.name,
+                          'from_user', i.from_user, 'to_user', i.to_user,
+                          'status', i.status, 'created_at', i.created_at)
+from public.group_invites i
+join public.groups g on g.id = i.group_id
+join public.users a on a.id = i.from_user
+join public.users b on b.id = i.to_user
+
+-- -------------------------------------------- 8. ANALYTICS / INTERNAL STATUS
+union all
+select 800, 'ANALYTICS / INTERNAL STATUS',
+       'is_internal: ' || coalesce(p.twitch_login, p.display_name, p.id::text),
+       jsonb_build_object('user_id', p.id, 'display_name', p.display_name,
+                          'twitch_login', p.twitch_login,
+                          'is_internal', p.is_internal,
+                          'total_events', p.total_events)
+from person p
+where p.is_internal is true
+union all
+-- The key question: does resetting private_beta delete this actor row, taking
+-- is_internal with it? True when the actor has no events outside private_beta.
+select 810, 'ANALYTICS / INTERNAL STATUS',
+       'reset_impact: ' || coalesce(p.twitch_login, p.display_name, p.id::text),
+       jsonb_build_object(
+         'user_id', p.id,
+         'is_internal', p.is_internal,
+         'private_beta_events', p.beta_events,
+         'events_in_other_environments', p.other_events,
+         'actor_row_would_be_deleted_by_reset', (p.other_events = 0),
+         'is_internal_flag_would_be_lost', (p.other_events = 0 and p.is_internal is true)
+       )
+from person p
+where p.is_internal is not null
+union all
+select 820, 'ANALYTICS / INTERNAL STATUS', 'reset_preview',
+       jsonb_build_object(
+         'private_beta_events_to_delete',
+           (select count(*) from public.analytics_events where environment = 'private_beta'),
+         'actor_rows_that_would_be_deleted',
+           (select count(*) from public.analytics_actors a
+             where not exists (select 1 from public.analytics_events e
+                                where e.actor_id = a.user_id
+                                  and e.environment <> 'private_beta')),
+         'internal_flags_at_risk',
+           (select count(*) from public.analytics_actors a
+             where a.is_internal
+               and not exists (select 1 from public.analytics_events e
+                                where e.actor_id = a.user_id
+                                  and e.environment <> 'private_beta'))
+       )
+
+order by seq, subject;
 ```
 
-**Read the result of query 5 carefully.** A leftover development friendship or
-a shared development group is the single most damaging kind of residue here: it
-inflates social density, and Social Gravity's whole measurement is density.
-A shared group is worse than it looks — `shares_group_with` grants presence
-visibility, so two accounts in a stale test group can see each other even with no
-friendship at all.
+### What the grid contains
 
----
+| Section | Rows |
+| --- | --- |
+| `SUMMARY` | `now()`, analytics schema version, row counts for all 22 tables, analytics split by environment, the registered environment names |
+| `AUTH USERS` | One row per account: user id, Twitch login, display name, auth created / last sign-in, friends, pending requests, blocks made and received, groups joined, group messages, feedback sent, presence visibility, event counts split private_beta vs other, and `is_internal`. Plus any auth user with no `public.users` row |
+| `RELATIONSHIPS` | One row per friendship **pair**, with a reciprocal-row check so a half-written friendship shows up as corruption rather than as a relationship. Then every friend request with its status |
+| `BLOCKS` | Every block, both parties named |
+| `GROUPS` | Each group with its owner, the member names inline, and member / pending-invite / message counts |
+| `GROUP MEMBERS` | Every membership, with role |
+| `GROUP INVITES` | Every invite, with status |
+| `ANALYTICS / INTERNAL STATUS` | Who is `is_internal`; per actor whether the private_beta reset would delete their `analytics_actors` row and take the flag with it; and a `reset_preview` counting events to delete, actor rows that would go, and internal flags at risk |
 
 ## Part 2 — The safe clean
 
@@ -266,28 +471,19 @@ delete from public.blocks where blocker_id = '<A>' and blocked_id = '<B>';
 
 ## Part 5 — Verify
 
-```sql
--- Schema and migrations untouched.
-select public.analytics_schema_version() as should_be_23;
+**Re-run the Part 1 query.** It is the same audit, so the same grid comes back
+and you compare it against what you saw before. Expect:
 
--- Registries intact - the reset must not have touched these.
-select count(*) as event_names from public.analytics_event_names;   -- expect > 30
-select name from public.analytics_environments order by name;       -- development, private_beta, production
-
--- Baselines are clean.
-select count(*) as private_beta_events from public.analytics_events where environment = 'private_beta';  -- expect 0
-select count(*) as feedback_rows       from public.feedback;         -- expect 0
-select count(*) as presence_rows       from public.presence;         -- expect 0
-select count(*) as room_messages       from public.room_messages;    -- expect 0
-select count(*) as reactions           from public.together_reactions; -- expect 0
-select count(*) as rate_limit_rows     from public.rate_limits;      -- expect 0
-select count(*) as presence_rate_rows  from public.presence_rate;    -- expect 0
-
--- What survived, so it is on the record.
-select count(*) as users from public.users;
-select count(*) as friendships from public.friendships;
-select count(*) as groups from public.groups;
-```
+| Where | Expect |
+| --- | --- |
+| `SUMMARY.context` | `analytics_schema_version` still **23** |
+| `SUMMARY.row_counts` | `feedback`, `presence`, `room_messages`, `together_reactions`, `rate_limits`, `presence_rate` all **0** |
+| `SUMMARY.row_counts` | `analytics_event_names` **unchanged** (> 30) — the reset must not have touched the registry |
+| `SUMMARY.analytics_by_environment` | no `private_beta` row at all |
+| `SUMMARY.registered_environments` | still `development, private_beta, production` |
+| `AUTH USERS` | exactly the accounts you decided to keep |
+| `RELATIONSHIPS` / `BLOCKS` / `GROUPS` | exactly what you decided to keep, and nothing you meant to remove |
+| `ANALYTICS / INTERNAL STATUS` | your account still listed as `is_internal` (Part 3 restores it if the reset took it) |
 
 Then, from the repository:
 
@@ -298,11 +494,10 @@ npm run verify:config      # publishable key works, Twitch auth enabled
 ```
 
 Those three prove the schema, the security posture and the auth configuration
-came through the clean untouched. **None of them can see row counts** — that is
-what Part 5's SQL is for.
+came through untouched. **None of them can see row counts** — that is what
+re-running Part 1 is for.
 
 ---
-
 ## After Day 0
 
 Avoid generating analytics traffic yourself. Every `private_beta` event from
