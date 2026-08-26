@@ -28,6 +28,13 @@ on B. Nothing else gets a free pass.
 
 ## ACTIVE — Private beta
 
+**Day 0 has not happened yet.** The hosted database still carries development
+residue, and the beta measurement baseline starts when it is cleared - see
+[BETA_DAY_ZERO.md](BETA_DAY_ZERO.md), which is owner-run SQL. Record the
+`select now()` result here when it does:
+
+> **Private Beta Day 0:** _not yet run_
+
 Hand-distributed to a connected cohort. See
 [private-beta-readiness.md](checkpoints/private-beta-readiness.md).
 
