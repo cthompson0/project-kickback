@@ -3,36 +3,48 @@
 Getting the hosted database to a clean measurement baseline before the first
 real tester installs Kickback.
 
-**This is not a database reset.** No table is dropped, no migration is re-run,
-no schema, RLS, function, view or auth configuration is touched. What is removed
-is development residue that would otherwise be counted as beta behaviour.
+**This has been done.** The document is now a record of what was run and what it
+produced, not a plan. Part 1 remains reusable — it is a read-only audit, safe to
+run at any time.
 
-> **Everything in this document must be run by the owner** in the Supabase SQL
-> editor. Nothing here can be performed from the repository: `.env.local` holds
-> only the publishable (anon) key, and every table involved is either revoked
-> from client roles outright or gated by RLS that requires a real user session.
-> The SQL editor runs as the project owner, which is the only role that can see
-> or change any of this.
+**This was not a database reset.** No table was dropped, no migration re-run, no
+schema, RLS, function, view or auth configuration touched. What was removed was
+development residue that would otherwise have been counted as beta behaviour.
 
----
-
-## Record the baseline
-
-Run this **in the same session as Part 2**, and write the result into
-[ROADMAP.md](ROADMAP.md) and the beta notes. Every later analysis is "since
-Day 0", and a guess at the date is a guess at the denominator.
-
-```sql
-select now() as private_beta_day_zero;
-```
+> **Everything in this document is run by the owner** in the Supabase SQL editor.
+> Nothing here can be performed from the repository: `.env.local` holds only the
+> publishable (anon) key, and every table involved is either revoked from client
+> roles outright or gated by RLS that requires a real user session. The SQL
+> editor runs as the project owner, which is the only role that can see or
+> change any of this.
 
 ---
 
-## Part 1 — Audit first (read-only, one query)
+## Day 0
 
-Paste this whole block into the Supabase SQL editor and run it once. It returns
-a single grid — `seq | section | subject | details` — containing everything the
-cleanup plan needs. Copy the whole grid back.
+> ### Private Beta Day 0
+>
+> ## `2026-08-26 20:45:37.549219+00`
+
+**The hosted `private_beta` analytics baseline began at zero at that instant.**
+Every `private_beta` event in the database was deleted — 462 of them — and the
+first event recorded after that timestamp is the first event of the real private
+beta. There is no earlier beta data to exclude, no partial history to reason
+around, and no cutoff to remember: the environment starts empty.
+
+`development` analytics were preserved (93 events), so the two are separable and
+always were — the environment is a build-time constant.
+
+Every later measurement is "since Day 0". The denominator is exact.
+
+---
+
+## Part 1 — The audit (read-only, one query)
+
+This ran before the cleanup, and it is what every decision in Part 4 was made
+from. It remains reusable: paste the whole block into the Supabase SQL editor
+and run it once, any time, to get the current shape of the cohort as a single
+grid — `seq | section | subject | details`.
 
 It is **read-only**: SELECTs, CTEs, joins, aggregation and JSON construction
 only. No DELETE, UPDATE, INSERT, TRUNCATE, ALTER or DROP, and it calls no
@@ -338,154 +350,410 @@ order by seq, subject;
 | `GROUP INVITES` | Every invite, with status |
 | `ANALYTICS / INTERNAL STATUS` | Who is `is_internal`; per actor whether the private_beta reset would delete their `analytics_actors` row and take the flag with it; and a `reset_preview` counting events to delete, actor rows that would go, and internal flags at risk |
 
-## Part 2 — The safe clean
+## Part 2 — The cleanup, as it was run
 
-Everything here is either a measurement table or state the product regenerates
-on its own. **None of it involves a judgement call**, which is why it is
-separated from Part 4.
+One script, run once in the Supabase SQL editor. It is reproduced verbatim
+because the verification below only means anything next to the statements that
+produced it.
 
-```sql
--- 2a. Analytics: private_beta only, through the supported mechanism.
---
--- Deletes analytics_events for that environment, plus any analytics_actors row
--- left with no events in any environment. Touches nothing else - not the event
--- registry, not the environment registry, not a view, not a function.
--- 'production' would require a second, longer confirmation phrase; we are not
--- touching it.
-select * from public.analytics_reset_environment('private_beta', 'RESET private_beta');
-```
+Two properties are worth stating before the SQL, because they are the reason it
+looks the way it does.
 
-```sql
--- 2b. Feedback: every submission so far is ours, from development.
---
--- The table, the submit_feedback RPC, feedback_v, the RLS posture and the rate
--- limit are all untouched - this is rows only.
-delete from public.feedback;
-```
+**It is atomic.** Every mutation lives inside a single `DO` block, so a failure
+at any point rolls back everything before it. A half-reset — social graph gone,
+analytics still there, or the reverse — is not a reachable state. This was
+tested by injecting a failure at the last statement of the block and confirming
+that every earlier delete rolled back.
+
+**It verifies against a snapshot, not against expectations.** The first thing it
+does is record the counts of everything being *preserved*. The grid at the end
+compares before against after, so "`twitch_metadata_cache` survived" is a
+measurement rather than an assertion.
 
 ```sql
--- 2c. Ephemeral state.
---
--- presence            one row per user, overwritten by every heartbeat. Clearing
---                     it means nobody appears online until their client next
---                     reports, which is at most one heartbeat away.
--- room_messages       the stream-session chat. Designed to live 30 minutes.
--- together_reactions  designed to live about a minute.
--- presence_rate       ephemeral write counter.
--- rate_limits         ephemeral write counters for every other bucket.
---
--- Combos and unread are NOT here because they are not stored: both are derived
--- client-side from room_messages and together_reactions, so clearing those two
--- clears them.
-delete from public.presence;
-delete from public.room_messages;
-delete from public.together_reactions;
-delete from public.presence_rate;
-delete from public.rate_limits;
+-- ============================================================================
+-- KICKBACK - PRIVATE BETA DAY 0
+-- Cleanup, then verification. Paste the whole thing and run it once.
+-- ============================================================================
+
+drop table if exists _kb_before;
+drop table if exists _kb_reset;
+
+-- ============================================================================
+-- CLEANUP - one atomic block. Any failure anywhere rolls the whole thing back,
+-- so a half-reset is not a reachable state.
+-- ============================================================================
+do $KB$
+begin
+
+  -- 0. Preconditions. Stop before touching anything unless each of the three
+  --    preserved identities resolves to exactly one account.
+  declare
+    v_keep constant text[] := array['anoterostv', 'wtfchuck27', 'ohjuliego'];
+    v_login text;
+    v_n int;
+  begin
+    foreach v_login in array v_keep loop
+      select count(*) into v_n
+      from public.connected_accounts
+      where platform = 'twitch' and platform_login = v_login;
+      if v_n <> 1 then
+        raise exception
+          'kickback day 0: twitch login % resolved to % accounts, expected exactly 1',
+          v_login, v_n using errcode = '22023';
+      end if;
+    end loop;
+  end;
+
+  -- 1. Day 0 stamp, plus a snapshot of everything being PRESERVED so the
+  --    verification can prove it survived rather than assert it.
+  --    now() is transaction start, so the whole script shares one instant.
+  create temp table _kb_before as
+  select
+    now()                                                          as day_zero,
+    (select count(*) from auth.users)                              as auth_users,
+    (select count(*) from public.users)                            as public_users,
+    (select count(*) from public.connected_accounts)               as connected_accounts,
+    (select count(*) from public.user_preferences)                 as user_preferences,
+    (select count(*) from public.twitch_metadata_cache)            as metadata_cache,
+    (select count(*) from public.analytics_environments)           as environments,
+    (select count(*) from public.analytics_event_names)            as event_names,
+    (select count(*) from public.analytics_events
+       where environment = 'private_beta')                         as beta_events,
+    (select count(*) from public.analytics_events
+       where environment = 'development')                          as dev_events,
+    (select count(*) from public.analytics_events
+       where environment not in ('private_beta', 'development'))   as other_events;
+
+  -- 2. Social graph. Children before parents. No user row is touched.
+  delete from public.group_messages;
+  delete from public.group_invites;
+  delete from public.group_members;
+  delete from public.groups;
+
+  delete from public.friend_requests;
+  delete from public.friendships;
+  delete from public.blocks;
+
+  delete from public.room_messages;
+  delete from public.together_reactions;
+
+  delete from public.feedback;
+
+  -- Rate-limit ledgers are pure bookkeeping; the SECURITY DEFINER functions
+  -- re-create a row on the next write.
+  delete from public.presence_rate;
+  delete from public.rate_limits;
+
+  -- 3. Presence is NOT deleted. sync_kickback_identity() guarantees one row per
+  --    user at sign-up, so the correct clean baseline is one row per user that
+  --    is offline and carries no activity - which is exactly what the
+  --    presence_offline_has_no_activity constraint means by "offline".
+  update public.presence
+     set status       = 'offline',
+         platform     = null,
+         channel      = null,
+         last_seen_at = now(),
+         updated_at   = now()
+   where status <> 'offline' or platform is not null or channel is not null;
+
+  insert into public.presence (user_id, status)
+  select u.id, 'offline' from public.users u
+  on conflict (user_id) do nothing;
+
+  -- 4. Analytics: the supported reset, private_beta ONLY. development untouched.
+  --    Captured so the verification can report what it actually removed.
+  create temp table _kb_reset as
+  select * from public.analytics_reset_environment('private_beta', 'RESET private_beta');
+
+  -- 5. Internal flags. Step 4 deletes actor rows left with no events at all,
+  --    so this runs after it and re-creates the row where one is needed.
+  insert into public.analytics_actors (user_id, is_internal)
+  select ca.user_id, ca.platform_login in ('anoterostv', 'wtfchuck27')
+  from public.connected_accounts ca
+  where ca.platform = 'twitch'
+    and ca.platform_login in ('anoterostv', 'wtfchuck27', 'ohjuliego')
+  on conflict (user_id) do update set is_internal = excluded.is_internal;
+
+end
+$KB$;
+
+-- ============================================================================
+-- VERIFICATION - read-only, one grid.
+-- ============================================================================
+with
+b as (select * from _kb_before),
+
+must_be_empty as (
+            select 'blocks'             as name, (select count(*) from public.blocks)             as n
+  union all select 'feedback',                   (select count(*) from public.feedback)
+  union all select 'friend_requests',            (select count(*) from public.friend_requests)
+  union all select 'friendships',                (select count(*) from public.friendships)
+  union all select 'group_invites',              (select count(*) from public.group_invites)
+  union all select 'group_members',              (select count(*) from public.group_members)
+  union all select 'group_messages',             (select count(*) from public.group_messages)
+  union all select 'groups',                     (select count(*) from public.groups)
+  union all select 'presence_rate',              (select count(*) from public.presence_rate)
+  union all select 'rate_limits',                (select count(*) from public.rate_limits)
+  union all select 'room_messages',              (select count(*) from public.room_messages)
+  union all select 'together_reactions',         (select count(*) from public.together_reactions)
+),
+
+preserved as (
+            select 'analytics_environments'         as name, b.environments       as before_n,
+                   (select count(*) from public.analytics_environments)           as after_n from b
+  union all select 'analytics_event_names',                b.event_names,
+                   (select count(*) from public.analytics_event_names)                     from b
+  union all select 'analytics_events (development)',       b.dev_events,
+                   (select count(*) from public.analytics_events
+                     where environment = 'development')                                    from b
+  union all select 'analytics_events (other envs)',        b.other_events,
+                   (select count(*) from public.analytics_events
+                     where environment not in ('private_beta', 'development'))             from b
+  union all select 'auth.users',                           b.auth_users,
+                   (select count(*) from auth.users)                                       from b
+  union all select 'connected_accounts',                   b.connected_accounts,
+                   (select count(*) from public.connected_accounts)                        from b
+  union all select 'public.users',                         b.public_users,
+                   (select count(*) from public.users)                                     from b
+  union all select 'twitch_metadata_cache',                b.metadata_cache,
+                   (select count(*) from public.twitch_metadata_cache)                     from b
+  union all select 'user_preferences',                     b.user_preferences,
+                   (select count(*) from public.user_preferences)                          from b
+),
+
+flags as (
+  select ca.platform_login as login,
+         ca.platform_login in ('anoterostv', 'wtfchuck27') as want,
+         a.is_internal as got
+  from public.connected_accounts ca
+  left join public.analytics_actors a on a.user_id = ca.user_id
+  where ca.platform = 'twitch'
+    and ca.platform_login in ('anoterostv', 'wtfchuck27', 'ohjuliego')
+),
+
+stray_internal as (
+  select count(*) as n
+  from public.analytics_actors a
+  where a.is_internal
+    and not exists (
+      select 1 from public.connected_accounts ca
+      where ca.user_id = a.user_id and ca.platform = 'twitch'
+        and ca.platform_login in ('anoterostv', 'wtfchuck27')
+    )
+)
+
+select seq, section, item, expected, actual, status from (
+
+  select 100 as seq, 'DAY 0' as section,
+         'day_zero - record this in ROADMAP.md' as item,
+         'transaction start, UTC' as expected,
+         (select day_zero::text from b) as actual,
+         'RECORD' as status
+
+  union all
+  select 110, 'DAY 0', 'analytics_schema_version', '23',
+         public.analytics_schema_version()::text,
+         case when public.analytics_schema_version() = 23 then 'PASS' else '*** CHECK ***' end
+
+  union all
+  select 200, 'SOCIAL GRAPH - must be empty', name, '0', n::text,
+         case when n = 0 then 'PASS' else '*** NOT EMPTY ***' end
+  from must_be_empty
+
+  union all
+  select 300, 'PRESENCE - offline baseline',
+         'rows (one per user, by trigger invariant)',
+         (select public_users::text from b),
+         (select count(*)::text from public.presence),
+         case when (select count(*) from public.presence) = (select count(*) from public.users)
+              then 'PASS' else '*** CHECK ***' end
+  union all
+  select 310, 'PRESENCE - offline baseline', 'rows not offline', '0',
+         (select count(*)::text from public.presence where status <> 'offline'),
+         case when (select count(*) from public.presence where status <> 'offline') = 0
+              then 'PASS' else '*** NOT OFFLINE ***' end
+  union all
+  select 320, 'PRESENCE - offline baseline', 'rows still carrying platform or channel', '0',
+         (select count(*)::text from public.presence
+           where platform is not null or channel is not null),
+         case when (select count(*) from public.presence
+                     where platform is not null or channel is not null) = 0
+              then 'PASS' else '*** ACTIVITY LEFT ***' end
+
+  union all
+  select 400, 'ANALYTICS', 'private_beta events remaining', '0',
+         (select count(*)::text from public.analytics_events where environment = 'private_beta'),
+         case when (select count(*) from public.analytics_events
+                     where environment = 'private_beta') = 0
+              then 'PASS' else '*** NOT RESET ***' end
+  union all
+  select 410, 'ANALYTICS', 'private_beta events deleted by reset',
+         (select beta_events::text from b),
+         (select deleted_events::text from _kb_reset),
+         case when (select deleted_events from _kb_reset) = (select beta_events from b)
+              then 'PASS' else '*** CHECK ***' end
+  union all
+  select 420, 'ANALYTICS', 'analytics_actors rows deleted by reset',
+         'informational', (select deleted_actors::text from _kb_reset), 'INFO'
+  union all
+  select 430, 'ANALYTICS', 'registered environment names', 'unchanged',
+         (select string_agg(name, ', ' order by name) from public.analytics_environments), 'INFO'
+  union all
+  select 440, 'ANALYTICS', 'actors still listing private_beta in environments[]',
+         'cosmetic residue only',
+         (select count(*)::text from public.analytics_actors
+           where 'private_beta' = any(environments)),
+         'INFO'
+
+  union all
+  select 500, 'PRESERVED', name, before_n::text, after_n::text,
+         case when before_n = after_n then 'PASS' else '*** CHANGED ***' end
+  from preserved
+
+  union all
+  select 600, 'INTERNAL FLAGS', login, want::text, coalesce(got::text, 'NO ACTOR ROW'),
+         case when got is not distinct from want then 'PASS' else '*** CHECK ***' end
+  from flags
+  union all
+  select 610, 'INTERNAL FLAGS', 'any OTHER actor marked internal', '0',
+         (select n::text from stray_internal),
+         case when (select n from stray_internal) = 0
+              then 'PASS' else '*** UNEXPECTED INTERNAL ***' end
+
+) v
+order by seq, item;
 ```
 
-**Deliberately not cleared:** `twitch_metadata_cache`. It holds public Twitch
-channel metadata, nothing about any person, and it is keyed by login with its
-own freshness rules. Clearing it only forces needless refetching on Day 1.
+### Why presence was updated rather than deleted
+
+An earlier draft of this document deleted `public.presence` outright. **That was
+wrong**, and the audit is what caught it.
+
+`sync_kickback_identity()` (migration `0004_auth_bootstrap.sql`) inserts a
+presence row for every user the moment their auth account is created. Zero rows
+is therefore not a clean state — it is a state the schema does not otherwise
+produce.
+
+The schema also already defines what clean means. The
+`presence_offline_has_no_activity` constraint says an offline row cannot carry a
+platform or a channel, so that "invisible" is structurally indistinguishable
+from "genuinely offline". The correct Day 0 baseline is the one a fresh sign-up
+produces: **one row per user, `status = 'offline'`, platform and channel null.**
+The script sets exactly that, and back-fills any missing row.
 
 ---
 
-## Part 3 — Put the internal marks back
+## Part 3 — What the run verified
 
-Run **after** 2a, using the `user_id` values from audit query 3. Skip if nothing
-was marked internal.
+Every check returned `PASS`. Recorded here so a later question about the
+baseline has an answer that does not depend on anyone's memory.
 
-```sql
--- The reset may have removed the actor row that carried is_internal. This
--- re-creates the mark so beta reporting still excludes the developer.
-insert into public.analytics_actors (user_id, is_internal)
-values ('<YOUR-USER-UUID>', true)
-on conflict (user_id) do update set is_internal = true;
-```
-
-Verify:
-
-```sql
-select user_id, is_internal from public.analytics_actors where is_internal;
-```
-
----
-
-## Part 4 — The social graph (owner decision, no SQL run for you)
-
-**Nothing here is safe to automate.** Whether a friendship is test residue or a
-real relationship that should carry into the beta is a question about people,
-and the database cannot answer it.
-
-From audit queries 4 and 5, sort every account and relationship into:
-
-| Class | What to do |
+| Check | Result |
 | --- | --- |
-| Obvious disposable test identity (an account created only to test with, never to be used again) | Candidate for removal — see below |
-| A real account that will take part in the beta (yours, a friend's) | **Preserve** |
-| A relationship between two real beta accounts | **Preserve** — it is real social density |
-| A relationship where either side is a test identity | Remove, or it becomes fake density |
-| Anything you cannot classify with confidence | **Preserve, and note it** |
+| `analytics_schema_version` | **23** |
+| `private_beta` events remaining | **0** |
+| `private_beta` events deleted | **462** |
+| `development` events preserved | **93** |
+| auth users preserved | **3** |
+| `public.users` preserved | **3** |
+| `connected_accounts` preserved | **3** |
+| `user_preferences` preserved | **3** |
+| `twitch_metadata_cache` preserved | **16** |
+| `feedback` | 0 |
+| `friendships` | 0 |
+| `friend_requests` | 0 |
+| `blocks` | 0 |
+| `groups` / `group_members` / `group_invites` / `group_messages` | 0 |
+| `room_messages` | 0 |
+| `together_reactions` | 0 |
+| `presence_rate` | 0 |
+| `rate_limits` | 0 |
+| `presence` | **3 rows, all offline, no platform or channel** |
+| `anoterostv` | `is_internal = true` |
+| `wtfchuck27` | `is_internal = true` |
+| `ohjuliego` | `is_internal = false` |
+| any other internal actor | none |
 
-**Removing an account** — only for identities you are certain are disposable.
-One statement is enough: every table in this schema cascades from
-`public.users`, which cascades from `auth.users`, so this removes their profile,
-connected account, presence, preferences, friendships, requests, blocks, group
-memberships, group messages and analytics actor row together.
+Nothing was left in an unexplained state.
+
+---
+
+## Part 4 — The owner decisions behind it
+
+The database cannot tell a disposable test identity from a real person, so these
+were decided by hand and are recorded rather than inferred.
+
+| Account | Decision |
+| --- | --- |
+| `anoterostv` | Preserve. Owner / development account — **internal**, excluded from beta reporting |
+| `wtfchuck27` | Preserve. Owner / development account — **internal**, excluded from beta reporting |
+| `ohjuliego` | Preserve. **Real beta tester** — not internal, counted in the cohort |
+
+**No account was deleted.** All three auth identities came through untouched.
+
+**The whole social graph was cleared** — friendships, requests including accepted
+history, groups, memberships, invites, messages, blocks. The reasoning: the real
+beta should begin from a graph that testers build themselves. Development
+friendships between owner accounts would have shown up in every density and
+gravity measurement as if they were organic, and there is no way to subtract
+them later.
+
+`feedback` was cleared even though the audit found none, so that the baseline is
+explicitly zero rather than incidentally zero.
+
+---
+
+## Part 5 — Deliberately not done
+
+**`twitch_metadata_cache` (16 rows) was preserved.** It holds public Twitch
+channel metadata — nothing about any person — keyed by login with its own
+freshness rules. Clearing it would only have forced needless refetching on Day 1.
+
+**`user_preferences` (3 rows) was preserved.** These are per-account settings:
+presence visibility and the notification toggle. They are not social state and
+not test residue, and wiping them would have silently reset three people's
+privacy choices.
+
+**Two `analytics_actors` rows still list `private_beta` in `environments[]`.**
+This is expected. `analytics_reset_environment` deletes actor rows left with no
+events at all, but does not rewrite the lifetime "has ever sent from" array on
+actors that survive because they also have `development` events. It is a
+cosmetic historical marker on two rows; it affects no count, no funnel and no
+report, because every analysis filters `analytics_events.environment`, not this
+array. **It is recorded as residue and is not to be modified.**
+
+---
+
+## If a tester asks for their account to be deleted
+
+Not Day 0 procedure — kept here because this is where the cascade behaviour is
+documented, and account deletion is a manual request (see
+[PRIVACY.md](PRIVACY.md)).
+
+Every table in this schema cascades from `public.users`, which cascades from
+`auth.users`, so one statement removes the profile, connected account, presence,
+preferences, friendships, requests, blocks, group memberships, group messages
+and analytics actor row together.
 
 ```sql
 -- Deletes the account and everything attached to it. Irreversible.
-delete from auth.users where id = '<TEST-ACCOUNT-UUID>';
+delete from auth.users where id = '<ACCOUNT-UUID>';
 ```
 
-**Removing a relationship but keeping both accounts** — friendships are stored
-as two rows, so both directions have to go:
-
-```sql
-delete from public.friendships
-where (user_id = '<A>' and friend_id = '<B>')
-   or (user_id = '<B>' and friend_id = '<A>');
-
--- And any pending request between them, so it cannot resurrect the friendship.
-delete from public.friend_requests
-where (from_user = '<A>' and to_user = '<B>')
-   or (from_user = '<B>' and to_user = '<A>');
-```
-
-**Removing a test group** — membership, invites and messages all cascade from
-the group:
-
-```sql
-delete from public.groups where id = '<GROUP-UUID>';
-```
-
-**Test blocks** are worth clearing even between accounts you keep: a forgotten
-block silently prevents two real testers from ever seeing each other, and by
-design neither of them is told why.
-
-```sql
-delete from public.blocks where blocker_id = '<A>' and blocked_id = '<B>';
-```
+Their `analytics_events` rows go with it, via `actor_id`. That is correct — the
+events carry no personal content, but they are attributable, so deletion means
+deletion.
 
 ---
 
-## Part 5 — Verify
+## Re-auditing later
 
-**Re-run the Part 1 query.** It is the same audit, so the same grid comes back
-and you compare it against what you saw before. Expect:
+Part 1 is read-only and safe to run at any time. Run it whenever you want the
+current shape of the cohort, and compare against Part 3 above.
 
-| Where | Expect |
-| --- | --- |
-| `SUMMARY.context` | `analytics_schema_version` still **23** |
-| `SUMMARY.row_counts` | `feedback`, `presence`, `room_messages`, `together_reactions`, `rate_limits`, `presence_rate` all **0** |
-| `SUMMARY.row_counts` | `analytics_event_names` **unchanged** (> 30) — the reset must not have touched the registry |
-| `SUMMARY.analytics_by_environment` | no `private_beta` row at all |
-| `SUMMARY.registered_environments` | still `development, private_beta, production` |
-| `AUTH USERS` | exactly the accounts you decided to keep |
-| `RELATIONSHIPS` / `BLOCKS` / `GROUPS` | exactly what you decided to keep, and nothing you meant to remove |
-| `ANALYTICS / INTERNAL STATUS` | your account still listed as `is_internal` (Part 3 restores it if the reset took it) |
-
-Then, from the repository:
+From the repository, three checks prove the schema, security posture and auth
+configuration are still what they were:
 
 ```bash
 npm run verify:analytics   # schema present, and still revoked from clients
@@ -493,17 +761,20 @@ npm run verify:groups      # group backend present
 npm run verify:config      # publishable key works, Twitch auth enabled
 ```
 
-Those three prove the schema, the security posture and the auth configuration
-came through untouched. **None of them can see row counts** — that is what
-re-running Part 1 is for.
+**None of them can see row counts** — that is what Part 1 is for.
 
 ---
+
 ## After Day 0
 
 Avoid generating analytics traffic yourself. Every `private_beta` event from
 this point is meant to be a real tester doing a real thing, and a single
 afternoon of clicking around your own build is enough to move a percentage in a
 cohort of six.
+
+`anoterostv` and `wtfchuck27` are marked `is_internal`, which excludes them from
+beta reporting — but that is a filter applied at analysis time, not a mute. The
+events are still written.
 
 If you must reproduce a bug against the hosted backend, either do it from a
 `development` build — the environment is a build-time constant, so those events

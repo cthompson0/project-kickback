@@ -3,7 +3,7 @@
 Where things stand, and — more usefully — what has already been decided so it
 does not get re-decided by accident.
 
-**Last updated:** 2026-08-25, at the Chrome Web Store readiness checkpoint.
+**Last updated:** 2026-08-26, at Private Beta Day 0.
 
 ---
 
@@ -28,12 +28,19 @@ on B. Nothing else gets a free pass.
 
 ## ACTIVE — Private beta
 
-**Day 0 has not happened yet.** The hosted database still carries development
-residue, and the beta measurement baseline starts when it is cleared - see
-[BETA_DAY_ZERO.md](BETA_DAY_ZERO.md), which is owner-run SQL. Record the
-`select now()` result here when it does:
+> ## **Private Beta Day 0: `2026-08-26 20:45:37.549219+00`**
 
-> **Private Beta Day 0:** _not yet run_
+**The hosted `private_beta` analytics baseline began at zero at that instant.**
+All 462 development-residue events were deleted, along with the whole
+development social graph; `development` analytics (93 events) were preserved.
+Every measurement of the beta is "since Day 0", and there is no earlier beta
+data to exclude — the environment started empty.
+
+Three auth identities were preserved: `anoterostv` and `wtfchuck27` (owner /
+development, both `is_internal` and excluded from beta reporting) and
+`ohjuliego` (a real tester, counted in the cohort). The full procedure, the
+verified result and the reasoning behind each decision are recorded in
+[BETA_DAY_ZERO.md](BETA_DAY_ZERO.md).
 
 Hand-distributed to a connected cohort. See
 [private-beta-readiness.md](checkpoints/private-beta-readiness.md).
@@ -88,12 +95,17 @@ eventually point at.
 
 See [chrome-web-store-private-beta-readiness.md](checkpoints/chrome-web-store-private-beta-readiness.md).
 
-### Privacy policy — **WRITTEN, NOT YET HOSTED**
+### Privacy policy — **PUBLISHED**
 
-[PRIVACY.md](PRIVACY.md), written against the implementation rather than from a
-template. The store requires a **publicly reachable URL**; GitHub Pages on this
-repository is the recommendation, so the policy stays version-controlled beside
-the code that makes it true.
+[PRIVACY.md](PRIVACY.md) is the source, written against the implementation
+rather than from a template. It is published at
+`https://anoteros-labs.github.io/kickback/privacy/`, with a support page
+alongside it, from the **public** `Anoteros-Labs/anoteros-labs.github.io`
+repository.
+
+**This repository stays private.** The public site carries the rendered policy
+and support page only — no source, no checkpoints, no architecture or analytics
+documentation, and none of this repository's git history.
 
 ### Feedback — **SHIPPED**
 
