@@ -148,11 +148,18 @@ content script talks to the service worker over a port and receives state.
 ### Extension identity
 
 The manifest pins a public `key`, which fixes the extension id at
-`almhfkicihekhiloapoimglfdoneglni` on every machine and profile. Without it
+`ngfopkeokddfnncdhfkhnffilbdhkkip` on every machine and profile. Without it
 Chrome invents an id per install and the OAuth redirect URL —
-`https://<id>.chromiumapp.org/` — would differ for everyone. The private half
-lives in `.keys/` and is gitignored. Regenerating it changes the id and breaks
-the registered redirect, so don't.
+`https://<id>.chromiumapp.org/` — would differ for everyone.
+
+**That key is the Chrome Web Store's**, copied from the item's Package tab after
+review. The store minted the keypair and the id follows from it, so a local
+unpacked build and the published extension are the same extension to Chrome —
+same id, same redirect, one allow-list entry. It is not ours to regenerate:
+changing it would fork the identity away from the published item and break
+sign-in. See `scripts/extension-identity.mjs`, which is the one place the id
+lives, and `npm run verify:store`, which recomputes it from the key and scans
+the repository for stale copies.
 
 ### Demo mode
 
@@ -184,10 +191,10 @@ beta, because the tester then reports on our packaging instead of the product.
 **The extension ID is pinned by the `key` field in `public/manifest.json`.**
 Chrome derives an unpacked extension's ID from the SHA-256 of that public key,
 so every machine loading these exact files gets
-`almhfkicihekhiloapoimglfdoneglni` - which is what makes one OAuth redirect
-allow-list work for every tester. The matching *private* key lives in
-`.keys/` and is gitignored; it is only needed to sign a `.crx`, which a
-private beta does not use. Nothing secret ships.
+`ngfopkeokddfnncdhfkhnffilbdhkkip` - the Chrome Web Store item's own id,
+which is what makes one OAuth redirect allow-list serve both a sideloaded build
+and the published one. Only the *public* half ships; the store holds the private
+half and signs published updates with it. Nothing secret ships.
 
 ## Panel layout (Phase 2C)
 

@@ -64,7 +64,7 @@ class FakeBackend implements AuthBackend {
   }
 }
 
-const REDIRECT = 'https://almhfkicihekhiloapoimglfdoneglni.chromiumapp.org/'
+const REDIRECT = 'https://ngfopkeokddfnncdhfkhnffilbdhkkip.chromiumapp.org/'
 
 let backend: FakeBackend
 

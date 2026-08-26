@@ -4,26 +4,26 @@
  * One constant, in one file, because this ID is about to move exactly once and
  * it must move everywhere at the same moment.
  *
- * WHERE THE ID COMES FROM TODAY
+ * WHERE THE ID COMES FROM
  *
  * `public/manifest.json` pins a public `key`. Chrome derives an unpacked
  * extension's ID from the first 128 bits of SHA-256 over that key, so every
- * machine that loads the same files gets the same ID - which is what lets one
- * OAuth redirect allow-list serve every tester of a sideloaded build.
+ * machine that loads the same files gets the same ID.
  *
- * WHERE IT COMES FROM AFTER THE CHROME WEB STORE
+ * That key used to be one we generated ourselves, which was fine while Kickback
+ * was only ever sideloaded. It is not what the published extension is: the Web
+ * Store mints its own keypair when an item is created, and the item ID follows
+ * from that rather than from anything we ship.
  *
- * Somewhere else. The Web Store mints its own keypair when an item is created
- * and the item ID follows from that, not from anything we ship. Our key is a
- * local invention; the store's is the real one. The documented flow is the
- * reverse of what we did: create the item, read its public key off the Package
- * tab, and put THAT in the manifest so local builds and the published item
- * share an identity.
+ * So the swap has now happened, in the direction the documentation describes -
+ * the item was created, its public key was read off the Package tab, and it now
+ * lives in the manifest. A local build and the published item are the same
+ * extension to Chrome, with the same ID and therefore the same OAuth redirect.
  *
- * So this file exists to make that swap a one-line change with a check behind
- * it, rather than a hunt through a packaging script, two test files, a README
- * and a privacy policy - each of which would fail differently and none of which
- * would fail immediately.
+ * This file exists so that swap was a one-line change with a check behind it,
+ * rather than a hunt through a packaging script, two test files, a README and a
+ * privacy policy - each of which would fail differently and none of which would
+ * fail immediately.
  *
  * WHAT BREAKS IF THEY DISAGREE
  *
@@ -38,11 +38,17 @@ import { createHash } from 'node:crypto'
 /**
  * The ID the currently shipped `key` produces.
  *
+ * This is now the CHROME WEB STORE's own identity, adopted from the item's
+ * Package tab after review. It is no longer something we chose - the store
+ * minted the keypair, the ID follows from it, and `public/manifest.json`
+ * carries the matching public key so a local build and the published item are
+ * the same extension to Chrome.
+ *
  * Change this and `public/manifest.json` together, never one alone, and then
  * run `npm run verify:store` - it recomputes the ID from the key and greps the
  * repository for stale copies.
  */
-export const EXPECTED_EXTENSION_ID = 'almhfkicihekhiloapoimglfdoneglni'
+export const EXPECTED_EXTENSION_ID = 'ngfopkeokddfnncdhfkhnffilbdhkkip'
 
 /** The redirect Chrome hands to `launchWebAuthFlow` for a given ID. */
 export const redirectUrlFor = (id) => `https://${id}.chromiumapp.org/`

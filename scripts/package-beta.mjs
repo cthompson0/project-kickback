@@ -9,7 +9,8 @@
  *   - the Supabase key really works        (verify:config)
  *   - the group backend really exists      (verify:groups)
  *   - the build is production, not demo
- *   - the manifest still pins the extension ID the OAuth allow-list expects
+ *   - the manifest still pins the Chrome Web Store item's extension ID, which
+ *     is what the OAuth redirect allow-list is keyed on
  *   - the staged files are exactly the runtime files, nothing else
  *   - neither the staged files nor the finished archive contain a secret
  *
@@ -58,12 +59,25 @@ const FOLDER = 'Kickback'
  *             whose manifest is nested, with an error about the manifest being
  *             missing - which reads as a corrupt file rather than a wrong shape.
  *
- * The store package also drops the manifest `key`. Our key is a local invention
- * that fixes the ID for sideloaded builds; the Web Store mints its own and
- * validates the field against it, so shipping ours is at best ignored and at
- * worst rejected. Once the store has assigned an ID we adopt ITS public key
- * into the manifest, and then the two builds finally agree - see
- * scripts/extension-identity.mjs.
+ * The store package also drops the manifest `key`, and the reason has changed
+ * now that the item exists.
+ *
+ * It used to be dropped because our key was a local invention that the
+ * dashboard would have validated against the item's real one and rejected. That
+ * is no longer true: the manifest now carries the STORE's public key, adopted
+ * from the item's Package tab, so a local build and the published extension are
+ * the same extension to Chrome.
+ *
+ * It is still dropped, for a smaller reason: the store already owns the item's
+ * identity, so the field is redundant there, and whether the dashboard accepts a
+ * matching key on an update is not something the documentation actually
+ * promises. A package that does not carry the field cannot be rejected for
+ * carrying it - and we lose nothing, because the integrity check that field
+ * might have provided already happens here, before either archive is written:
+ * this script recomputes the ID from the manifest key and refuses to package at
+ * all unless it equals EXPECTED_EXTENSION_ID.
+ *
+ * So drift is caught locally and loudly, rather than at an upload prompt.
  */
 const STORE = process.argv.includes('--store')
 
@@ -395,10 +409,9 @@ async function main() {
   console.log(`  sha256 ${createHash('sha256').update(readFileSync(zipPath)).digest('hex')}`)
 
   if (STORE) {
-    console.log('  no manifest key - the Chrome Web Store assigns the ID')
-    console.log('\nNext: upload it at the Chrome Web Store developer dashboard.')
-    console.log('Once the item exists, copy its public key into public/manifest.json,')
-    console.log('update EXPECTED_EXTENSION_ID, and add the new redirect URL in Supabase.')
+    console.log(`  key omitted - the store item already owns ${EXPECTED_EXTENSION_ID}`)
+    console.log('\nNext: upload it as a new package on the existing Chrome Web Store item.')
+    console.log('The item ID does not change, so no redirect or allow-list work follows.')
   } else {
     console.log(`  extension id ${EXPECTED_EXTENSION_ID}`)
     console.log('\nNext: extract it somewhere fresh and load it with chrome://extensions.')

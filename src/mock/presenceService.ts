@@ -19,16 +19,33 @@ const watching = (channel: string): Activity => ({
   channel,
 })
 
+/**
+ * Three channels, chosen rather than sampled.
+ *
+ * The demo used to name whichever streamers were handy, which was fine while
+ * this only ever ran on a developer's machine. It is not fine now: these names
+ * appear in the store listing screenshots, so they are a product decision and
+ * they stay fixed. Nothing here should ever pick a channel at random again.
+ */
+const CHANNELS = {
+  gathering: 'theburntpeanut',
+  elsewhere: 'summit1g',
+  third: 'gingy',
+}
+
 const SEED: Presence[] = [
-  // Jake and Matt sit still on the same channel so group aggregation
-  // ("2 members watching LIRIK") is always demonstrable.
-  { userId: 'u_jake', status: 'online', activity: watching('lirik'), since: minutesAgo(47) },
-  { userId: 'u_matt', status: 'online', activity: watching('lirik'), since: minutesAgo(12) },
-  { userId: 'u_sarah', status: 'online', activity: watching('summit1g'), since: minutesAgo(8) },
-  { userId: 'u_chris', status: 'online', activity: IDLE, since: minutesAgo(22) },
+  // Three friends on one channel, always. A pair reads as a coincidence; three
+  // people on the same stream is the gathering Social Gravity exists to
+  // surface, and the demo should never fail to be able to show it.
+  { userId: 'u_jake', status: 'online', activity: watching(CHANNELS.gathering), since: minutesAgo(47) },
+  { userId: 'u_matt', status: 'online', activity: watching(CHANNELS.gathering), since: minutesAgo(12) },
+  { userId: 'u_chris', status: 'online', activity: watching(CHANNELS.gathering), since: minutesAgo(31) },
+  // And two people somewhere else, so "everyone is in one place" is visibly a
+  // thing that happened rather than the only state the demo has.
+  { userId: 'u_sarah', status: 'online', activity: watching(CHANNELS.elsewhere), since: minutesAgo(8) },
+  { userId: 'u_nina', status: 'online', activity: watching(CHANNELS.third), since: minutesAgo(63) },
+  { userId: 'u_kenji', status: 'online', activity: watching(CHANNELS.third), since: minutesAgo(19) },
   { userId: 'u_dave', status: 'offline', activity: IDLE, since: minutesAgo(190) },
-  { userId: 'u_nina', status: 'online', activity: watching('xqc'), since: minutesAgo(63) },
-  { userId: 'u_kenji', status: 'online', activity: watching('xqc'), since: minutesAgo(19) },
 ]
 
 /**
@@ -41,8 +58,14 @@ const DEMO_FOLLOWER_ID = 'u_sarah'
 const FOLLOW_DELAY_MS = 5_000
 
 /** Only these people wander, so the seeded invariants above stay intact. */
-const ROAMER_IDS = ['u_chris', 'u_nina', 'u_kenji']
-const ROAM_CHANNELS = ['shroud', 'summit1g', 'pokimane', 'hasanabi', 'jerma985', 'northernlion']
+const ROAMER_IDS = ['u_nina', 'u_kenji']
+/*
+ * Roamers move between the same three channels and no others.
+ *
+ * Wandering onto an arbitrary streamer would put a name nobody chose into a
+ * screenshot, so the only channels that exist in this demo are the three above.
+ */
+const ROAM_CHANNELS = [CHANNELS.gathering, CHANNELS.elsewhere, CHANNELS.third]
 const ROAM_MIN_MS = 20_000
 const ROAM_MAX_MS = 35_000
 

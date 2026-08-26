@@ -1,6 +1,7 @@
 # Kickback — Privacy Policy
 
 **Last updated:** 25 August 2026
+
 **Applies to:** Kickback browser extension, private beta (v0.4.x)
 
 Kickback shows you which of your friends are watching Twitch, and lets you join
@@ -17,7 +18,7 @@ advertising or analytics SDK in it.
 ## Who runs it
 
 Kickback is an independent project, currently in a small private beta. Contact:
-**chuckdthompson27@gmail.com** — the same address for privacy questions,
+**anoteros.dev@gmail.com** — the same address for privacy questions,
 support, and data deletion requests.
 
 ## Where your data goes
@@ -44,7 +45,8 @@ what you type.
 | **Groups and membership** | no | yes | to group members | counts only | until you leave, or the group is deleted |
 | **Presence** (online, and the Twitch channel you are watching) | no | yes | to friends, and to people you share a group with — subject to your visibility setting | no channel identity beyond the destination of a JOIN | rows are transient and overwritten; nothing historical is kept |
 | **Stream-session messages** (the ephemeral chat on a channel you are watching) | in memory while the panel is open | yes | to the people the server authorised at the moment you sent it | **never** — no message body, ever | **deleted after 30 minutes**, and capped in count |
-| **Reactions and emotes you send** | in memory | yes | to the same people | that a reaction happened, and how many — **never which emote** | seconds; the buffer expires |
+| **Group messages** (the chat inside a group you created or joined) | in memory while the panel is open | yes | to the other members of that group | **never** — only a length bucket and whether it contained an emote | kept until the group is deleted or your account is deleted |
+| **Reactions and emotes you send** | in memory | yes | to the same people | that a reaction happened, and how many — **never which emote** | about a minute; the server sweeps them |
 | **Mute** | **yes, only on your device** | **never** | no | no | until you unmute |
 | **Block** | no | yes | never — the other person is never told | that a block happened, with **no identifiers of either party** | until you unblock |
 | **Panel position and size** | **yes** | never | no | no | until you reset the layout |
@@ -52,6 +54,17 @@ what you type.
 | **JOIN attribution** | a random id, for minutes | yes | never | yes, that is its purpose | the id is dropped after the window closes |
 | **Feedback you send** | no | yes | never | only the category | kept until it has been acted on |
 | **Diagnostics attached to feedback** | no | yes | never | no | with the feedback |
+
+### Two kinds of chat, with two different lifetimes
+
+The **stream session** that appears when you and your friends are watching the
+same thing is deliberately temporary: it is swept after thirty minutes and is
+not a history you can scroll back through.
+
+**Group chat is not.** A group is a place you made on purpose, so its messages
+stay until the group is deleted or your account is. If you want a conversation
+that disappears, use the stream session; if you want one that lasts, use a
+group.
 
 ### Your visibility setting
 
@@ -69,9 +82,10 @@ built so that it *cannot* carry personal content:
   word from a fixed list. **Values are capped at 64 characters and unknown keys
   are discarded by the server**, so there is no way to attach a message, a
   search term, a URL, an email address or a token even by mistake.
-- **Never recorded:** message bodies, which emote you used, what you searched
-  for, your friends' identities, who you blocked or muted, email addresses,
-  friend codes, browsing history, or any Twitch or Supabase token.
+- **Never recorded:** message bodies — from either the stream session or from
+  group chat — which emote you used, what you searched for, your friends'
+  identities, who you blocked or muted, email addresses, friend codes, browsing
+  history, or any Twitch or Supabase token.
 - **Twitch channel names are recorded** for social events — a friend's activity
   being shown to you, a JOIN, a shared watch. This is how we can tell whether
   Kickback actually sends people anywhere. It is a channel, not a URL, and only
@@ -109,6 +123,11 @@ friends.** We can see who sent it, so that we can follow up.
   that runs alongside Twitch's own code.
 - **No remote code.** Everything Kickback executes ships inside the extension
   package. Nothing is downloaded and run.
+- **No use or transfer of your data to determine creditworthiness, or for
+  lending purposes.**
+- **No use or transfer of your data for any purpose unrelated to Kickback's
+  single purpose** — showing you which friends are watching Twitch, and letting
+  you join them.
 
 ## Permissions, and why
 
@@ -134,7 +153,7 @@ other page you visit.
 - **Block somebody** — removes the friendship, stops all Kickback contact
   between you, and is never disclosed to them.
 - **Sign out** — clears the session from your device.
-- **Delete your account** — email **chuckdthompson27@gmail.com**. Deleting your
+- **Delete your account** — email **anoteros.dev@gmail.com**. Deleting your
   account removes your profile, friendships, requests, group memberships,
   presence, blocks and feedback. Analytics events are not tied to your name and
   are removed with your actor record.

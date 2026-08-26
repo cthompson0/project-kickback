@@ -69,10 +69,13 @@ eventually point at.
 - **Store packaging is separate** — `npm run package:store`. The store requires
   `manifest.json` at the root of the archive and mints its own extension ID, so
   the store package is flat and carries no manifest `key`.
-- **The extension ID changes at upload.** Our pinned key is a local invention;
-  the store's is the real one. Adopting it is a two-line rotation plus a
-  Supabase redirect allow-list entry — see the checkpoint. Nothing in `src/`
-  reads the ID.
+- **The extension ID is the store's, and is now adopted.**
+  `ngfopkeokddfnncdhfkhnffilbdhkkip` — the item's own identity, copied from
+  its Package tab into the manifest, so a sideloaded build and the published one
+  are the same extension. Nothing in `src/` reads the ID; the redirect comes
+  from `chrome.identity.getRedirectURL()` at runtime. **One hosted action
+  remains: add `https://ngfopkeokddfnncdhfkhnffilbdhkkip.chromiumapp.org/`
+  to Supabase's redirect allow-list.**
 - **No CI/CD.** Two commands and a browser upload, for 20 people.
 - **No rollback exists.** The only remedy for a bad release is a higher version.
 

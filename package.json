@@ -27,7 +27,8 @@
     "test:lab": "vitest run tests/testlab",
     "verify:lab": "node scripts/verify-test-lab.mjs",
     "verify:store": "node scripts/verify-store-readiness.mjs",
-    "package:store": "node scripts/package-beta.mjs --store"
+    "package:store": "node scripts/package-beta.mjs --store",
+    "screenshots:store": "node scripts/store-screenshots.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

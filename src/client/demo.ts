@@ -67,30 +67,39 @@ const chat = (id: number, userId: string, displayName: string, body: string): Ch
   createdAt: `2024-01-01T20:${String(id).padStart(2, '0')}:00.000Z`,
 })
 
+/*
+ * People watching the same stream, talking about the stream.
+ *
+ * It used to double as a wrapping fixture - a 56-character run of Ws, a raw
+ * VOD URL, and two notes to myself about avatars and line breaks. Those earned
+ * their place while chat layout was being built and they are the wrong thing
+ * for a demo now: anybody looking at this is trying to understand what Kickback
+ * is for, and reading somebody's bug notes does not help them.
+ *
+ * Chat wrapping still has a gate of its own - scripts/verify-chat-wrapping.mjs
+ * carries its own awkward strings and does not read this file - so nothing was
+ * lost by making the conversation sound like a conversation.
+ */
 const DEMO_MESSAGES: ChatMessage[] = [
-  chat(1, 'u_jake', 'Jake', 'anyone else seeing this'),
-  chat(2, 'u_matt', 'Matt', 'no way he lands that'),
-  chat(3, 'u_jake', 'Jake', ':pog:'),
-  chat(4, 'u_sarah', 'Sarah', ':pog:'),
-  chat(5, 'u_matt', 'Matt', ':pog:'),
-  chat(6, 'u_nina', 'Nina', ':pog:'),
-  chat(7, 'u_dave', 'Dave', 'ok that was actually incredible'),
-  chat(8, 'u_sarah', 'Sarah', 'clipped it :fire:'),
-  chat(9, 'u_jake', 'Jake', 'send it in the group'),
-  chat(10, 'u_nina', 'Nina', ':lol: :lol: :lol:'),
-  chat(11, 'u_matt', 'Matt', 'what channel is he on after this'),
-  chat(12, 'u_dave', 'Dave', 'said he was raiding someone'),
-  // Ends mid-chant, so the anchored active-combo indicator has something to
-  // show. Alternating users, because one person cannot build a combo alone.
-  // Deliberately awkward shapes, so chat wrapping can be looked at without
-  // waiting for a real conversation to produce them.
-  chat(13, 'u_nina', 'Nina', 'also sometimes chats have a random line break from my username?'),
-  chat(14, 'u_matt', 'Matt', 'making notes. should be able to use the streamers avatar/icon'),
-  chat(15, 'u_dave', 'Dave', 'https://www.twitch.tv/videos/2147483647?filter=archives&sort=time'),
-  chat(16, 'u_sarah', 'Sarah', 'Wwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwwww'),
-  chat(17, 'u_jake', 'Jake', ':fire:'),
-  chat(18, 'u_sarah', 'Sarah', ':fire:'),
-  chat(19, 'u_jake', 'Jake', ':fire:'),
+  chat(1, 'u_jake', 'Jake', 'ok he is actually going for it'),
+  chat(2, 'u_matt', 'Matt', 'no way he lands this'),
+  chat(3, 'u_sarah', 'Sarah', 'he has done it once before'),
+  chat(4, 'u_jake', 'Jake', ':pog:'),
+  chat(5, 'u_sarah', 'Sarah', ':pog:'),
+  chat(6, 'u_matt', 'Matt', ':pog:'),
+  chat(7, 'u_nina', 'Nina', ':pog:'),
+  chat(8, 'u_dave', 'Dave', 'that was genuinely incredible'),
+  chat(9, 'u_sarah', 'Sarah', 'clipping it now'),
+  chat(10, 'u_nina', 'Nina', 'chat has completely lost it :lol:'),
+  chat(11, 'u_matt', 'Matt', 'what is he playing after this'),
+  chat(12, 'u_dave', 'Dave', 'said he was raiding someone at the top of the hour'),
+  chat(13, 'u_jake', 'Jake', 'im staying for the raid'),
+  chat(14, 'u_nina', 'Nina', 'same, ping me if it moves'),
+  // Ends mid-chant, so the anchored combo indicator has something to show.
+  // Alternating people, because one person cannot build a combo alone.
+  chat(15, 'u_sarah', 'Sarah', ':fire:'),
+  chat(16, 'u_jake', 'Jake', ':fire:'),
+  chat(17, 'u_matt', 'Matt', ':fire:'),
 ]
 
 const offlinePresence = (userId: string): Presence => ({

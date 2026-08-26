@@ -49,7 +49,11 @@ export default defineConfig([
      * evaluated inside a page - so `document` and `window` are real there, and
      * Node's globals are not. Both sets apply.
      */
-    files: ['scripts/verify-chat-wrapping.mjs', 'scripts/verify-test-lab.mjs'],
+    files: [
+      'scripts/verify-chat-wrapping.mjs',
+      'scripts/verify-test-lab.mjs',
+      'scripts/store-screenshots.mjs',
+    ],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },
     },

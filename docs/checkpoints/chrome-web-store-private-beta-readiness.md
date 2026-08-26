@@ -8,6 +8,48 @@
 
 ---
 
+## ADDENDUM — 26 August 2026: the identity is settled
+
+The item has passed review and the Chrome Web Store has minted its keypair, so
+the open question this checkpoint was written around is now answered.
+
+**Permanent extension ID: `ngfopkeokddfnncdhfkhnffilbdhkkip`**
+
+**Redirect: `https://ngfopkeokddfnncdhfkhnffilbdhkkip.chromiumapp.org/`**
+
+The store's public key has been copied from the item's **Package** tab into
+`public/manifest.json`, and `scripts/extension-identity.mjs` now names the store
+ID. A local unpacked build and the published extension are the same extension to
+Chrome — same ID, same redirect, one allow-list entry serving both.
+
+**The old ID `almhfkicihekhiloapoimglfdoneglni` is no longer canonical.** It was
+a locally generated identity and appears below only as a record of what was true
+when this was written. `npm run verify:store` exempts this directory from its
+stale-ID scan for exactly that reason; every live reference — README, tests,
+packaging — has been updated.
+
+### The one hosted action still outstanding
+
+**Supabase dashboard → Authentication → URL Configuration → Redirect URLs → add:**
+
+```
+https://ngfopkeokddfnncdhfkhnffilbdhkkip.chromiumapp.org/
+```
+
+Nothing in this repository can perform or observe that change, and it has **not**
+been made. Sign-in fails at the final hop without it: Twitch approves, Supabase
+redirects, and Chrome refuses a destination that is not on the list — which reads
+to a tester as "Kickback is broken" rather than "a URL is missing from a
+dashboard".
+
+**Twitch's developer app is unaffected.** Its redirect points at Supabase's own
+callback (`https://<project>.supabase.co/auth/v1/callback`), which does not
+depend on our extension ID and does not change.
+
+Everything below is the original checkpoint, unedited.
+
+---
+
 ## Verdict
 
 **GO for submission, after two owner actions.** Neither is a code change and

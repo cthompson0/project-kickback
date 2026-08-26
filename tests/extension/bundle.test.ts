@@ -193,7 +193,7 @@ describe('the shipped identity and version', () => {
    * `npm run verify:store` scans every .ts and .md file for an ID that is not
    * ours, so a rotation cannot leave this one behind.
    */
-  const EXPECTED_ID = 'almhfkicihekhiloapoimglfdoneglni'
+  const EXPECTED_ID = 'ngfopkeokddfnncdhfkhnffilbdhkkip'
 
   /** Chrome derives an ID from the first 128 bits of SHA-256 over the key. */
   function extensionIdFromKey(base64Key: string): string {
