@@ -308,35 +308,67 @@ A dry-run stage listed **32 files**. Scanned for `.env`, `.zip`, `releases/`,
 
 ### After
 
-See §6.
+```
+## main...origin/main
+e0d93b5 feat: friends beta patch 1
+6f69e76 docs: establish private beta day 0
+a63713a docs: collapse the day zero audit into one query
+```
+
+**Working tree clean. In sync with `origin/main` — 0 ahead, 0 behind.**
+
+The Day 0 commit that had been stuck since 2026-08-26 went up with this push,
+so the "ahead 1" carried through the last three reports is now resolved.
 
 ---
 
 ## 6. Commit
 
-*(Filled in below by the commit step — see the terminal summary for the hash.)*
+> ### `e0d93b5` — `feat: friends beta patch 1`
+>
+> Full hash: `e0d93b5d67de376c83b1ab94d712afd295993e64`
+
+**34 files, +7631 / −265.** One commit, no amend, no rewrite of anything that
+already existed.
 
 **Contents:** the Patch 1 implementation, its tests, the jsdom test project,
 migration `0024`, the roadmap update, the `verify-analytics.mjs` comment
 correction, and all four reports.
 
-**Message:** `feat: friends beta patch 1`
-
 **Not included:** release ZIPs, generated bundles, `.env.local`, credentials,
-browser profiles, or any unrelated file.
+browser profiles, or any unrelated file. A dry-run stage was scanned for
+`.env`, `.zip`, `releases/`, `.pem`, `.key`, `node_modules`, `dist` and browser
+profiles before staging: **none present.**
+
+**Note on timing.** The commit was created in a later session than the rest of
+this report. Two things were corrected in the interval, both recorded rather
+than applied silently: the authorization-verifier result in §4, and the
+temporary worktree used for the abandoned baseline attempt, which has been
+removed (`git worktree list` shows only the main repository).
 
 ---
 
 ## 7. Push result
 
-See the terminal summary. Per the standing instruction, a push is **not**
-attempted if the environment blocks it or if it would require bypassing a
-permission mechanism.
+## **PUSHED — succeeded**
 
-**Known constraint:** the previous push of `6f69e76` was refused by this
-environment's auto-mode permission classifier, on both the Bash and PowerShell
-paths. That refusal is a property of the environment, not of the repository or
-of GitHub.
+```
+git push origin main
+To https://github.com/cthompson0/project-kickback.git
+   a63713a..e0d93b5  main -> main
+```
+
+Exit 0. A normal push, no force, no bypass of any permission or safety
+mechanism.
+
+**The earlier blockage is resolved.** The previous attempt to push `6f69e76`
+was refused by this environment's auto-mode permission classifier on both the
+Bash and PowerShell paths — a property of the environment, not of the repository
+or of GitHub. This attempt was permitted and went through, carrying **both**
+commits: the Day 0 documentation checkpoint that had been stuck since
+2026-08-26, and Patch 1.
+
+`main` and `origin/main` now point at the same commit.
 
 ---
 
@@ -381,7 +413,7 @@ The one item that did — applying `0024` — is done.
 
 | # | Action | Blocks what |
 | --- | --- | --- |
-| 1 | **Push, or authorise a push.** `main` is ahead of `origin/main`. The environment refused the previous attempt | Nothing local. Backup and collaboration only |
+| 1 | ~~**Push, or authorise a push.**~~ | **DONE.** Pushed as `e0d93b5`; `main` is in sync with `origin/main`, and the stuck Day 0 commit went with it |
 | 2 | Add `https://ngfopkeokddfnncdhfkhnffilbdhkkip.chromiumapp.org/` to Supabase → Authentication → URL Configuration → Redirect URLs | **Sign-in on a Chrome Web Store install.** Not the sideload path currently used by the beta |
 | 3 | Capture CWS listing screenshots (1280×800) and the 440×280 promo tile | Store listing only |
 | 4 | Delete or sanitize `cthompson0/kickback-public`, which still exposes the old personal email in content and commit metadata | Nothing technical. A privacy tidy-up |
@@ -447,9 +479,9 @@ schema path is designed. There is no technical obstacle.
    is an answer. Beginning the architecture work while it is open risks
    attributing a pre-existing failure to new code — and the multi-destination
    change touches the group subscription that is one of its live hypotheses.
-4. **The commit is pushed, or the push situation is resolved.** Starting a
-   MEDIUM-sized architecture change on top of unpushed work is how work gets
-   lost.
+4. ~~**The commit is pushed, or the push situation is resolved.**~~
+   **SATISFIED.** `e0d93b5` is on `origin/main`. Three of the four conditions
+   remain.
 
 **Why conditional rather than an outright go.** The entire justification for
 multi-destination presence is that the current presence model is wrong, and the
