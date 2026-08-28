@@ -52,12 +52,19 @@ export interface ActivityRegistry {
    */
   effective(): Activity
   /**
-   * Every Twitch channel currently open, most-recently-updated first, capped.
+   * Every Twitch channel currently open, most-recently-OPENED first, capped.
    *
    * Duplicate tabs on one stream collapse here rather than at the server:
    * three tabs on shroud are one destination, so closing one of them changes
    * nothing at all. A tab that is on Twitch but not on a channel contributes
    * nothing.
+   *
+   * Ordered by when each tab arrived AT ITS CURRENT CHANNEL, which is not the
+   * same as when it last reported. A tab reports again on every
+   * visibilitychange, so ordering by the report time would let merely looking
+   * at a tab reorder the published set - and that order decides the legacy
+   * primary channel, which other people can see. Focus would become a network
+   * event, which is the one property this design exists to prevent.
    */
   destinations(): string[]
   /** True when at least one Twitch tab is open. */
@@ -79,12 +86,27 @@ function sameActivity(a: Activity, b: Activity): boolean {
   return true
 }
 
+/**
+ * A tab as the registry keeps it: what it reported, plus when it arrived at
+ * the channel it is on now.
+ */
+interface TabRecord extends TabActivity {
+  /**
+   * When this tab first reported its CURRENT channel.
+   *
+   * Carried forward across every later report that does not change the
+   * channel - a visibilitychange, a title settling, a pageshow. That is what
+   * keeps the published order still while the user moves between tabs.
+   */
+  channelAt: number
+}
+
 export function createActivityRegistry(): ActivityRegistry {
-  const tabs = new Map<object, TabActivity>()
+  const tabs = new Map<object, TabRecord>()
   let lastEffective: Activity = IDLE
 
-  function pick(): TabActivity | null {
-    let best: TabActivity | null = null
+  function pick(): TabRecord | null {
+    let best: TabRecord | null = null
     for (const tab of tabs.values()) {
       if (!best) {
         best = tab
@@ -108,7 +130,17 @@ export function createActivityRegistry(): ActivityRegistry {
 
   return {
     update(tabKey, activity) {
-      tabs.set(tabKey, activity)
+      const previous = tabs.get(tabKey)
+      /*
+       * The channel clock only moves when the channel does.
+       *
+       * A tab that merely became visible, or hidden, or whose title finally
+       * caught up, is still at the same destination and keeps its place in
+       * the published order.
+       */
+      const channelAt =
+        previous && previous.channel === activity.channel ? previous.channelAt : activity.updatedAt
+      tabs.set(tabKey, { ...activity, channelAt })
       return recompute()
     },
     remove(tabKey) {
@@ -129,17 +161,29 @@ export function createActivityRegistry(): ActivityRegistry {
        * not consume two of the three slots, or a third stream would be
        * silently unpublishable for somebody who simply opened a duplicate.
        *
-       * Ordering is by updatedAt because that is what "most recently active"
-       * means here - it is the same signal the pick rule already trusts, and
-       * it is what the server uses to choose the legacy primary channel.
-       * Visibility is deliberately NOT part of it: a hidden tab is still an
-       * open stream, and focus never reaches the network.
+       * Ordering is by channelAt - when each tab ARRIVED at the channel it is
+       * on - and never by updatedAt. A tab reports again on every
+       * visibilitychange, so ordering by the report time would make merely
+       * looking at a background tab reorder the set, rewrite the legacy
+       * primary channel, and put a write on the wire.
+       *
+       * Visibility is likewise not part of it: a hidden tab is still an open
+       * stream, and its stream is still published.
+       */
+      /*
+       * A destination is dated by the EARLIEST tab still showing it.
+       *
+       * So opening a second tab on a stream that is already published changes
+       * nothing at all - it is the same destination, and it was opened when it
+       * was opened. Taking the latest instead would let a duplicate tab shove
+       * an old destination to the front of the set, rewrite the legacy primary
+       * channel, and cost a write for no change in what is open.
        */
       const seen = new Map<string, number>()
       for (const tab of tabs.values()) {
         if (!tab.channel) continue
         const at = seen.get(tab.channel)
-        if (at === undefined || tab.updatedAt > at) seen.set(tab.channel, tab.updatedAt)
+        if (at === undefined || tab.channelAt < at) seen.set(tab.channel, tab.channelAt)
       }
       return [...seen.entries()]
         .sort(([channelA, a], [channelB, b]) => b - a || channelA.localeCompare(channelB))

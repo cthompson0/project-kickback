@@ -920,17 +920,21 @@ function wantMetadata(): void {
  * here. `stream_room_members` refuses unless the caller's presence puts them
  * on the channel, and asking before that is true returns an empty room that is
  * then cached - which is the bug that made a page load resolve to nothing.
- * `lastReported()` is the write, not the intent.
+ *
+ * The question is asked of the PUBLISHED DESTINATION SET, because that is now
+ * literally what the server holds for us and exactly what `is_present_at`
+ * consults. Asking `lastReported()` instead - the single activity of the last
+ * write - was right when presence was one channel, but under multi-destination
+ * it says no for every stream except the most recently written one: switching
+ * to a second open tab publishes nothing (correctly - focus is not a network
+ * event), so that tab would never see its own room.
  */
 function sessionChannel(): string | null {
   if (authState.status !== 'signed_in') return null
   const here = currentChannel()
   if (!here) return null
 
-  const reported = presenceReporter.lastReported()
-  if (reported?.type !== 'watching' || reported.channel !== here) return null
-
-  return here
+  return presenceReporter.lastDestinations().includes(here) ? here : null
 }
 
 /**

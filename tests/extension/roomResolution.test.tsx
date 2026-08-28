@@ -277,8 +277,27 @@ describe('the worker wires the whole chain', () => {
   const WORKER = readFileSync('src/background/index.ts', 'utf8')
 
   it('will not ask for a room before our presence row exists', () => {
-    expect(WORKER).toContain('const reported = presenceReporter.lastReported()')
-    expect(WORKER).toContain(`if (reported?.type !== 'watching' || reported.channel !== here) return null`)
+    // The gate is the PUBLISHED set - what the server actually holds for us,
+    // and exactly what is_present_at consults - not the intent.
+    expect(WORKER).toContain(
+      'return presenceReporter.lastDestinations().includes(here) ? here : null',
+    )
+  })
+
+  /**
+   * The multi-destination smoke failure, in the one place it reached the room
+   * code: gating on the last WRITTEN activity means only the most recently
+   * written channel can ever resolve to a room, because switching to a second
+   * open tab deliberately writes nothing.
+   */
+  it('does not gate the room on the single last-written activity', () => {
+    const gate = WORKER.slice(
+      WORKER.indexOf('function sessionChannel('),
+      WORKER.indexOf('function sessionChannels('),
+    )
+    expect(gate).not.toContain('lastReported()')
+    // And it asks what was published, never what the tabs merely want.
+    expect(gate).not.toContain('tabActivity.destinations()')
   })
 
   it('re-evaluates the moment the presence write lands', () => {
