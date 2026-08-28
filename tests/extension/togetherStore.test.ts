@@ -268,6 +268,7 @@ describe('the liveness signal analytics depends on', () => {
       const reporter = createPresenceReporter({
         backend: {
           reportPresence: async () => ({ value: true as const }),
+          reportDestinations: async () => ({ value: 1 }),
           heartbeat: async () => ({ value: null, error: 'backend down' }),
           reportOffline: async () => ({ value: true as const }),
         },

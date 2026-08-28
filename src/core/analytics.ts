@@ -272,6 +272,22 @@ export interface AnalyticsEventMap {
    */
   client_error: { context: FailureContext; code: FailureCode }
   /**
+   * How many destinations this client published.
+   *
+   * Bucketed, never the channels themselves - the question is whether a cap of
+   * three is too restrictive, and a count answers it while a list would be a
+   * viewing record. `at_max` is the specific signal: it is what tells us the
+   * limit actually bit rather than merely being high.
+   */
+  destinations_published: { count_bucket: DestinationCountBucket; at_max: boolean }
+  /**
+   * A Stream Room surface went away, and why.
+   *
+   * The counterpart to automatic_room_entered, which had no exit event - so
+   * how long rooms last, and what ends them, was unanswerable.
+   */
+  automatic_room_left: { reason: RoomEndReason; had_messages: boolean }
+  /**
    * A realtime subscription changed state.
    *
    * `connected` is recorded as well as failures, because a channel that never
@@ -323,6 +339,26 @@ export type PostSocialEndReason =
   | 'session_ended'
   | 'observation_lost'
 export type LengthBucket = 'short' | 'medium' | 'long'
+
+/**
+ * How many streams somebody had open, as a bucket.
+ *
+ * Enumerated rather than a raw integer so the property can never become a
+ * fingerprint, and so the answer we actually want - "is one enough, is three
+ * too few" - is readable straight off a group-by.
+ */
+export type DestinationCountBucket = 'none' | 'one' | 'two' | 'three'
+
+/** Why a Stream Room surface stopped being available. */
+export type RoomEndReason = 'destination_closed' | 'retention_expired' | 'signed_out'
+
+/** Bucket a destination count. Three is the cap, so there is no "more". */
+export function destinationBucket(count: number): DestinationCountBucket {
+  if (count <= 0) return 'none'
+  if (count === 1) return 'one'
+  if (count === 2) return 'two'
+  return 'three'
+}
 
 /** Message length as a bucket, because the length itself is nearly the message. */
 export function lengthBucket(length: number): LengthBucket {
@@ -396,6 +432,8 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   combo_broken: ['count'],
 
   client_error: ['context', 'code'],
+  destinations_published: ['count_bucket', 'at_max'],
+  automatic_room_left: ['reason', 'had_messages'],
   realtime_status_changed: ['surface', 'status'],
   group_message_send_failed: ['code'],
 }

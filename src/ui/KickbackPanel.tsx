@@ -357,11 +357,37 @@ export function KickbackPanel({
   const gravityMap = useMemo(
     () =>
       socialGravity(
-        view.friends.map((friend) => ({
-          member: friend,
-          presence: friend.presence,
-          userId: friend.user.id,
-        })),
+        /*
+         * One entry per FRIEND PER ACTIVE DESTINATION.
+         *
+         * `clusterMembers` buckets by the channel it finds on a presence, and
+         * it is deliberately not changed: HERE, the group rosters, the user
+         * card, JOIN eligibility and Gravity all still answer from one
+         * interpretation. What changed is the input - a friend watching two
+         * streams arrives as two entries, each carrying the same presence with
+         * a different channel on it.
+         *
+         * Presence at a destination is BINARY. Somebody with three streams
+         * open counts once at each, not a third at each: there is no weight
+         * here and there is deliberately nowhere to put one. See
+         * docs/reports/multi-stream-room-architecture-2026-08-27.md §6.
+         *
+         * A friend with no destination entry falls back to their presence as
+         * it stands, which is what keeps a v0.4.1 client - who publishes only
+         * presence.channel - visible in Gravity during the rollout.
+         */
+        view.friends.flatMap((friend) => {
+          const base = { member: friend, presence: friend.presence, userId: friend.user.id }
+          const destinations = view.friendDestinations[friend.user.id]
+          if (!destinations || destinations.length === 0) return [base]
+          const presence = friend.presence
+          if (!presence || presence.activity.type !== 'watching') return [base]
+
+          return destinations.map((channel) => ({
+            ...base,
+            presence: { ...presence, activity: { ...presence.activity, channel } },
+          }))
+        }),
         view.localActivity,
         undefined,
         view.identity?.userId ?? null,
@@ -374,7 +400,13 @@ export function KickbackPanel({
          */
         view.channelMetadata,
       ),
-    [view.friends, view.localActivity, view.identity?.userId, view.channelMetadata],
+    [
+      view.friends,
+      view.friendDestinations,
+      view.localActivity,
+      view.identity?.userId,
+      view.channelMetadata,
+    ],
   )
 
   /*

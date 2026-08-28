@@ -18,6 +18,14 @@ import type { BackendResult } from './auth'
 
 export interface PresenceBackend {
   reportPresence(platform: string | null, channel: string | null): Promise<BackendResult<true>>
+  /**
+   * Publish the whole set of open destinations, most-recently-active first.
+   *
+   * Resolves to how many the server actually kept, which is not always what
+   * was sent: the cap of three is enforced there, and this is how the client
+   * learns it was reached without having to guess.
+   */
+  reportDestinations(channels: readonly string[]): Promise<BackendResult<number>>
   heartbeat(): Promise<BackendResult<true>>
   reportOffline(): Promise<BackendResult<true>>
 }
@@ -52,12 +60,32 @@ export interface PresenceReporterDeps {
    * second, and the gap between the two is exactly where that race lived.
    */
   onReported?: (activity: Activity) => void
+  /**
+   * A destination set was published, with what the server kept.
+   *
+   * Analytics hangs off this rather than off the intent, for the same reason
+   * onReported does: what was written is the fact, and `published` may be
+   * smaller than `requested` when the cap bit.
+   */
+  onDestinations?: (published: { requested: number; published: number }) => void
   onError?: (context: string, error: unknown) => void
 }
 
 export interface PresenceReporter {
   /** Tell the reporter what the user is doing now. */
   setActivity(activity: Activity): void
+  /**
+   * Tell the reporter which streams are open, most-recently-active first.
+   *
+   * Debounced on the same clock as the activity write and skipped entirely
+   * when the set has not changed, so switching between two already-open Twitch
+   * tabs costs nothing at all - no write, no realtime event, and nothing that
+   * any friend can observe. That is the point of the whole design: focus is
+   * not a network event.
+   */
+  setDestinations(channels: readonly string[]): void
+  /** The last set successfully published, for diagnostics and tests. */
+  lastDestinations(): readonly string[]
   /** Stop reporting and forget state, without announcing offline. */
   stop(): void
   /** Announce offline immediately and stop. */
@@ -70,6 +98,11 @@ const DEFAULT_DEBOUNCE_MS = 1_000
 /** Half the 90s staleness window, so one lost beat is not enough to look gone. */
 const DEFAULT_HEARTBEAT_MS = 45_000
 const DEFAULT_OFFLINE_GRACE_MS = 5_000
+
+/** Order matters: it decides the legacy primary, so a reorder is a change. */
+function sameChannels(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((channel, index) => channel === b[index])
+}
 
 function isSame(a: Activity, b: Activity): boolean {
   if (a.type !== b.type) return false
@@ -86,6 +119,10 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
 
   let desired: Activity = IDLE
   let reported: Activity | null = null
+  /** What the client wants published, and what actually is. */
+  let desiredDestinations: readonly string[] = []
+  let reportedDestinations: readonly string[] = []
+  let destinationTimer: ReturnType<typeof setTimeout> | undefined
   let writeTimer: ReturnType<typeof setTimeout> | undefined
   let heartbeatTimer: ReturnType<typeof setInterval> | undefined
   let offlineTimer: ReturnType<typeof setTimeout> | undefined
@@ -134,6 +171,28 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
     deps.onReported?.(activity)
   }
 
+  async function writeDestinations(channels: readonly string[]): Promise<void> {
+    const result = await deps.backend.reportDestinations(channels)
+    if (result.error) {
+      // Leave reportedDestinations alone, so the next change still counts as a
+      // change and is retried. No immediate retry: a failing backend must not
+      // become a write storm.
+      deps.onError?.('reportDestinations', result.error)
+      return
+    }
+    reportedDestinations = channels
+    deps.onDestinations?.({ requested: channels.length, published: result.value ?? 0 })
+  }
+
+  function flushDestinationsSoon(): void {
+    clearTimeout(destinationTimer)
+    destinationTimer = setTimeout(() => {
+      destinationTimer = undefined
+      if (sameChannels(desiredDestinations, reportedDestinations)) return
+      void writeDestinations(desiredDestinations)
+    }, debounceMs)
+  }
+
   function flushSoon(): void {
     clearTimeout(writeTimer)
     writeTimer = setTimeout(() => {
@@ -168,9 +227,28 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
       flushSoon()
     },
 
+    setDestinations(channels: readonly string[]): void {
+      const next = [...channels]
+      if (sameChannels(next, desiredDestinations)) return
+      desiredDestinations = next
+      /*
+       * An empty set is written promptly rather than on the offline grace:
+       * closing your last Twitch tab should stop advertising the stream even
+       * if the account stays online for a moment. Going offline entirely is
+       * still handled by setActivity, which clears the rows server-side.
+       */
+      flushDestinationsSoon()
+    },
+
+    lastDestinations: () => reportedDestinations,
+
     stop(): void {
       clearTimeout(writeTimer)
       clearTimeout(offlineTimer)
+      clearTimeout(destinationTimer)
+      destinationTimer = undefined
+      desiredDestinations = []
+      reportedDestinations = []
       stopHeartbeat()
       writeTimer = undefined
       offlineTimer = undefined
@@ -181,10 +259,20 @@ export function createPresenceReporter(deps: PresenceReporterDeps): PresenceRepo
     async goOffline(): Promise<void> {
       clearTimeout(writeTimer)
       clearTimeout(offlineTimer)
+      clearTimeout(destinationTimer)
       writeTimer = undefined
       offlineTimer = undefined
+      destinationTimer = undefined
       stopHeartbeat()
       desired = IDLE
+      /*
+       * report_offline deletes the destination rows server-side, so the local
+       * record of what is published has to be cleared with it - otherwise
+       * signing back in with the same streams open would look unchanged and
+       * publish nothing.
+       */
+      desiredDestinations = []
+      reportedDestinations = []
       await write(IDLE)
       reported = null
     },

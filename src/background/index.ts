@@ -52,7 +52,7 @@ import { toFailureCode, toFailureContext } from '../core/failures'
 import type { RealtimeStatus, RealtimeSurface } from '../core/failures'
 import { findGatherings } from '../core/presence'
 import { parseMessage } from '../core/emotes'
-import { lengthBucket } from '../core/analytics'
+import { destinationBucket, lengthBucket } from '../core/analytics'
 import type { Activity } from '../core/types'
 import {
   createSupabaseGroupChannel,
@@ -72,6 +72,7 @@ import {
   createSupabaseFriendsBackend,
   createSupabaseGroupsBackend,
   createSupabasePresenceBackend,
+  listFriendDestinations,
   setPresenceVisibility,
 } from './supabaseBackend'
 import { createExtensionStorage } from './storage'
@@ -285,6 +286,15 @@ const presenceSync = createPresenceSync({
     // the index is what every other surface reads.
     friends.applyPresence(presence)
     indexPresence(setPresence(presenceIndex, presence))
+    /*
+     * A presence event means their destinations may have moved too - the
+     * destination write updates presence.last_seen_at in the same RPC, so this
+     * is the signal.
+     *
+     * Coalesced by a second rather than fired per event: a heartbeat from
+     * every friend every 45s would otherwise be a query per beat.
+     */
+    scheduleDestinationsRefresh()
   },
   onPresenceGone: (userId) => {
     friends.clearPresence(userId)
@@ -293,6 +303,7 @@ const presenceSync = createPresenceSync({
   // A reconnect may have missed changes; re-read once rather than assume.
   onResync: () => {
     void friends.refresh()
+    refreshFriendDestinations()
     // Group rosters carry presence too, and a reconnect may have missed
     // changes to people we only know through a group.
     void groups.refresh()
@@ -329,6 +340,23 @@ const presenceReporter = createPresenceReporter({
    * the desired and reported activity already agree - which, here, they do.
    */
   onReported: () => pushActivity(),
+  /*
+   * Recorded on the WRITE, with what the server kept.
+   *
+   * The published count can be smaller than the requested one when the cap of
+   * three bit, and that difference is the entire question this event exists to
+   * answer - so it is read back from the server rather than assumed from what
+   * was sent.
+   *
+   * The channels themselves are never here. A bucket answers "is three
+   * enough"; a list would be a viewing record.
+   */
+  onDestinations: ({ requested, published }) => {
+    analytics.track('destinations_published', {
+      count_bucket: destinationBucket(published),
+      at_max: requested > published || published >= 3,
+    })
+  },
   onError: logError,
 })
 
@@ -598,6 +626,54 @@ function noteTogetherSurface(): void {
 }
 
 const attention = createAttentionService({ storage: storageArea, onError: logError })
+
+/*
+ * Every friend's active destinations, keyed by user id.
+ *
+ * Re-read rather than derived from presence, because presence carries one
+ * channel and this is the set. It is refreshed on the same signals the friend
+ * list is - a social change, a presence event, a reconnect - and coalesced, so
+ * a room full of people heartbeating does not turn into a query per beat.
+ *
+ * A read that fails leaves the previous answer in place. Losing the map would
+ * make every friend look like they were nowhere, which is worse than showing a
+ * slightly old set for a few seconds.
+ */
+let friendDestinations: Record<string, string[]> = {}
+let destinationsPending = false
+let destinationsTimer: ReturnType<typeof setTimeout> | undefined
+
+function refreshFriendDestinations(): void {
+  if (authState.status !== 'signed_in') return
+  if (destinationsPending) return
+  destinationsPending = true
+
+  void listFriendDestinations(supabase)
+    .then((result) => {
+      if (result.error) {
+        logError('presence.destinations', result.error)
+        return
+      }
+      const next = result.value ?? {}
+      // Broadcast only on a real change: this runs on a timer, and an
+      // unchanged map would push a full state snapshot to every tab for
+      // nothing.
+      if (JSON.stringify(next) === JSON.stringify(friendDestinations)) return
+      friendDestinations = next
+      broadcast()
+    })
+    .finally(() => {
+      destinationsPending = false
+    })
+}
+
+function scheduleDestinationsRefresh(): void {
+  if (destinationsTimer !== undefined) return
+  destinationsTimer = setTimeout(() => {
+    destinationsTimer = undefined
+    refreshFriendDestinations()
+  }, 1_000)
+}
 
 /**
  * Public Twitch metadata for the destinations the map is showing.
@@ -1014,6 +1090,16 @@ function pushActivity(): void {
 
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
+  /*
+   * And the whole set, which is what other people actually see now.
+   *
+   * Separate from setActivity because they answer different questions:
+   * `effective()` is the LOCAL primary, used for HERE and for attribution, and
+   * never leaves this machine as a field. `destinations()` is what is
+   * published. The reporter skips the write when the set is unchanged, so
+   * switching between two already-open Twitch tabs produces no traffic at all.
+   */
+  presenceReporter.setDestinations(tabActivity.destinations())
   // Moving channels changes what counts as "somewhere else".
   refreshAttention()
   updateTogether()
@@ -1107,6 +1193,7 @@ function currentState(): KickbackState {
     sessionChannel: restoredSession(),
     mutedUserIds: sessionTab.muted(),
     blockedUsers: friendsState.blocked,
+    friendDestinations: { ...friendDestinations },
   }
 }
 
@@ -1208,6 +1295,9 @@ friends.subscribe((next) => {
     next.friends.map((friend) => friend.presence),
   )
   if (authState.status === 'signed_in') {
+    // Somebody was added, removed or blocked: who we may see destinations for
+    // has changed, so the map is re-read rather than aged.
+    scheduleDestinationsRefresh()
     refreshAttention()
     updateTogether()
   }
@@ -1663,7 +1753,13 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   void auth.ensureFreshSession()
   // Safety net, not a polling strategy: if the socket died quietly, this puts
   // the friends list right within the half hour rather than never.
-  if (authState.status === 'signed_in') void friends.refresh()
+  if (authState.status === 'signed_in') {
+    void friends.refresh()
+    // Destinations age out on their own thirty-minute clock, so a client that
+    // missed a realtime event would otherwise show a stale set until the next
+    // social change. This is the same safety net, for the same reason.
+    refreshFriendDestinations()
+  }
 })
 
 chrome.runtime.onStartup.addListener(() => {

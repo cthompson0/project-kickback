@@ -417,8 +417,60 @@ export function createSupabasePresenceBackend(supabase: SupabaseClient): Presenc
   return {
     reportPresence: (platform, channel) =>
       call('report_presence', { p_platform: platform, p_channel: channel }),
+
+    /*
+     * The multi-destination write.
+     *
+     * Returns what the server KEPT, not what was asked for: the cap of three
+     * lives in apply_destinations, and reading its answer back is how the
+     * client can report that the cap was reached without inventing the number
+     * itself.
+     */
+    async reportDestinations(channels) {
+      try {
+        const { data, error } = await supabase.rpc('report_destinations', {
+          p_channels: [...channels],
+        })
+        if (error) return { value: null, error: describe(error) }
+        return { value: typeof data === 'number' ? data : 0 }
+      } catch (error) {
+        return { value: null, error: describe(error) }
+      }
+    },
+
     heartbeat: () => call('heartbeat'),
     reportOffline: () => call('report_offline'),
+  }
+}
+
+/**
+ * Every active destination of everyone this viewer may see.
+ *
+ * Authorization is the policy's job - SECURITY INVOKER, seeded at the caller's
+ * own social graph - so there is nothing here that could widen it. What comes
+ * back is already gated on the friend's account being live, which is the
+ * property that stops a crashed browser advertising streams for half an hour.
+ */
+export async function listFriendDestinations(
+  supabase: SupabaseClient,
+): Promise<{ value: Record<string, string[]> | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('list_friend_destinations')
+    if (error) return { value: null, error: describe(error) }
+
+    const byUser: Record<string, string[]> = {}
+    for (const row of Array.isArray(data) ? data : []) {
+      const entry = row as { user_id?: unknown; channel?: unknown }
+      if (typeof entry.user_id !== 'string' || typeof entry.channel !== 'string') continue
+      // Parsed rather than trusted, like every other row that crosses the
+      // wire: this arrives from a table other people write to.
+      if (!/^[a-z0-9_]{1,25}$/.test(entry.channel)) continue
+      const list = byUser[entry.user_id] ?? (byUser[entry.user_id] = [])
+      if (!list.includes(entry.channel)) list.push(entry.channel)
+    }
+    return { value: byUser }
+  } catch (error) {
+    return { value: null, error: describe(error) }
   }
 }
 

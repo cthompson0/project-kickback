@@ -149,6 +149,13 @@ class FakePresenceBackend implements PresenceBackend {
     if (this.failWith) return { value: null, error: this.failWith }
     return { value: true as const }
   }
+  /** Records the set as sent, so ordering and de-duplication are assertable. */
+  async reportDestinations(channels: readonly string[]): Promise<BackendResult<number>> {
+    this.calls.push(`destinations:${channels.join(',')}`)
+    if (this.failWith) return { value: null, error: this.failWith }
+    // The server caps at three; the fake mirrors that so a test can see it.
+    return { value: Math.min(channels.length, 3) }
+  }
   async heartbeat(): Promise<BackendResult<true>> {
     this.calls.push('heartbeat')
     if (this.failWith) return { value: null, error: this.failWith }

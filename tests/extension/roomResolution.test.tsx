@@ -175,6 +175,12 @@ describe('the membership query and our own presence row', () => {
     const written: Activity[] = []
     const reporter = createPresenceReporter({
       backend: {
+        // The multi-destination write marks presence the same way, so a
+        // reporter driven by either path reaches the room.
+        reportDestinations: async (channels: readonly string[]) => {
+          if (channels.length > 0) server.present.add('me')
+          return { value: channels.length }
+        },
         reportPresence: async () => {
           server.present.add('me')
           return { value: true as const }

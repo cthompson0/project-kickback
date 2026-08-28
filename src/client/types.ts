@@ -92,6 +92,20 @@ export interface KickbackState {
   error: string | null
   /** Real friends only. Never populated with mock people in production. */
   friends: Friend[]
+  /**
+   * Every active destination of every friend, keyed by user id.
+   *
+   * Separate from `friends` rather than a field on Friend, because it has a
+   * different lifetime and a different source: presence arrives through the
+   * per-friend realtime binding, while this is re-read from
+   * list_friend_destinations. Merging them would mean one stale half silently
+   * overwriting a fresh other half.
+   *
+   * A friend with no entry is not "nowhere" - it means we have no destination
+   * information for them, and their singular presence.channel is still the
+   * best answer. That is what keeps a v0.4.1 friend visible.
+   */
+  friendDestinations: Record<string, string[]>
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
   friendsLoading: boolean
@@ -229,6 +243,7 @@ export const INITIAL_STATE: KickbackState = {
   identity: null,
   error: null,
   friends: [],
+  friendDestinations: {},
   incomingRequests: [],
   outgoingRequests: [],
   friendsLoading: false,
