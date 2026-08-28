@@ -145,7 +145,7 @@ export function isGravity<T>(section: GravitySection<T>): boolean {
  */
 export function expandDestinations<T>(
   friends: readonly MemberLike<T>[],
-  destinations: Readonly<Record<string, readonly string[]>>,
+  destinations: DestinationsByUser,
 ): Array<MemberLike<T>> {
   return friends.flatMap((friend) => {
     const id = friend.userId ?? friend.presence?.userId
@@ -308,4 +308,96 @@ export function gravityOpportunities<T>(
     (section): section is GravitySection<T> & { channel: string; rank: number } =>
       section.canJoin && section.channel !== null && section.rank !== null,
   )
+}
+
+/**
+ * Every ACTIVE destination each friend has open, keyed by user id.
+ *
+ * The read-side counterpart of what report_destinations publishes. Named
+ * rather than written inline at each boundary so the same idea is not spelled
+ * three slightly different ways.
+ */
+export type DestinationsByUser = Readonly<Record<string, readonly string[]>>
+
+/**
+ * Everything needed to build the map, in one object.
+ *
+ * WHY AN OBJECT, AND WHY `metadata` IS REQUIRED HERE
+ *
+ * `socialGravity` takes five positional parameters and `metadata` is the last
+ * and optional. Forgetting it is silent and total: every card loses its Twitch
+ * casing, live badge, category, viewer count, title and avatar, and still
+ * renders - as a raw lowercase login with nothing on it. That is precisely the
+ * regression this type exists to make impossible, and it is not a defect a
+ * reader spots, because the call still compiles and the map still appears.
+ *
+ * So the canonical entry point takes a named object and REQUIRES the metadata
+ * field. Passing `{}` is still allowed - a cold cache is a real state - but it
+ * has to be said out loud rather than fallen into.
+ */
+export interface GravityModelInput<T> {
+  friends: readonly MemberLike<T>[]
+  /** Read-side multi-destination. `{}` for a client that has none yet. */
+  destinations: DestinationsByUser
+  localActivity: Activity
+  /** The viewer, who is never one of the people on the map. */
+  selfId: string | null
+  /**
+   * What Twitch says about each channel, keyed by login.
+   *
+   * Required, not optional. See above - this is the whole point of the type.
+   */
+  metadata: Readonly<Record<string, ChannelMetadata>>
+  /** Left undefined in render paths; the selector reads the clock once. */
+  now?: number
+}
+
+/**
+ * THE canonical Social Gravity model.
+ *
+ * One function, one definition of what Gravity contains, for every consumer:
+ * the rendered map, the analytics exposure report, and the worker diagnostic.
+ *
+ * This exists because separate consumers deriving Gravity separately has
+ * already shipped two regressions. The panel once computed the expanded map
+ * for analytics while the component clustered the singular list for the
+ * screen, so analytics recorded three impressions for a screen showing one.
+ * Nothing about either half was wrong; there was simply no single answer to
+ * "what is on the map".
+ *
+ * There is now. Consumers that need a different PROJECTION - opportunities,
+ * impressions, a diagnostic - derive it from this result rather than rebuilding
+ * it. See gravityOpportunities.
+ */
+export function gravityModel<T>(input: GravityModelInput<T>): Array<GravitySection<T>> {
+  return socialGravity(
+    expandDestinations(input.friends, input.destinations),
+    input.localActivity,
+    input.now,
+    input.selfId,
+    input.metadata,
+  )
+}
+
+/**
+ * Every channel the map will name, so enrichment can be asked for exactly it.
+ *
+ * The third derivation of "what destinations are on screen" used to live in the
+ * worker and enumerate `presence.channel` alone - the legacy singular primary.
+ * A friend at three destinations therefore had metadata fetched for one of
+ * them, and the other two rendered as bare lowercase logins with no live
+ * state, category, viewer count or avatar. Deriving the set from the same
+ * expansion the map is built from is what keeps enrichment and presentation
+ * describing the same world.
+ */
+export function gravityChannels<T>(
+  friends: readonly MemberLike<T>[],
+  destinations: DestinationsByUser,
+): string[] {
+  const channels = new Set<string>()
+  for (const entry of expandDestinations(friends, destinations)) {
+    const presence = entry.presence
+    if (presence?.activity.type === 'watching') channels.add(presence.activity.channel)
+  }
+  return [...channels]
 }

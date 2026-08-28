@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { expandDestinations, socialGravity, isGravity } from '../../core/socialGravity'
+import { gravityModel, isGravity } from '../../core/socialGravity'
+import type { DestinationsByUser } from '../../core/socialGravity'
 import type { GravitySection } from '../../core/socialGravity'
 import { formatViewers } from '../../core/twitchMetadata'
 import type { ChannelMetadata } from '../../core/twitchMetadata'
@@ -51,8 +52,9 @@ import type { UserCardContext } from './UserCard'
  * default view costs nobody their friend management.
  */
 
-/** A stable empty default, so an omitted prop is not a new object each render. */
-const EMPTY_DESTINATIONS: Readonly<Record<string, readonly string[]>> = {}
+/** Stable empty defaults, so an omitted prop is not a new object each render. */
+const EMPTY_DESTINATIONS: DestinationsByUser = {}
+const EMPTY_METADATA: Readonly<Record<string, ChannelMetadata>> = {}
 
 interface SocialGravityProps {
   friends: Friend[]
@@ -66,7 +68,7 @@ interface SocialGravityProps {
    * Omitting it produces exactly the map this component produced before
    * multi-destination existed.
    */
-  destinations?: Readonly<Record<string, readonly string[]>>
+  destinations?: DestinationsByUser
   localActivity: Activity
   onRemove?: (userId: string) => void
   client: KickbackClient
@@ -473,33 +475,30 @@ export function SocialGravity({
 
   const sections = useMemo(
     () =>
-      socialGravity(
-        /*
-         * One entry per friend PER ACTIVE DESTINATION.
-         *
-         * This is where multi-destination reaches the screen. Before it, this
-         * component clustered the plain friends list - one presence, one
-         * channel each - so a friend with three streams open could only ever
-         * appear on one card, whatever the database said.
-         */
-        expandDestinations(
-          friends.map((friend) => ({
-            member: friend,
-            presence: friend.presence,
-            userId: friend.user.id,
-          })),
-          destinations,
-        ),
+      /*
+       * THE canonical model - the same call the panel makes for analytics.
+       *
+       * The component does not rebuild domain state: it names its inputs and
+       * renders what comes back. `now` is left to the selector, because
+       * reading the clock during render is impure and it is only used to age
+       * presence out.
+       */
+      gravityModel({
+        friends: friends.map((friend) => ({
+          member: friend,
+          presence: friend.presence,
+          userId: friend.user.id,
+        })),
+        destinations,
         localActivity,
-        // Left to the selector's own default: reading the clock during render
-        // is impure, and it is only used to age presence out.
-        undefined,
         // "Where is everyone else" - the viewer is never one of them.
-        cardContext.selfId,
-        // The selector applies the freshness rule, so a record too old to
-        // be evidence reports `unknown` and ranks and renders as none at all.
-        metadata,
-      ),
+        selfId: cardContext.selfId,
+        // Required by the model, and this is why: without it every card loses
+        // its Twitch casing, live badge, category, viewers and avatar, and
+        // still renders. The selector applies the freshness rule, so a record
+        // too old to be evidence reports `unknown`.
+        metadata: metadata ?? EMPTY_METADATA,
+      }),
     [friends, destinations, localActivity, cardContext.selfId, metadata],
   )
 

@@ -19,9 +19,9 @@ import { createActivityRegistry } from './activity'
 // diagnostic below cannot report a map the UI does not draw.
 import {
   GRAVITY_THRESHOLD,
-  expandDestinations,
+  gravityChannels,
+  gravityModel,
   isGravity,
-  socialGravity,
 } from '../core/socialGravity'
 import { createGatheringWatcher } from './gatherings'
 import { resolveChannelName } from '../core/channelNames'
@@ -960,10 +960,29 @@ function currentChannel(): string | null {
  * that the stream they are watching has ended.
  */
 function wantMetadata(): void {
-  const channels = friendsState.friends.flatMap((friend) => {
-    const activity = friend.presence?.activity
-    return activity?.type === 'watching' ? [activity.channel] : []
-  })
+  /*
+   * Derived from the SAME expansion the map is built from.
+   *
+   * This used to enumerate `presence.channel` alone - the legacy singular
+   * primary - which was correct until a friend could be at three destinations
+   * at once. Then exactly one of the three had metadata fetched for it, and
+   * the other two rendered as bare lowercase logins with no live badge, no
+   * category, no viewer count, no title and no avatar. The data was all there;
+   * nobody had asked Twitch about it.
+   *
+   * Asking gravityChannels rather than re-deriving the set here is the fix and
+   * also the point: enrichment and presentation now describe the same world by
+   * construction, so a future change to what the map shows cannot silently
+   * leave the enrichment behind.
+   */
+  const channels = gravityChannels(
+    stampFriends(friendsState.friends, presenceIndex).map((friend) => ({
+      member: friend,
+      presence: friend.presence,
+      userId: friend.user.id,
+    })),
+    friendDestinations,
+  )
 
   const here = currentChannel()
   if (here) channels.push(here)
@@ -2031,30 +2050,29 @@ if (METADATA_DIAGNOSTICS) {
       const friends = stampFriends(friendsState.friends, presenceIndex)
       const selfId = authState.identity?.userId ?? null
 
-      const input = expandDestinations(
-        friends.map((friend) => ({
+      const records = metadata.snapshot()
+      // The same canonical call the panel makes, so this cannot report a map
+      // the UI does not draw.
+      const sections = gravityModel({
+        friends: friends.map((friend) => ({
           member: friend,
           presence: friend.presence,
           userId: friend.user.id,
         })),
-        friendDestinations,
-      )
-
-      const sections = socialGravity(
-        input,
-        tabActivity.effective(),
-        Date.now(),
+        destinations: friendDestinations,
+        localActivity: tabActivity.effective(),
         selfId,
-        metadata.snapshot(),
-      )
+        metadata: records,
+        now: Date.now(),
+      })
 
-      /** Which friends the expansion put on each channel. */
+      /** Which friends the map put on each channel, from the model itself. */
       const byChannel: Record<string, string[]> = {}
-      for (const entry of input) {
-        const presence = entry.presence
-        if (!presence || presence.activity.type !== 'watching') continue
-        const channel = presence.activity.channel
-        ;(byChannel[channel] ??= []).push(entry.member.user.username || entry.member.user.id)
+      for (const section of sections) {
+        if (!section.channel) continue
+        byChannel[section.channel] = section.friends.map(
+          (friend) => friend.user.username || friend.user.id,
+        )
       }
 
       return {
@@ -2069,7 +2087,38 @@ if (METADATA_DIAGNOSTICS) {
         friendsWithDestinations: Object.keys(friendDestinations).length,
         // One entry per friend per destination - the thing Gravity clusters.
         gravityInput: byChannel,
-        gravityInputCount: input.length,
+        gravityInputCount: sections.reduce((total, section) => total + section.count, 0),
+        /*
+         * Which channels Twitch has actually told us about.
+         *
+         * The second regression was entirely here: the map was right and the
+         * cards were bare, because enrichment had been asked for one channel
+         * out of three. `enriched: false` on a rendered destination is that
+         * bug, and it is now visible in one line rather than by comparing a
+         * screenshot to a database.
+         */
+        enrichment: Object.fromEntries(
+          gravityChannels(
+            friends.map((friend) => ({
+              member: friend,
+              presence: friend.presence,
+              userId: friend.user.id,
+            })),
+            friendDestinations,
+          ).map((channel) => {
+            const record = records[channel]
+            return [
+              channel,
+              {
+                enriched: Boolean(record),
+                displayName: record?.displayName ?? null,
+                live: record?.live ?? 'unknown',
+                game: record?.gameName ?? null,
+                viewers: record?.viewerCount ?? null,
+              },
+            ]
+          }),
+        ),
         // And what came out, with why each one renders as it does.
         gravityOutput: sections.map((section) => ({
           channel: section.channel,
@@ -2078,6 +2127,7 @@ if (METADATA_DIAGNOSTICS) {
           rank: section.rank,
           rendered: section.kind === 'here' || section.kind === 'destination',
           gathering: isGravity(section),
+          enriched: section.channel ? Boolean(records[section.channel]) : null,
           why:
             section.kind === 'here'
               ? 'rendered as HERE - the viewer is on this channel'

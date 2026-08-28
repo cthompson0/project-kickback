@@ -9,7 +9,7 @@ import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
 import { SocialGravity } from './components/SocialGravity'
 import { StreamSession } from './components/StreamSession'
-import { expandDestinations, gravityOpportunities, socialGravity } from '../core/socialGravity'
+import { gravityModel, gravityOpportunities } from '../core/socialGravity'
 import { resolveArm } from '../core/experiment'
 import { FindFriends } from './components/FindFriends'
 import { IncomingRequests } from './components/IncomingRequests'
@@ -369,37 +369,25 @@ export function KickbackPanel({
    */
   const gravityMap = useMemo(
     () =>
-      socialGravity(
-        /*
-         * One entry per FRIEND PER ACTIVE DESTINATION.
-         *
-         * The expansion itself lives in core/socialGravity.ts rather than
-         * here, because having it in one place and the rendered component
-         * clustering the singular list beside it is exactly how
-         * multi-destination came to be computed correctly and shown nowhere.
-         * SocialGravity is handed the same destinations and calls the same
-         * function, so the two cannot drift again.
-         */
-        expandDestinations(
-          view.friends.map((friend) => ({
-            member: friend,
-            presence: friend.presence,
-            userId: friend.user.id,
-          })),
-          view.friendDestinations,
-        ),
-        view.localActivity,
-        undefined,
-        view.identity?.userId ?? null,
-        /*
-         * What Twitch says about each destination.
-         *
-         * The selector applies the freshness rule, so a record old enough to
-         * have stopped being evidence reports `unknown` - which ranks and
-         * renders exactly as no metadata at all.
-         */
-        view.channelMetadata,
-      ),
+      /*
+       * THE canonical model, and the same call SocialGravity makes.
+       *
+       * Not a second derivation for analytics: the exposure report below is a
+       * PROJECTION of this, through gravityOpportunities. That is the whole
+       * point - "analytics said three impressions, the screen showed one" is
+       * unreachable when there is one answer to what the map contains.
+       */
+      gravityModel({
+        friends: view.friends.map((friend) => ({
+          member: friend,
+          presence: friend.presence,
+          userId: friend.user.id,
+        })),
+        destinations: view.friendDestinations,
+        localActivity: view.localActivity,
+        selfId: view.identity?.userId ?? null,
+        metadata: view.channelMetadata,
+      }),
     [
       view.friends,
       view.friendDestinations,
