@@ -370,6 +370,23 @@ commits: the Day 0 documentation checkpoint that had been stuck since
 
 `main` and `origin/main` now point at the same commit.
 
+### Final verified state
+
+Confirmed after this report's own follow-up commits, in a later session:
+
+| | |
+| --- | --- |
+| Patch 1 commit | `e0d93b5` — `feat: friends beta patch 1` |
+| Checkpoint documentation | `c171fd3` — `docs: record patch 1 commit and push result` |
+| Working tree | **clean** — `git status --short` empty |
+| Branch | `## main...origin/main` — **in sync, 0 ahead, 0 behind** |
+| `vitest.config.ts` | matches HEAD; the Patch 1 two-project configuration (`node` + `dom`/jsdom) is in place |
+
+A pre-Patch-1 `vitest.config.ts` was temporarily restored during an abandoned
+diagnostic and has been **restored to the committed Patch 1 version**;
+`git diff -- vitest.config.ts` is empty. Temporary diagnostic files written
+under `/tmp` were removed; none was ever a project artifact or tracked by git.
+
 ---
 
 ## 8. Changes made during this checkpoint
