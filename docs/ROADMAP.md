@@ -3,7 +3,7 @@
 Where things stand, and — more usefully — what has already been decided so it
 does not get re-decided by accident.
 
-**Last updated:** 2026-08-26, at Private Beta Day 0.
+**Last updated:** 2026-08-27, at Friends Beta Patch 1.
 
 ---
 
@@ -65,6 +65,87 @@ each tester imagined.
 
 A suggestion is data about what somebody wanted in a moment. Three weeks of
 behaviour is data about what the product is.
+
+### Round 1 findings, and what happened to each
+
+The first session with two external testers produced ten findings. All of them
+are accounted for below and none has been quietly dropped. Full analysis:
+[friends-beta-investigation-2026-08-27.md](reports/friends-beta-investigation-2026-08-27.md).
+
+| # | Finding | Disposition |
+| --- | --- | --- |
+| 1 | Multi-stream behaviour | **NEXT CHECKPOINT** — architecture approved, see below |
+| 2 | Own username shown instead of "You" | **FIXED** in Patch 1 |
+| 3 | Group visible, could not participate | **UNRESOLVED.** Server-side authorization eliminated by execution; the client failure is now instrumented. Not claimed solved |
+| 4 | Every chat username the same colour | **FIXED** in Patch 1 |
+| 5 | Large friend list | **TRACKED / GATED** — see Known gaps. No scale work now |
+| 6 | Large group chat | **TRACKED / GATED** — no optimisation now |
+| 7 | Panel state not shared across Twitch tabs | **FIXED** in Patch 1 |
+| 8 | Firefox | **DEFERRED** — audited at MEDIUM, no port started |
+| 9 | Group chat lost its bottom anchor | **FIXED** in Patch 1 (proven root cause) |
+| 10 | Stream Room messages appeared to disappear | **TEMPORARY RELIEF** in Patch 1; properly fixed by the next checkpoint |
+
+### NOW — Friends Beta Patch 1
+
+Shipped together as one checkpoint. See
+[friends-beta-patch-1-2026-08-27.md](reports/friends-beta-patch-1-2026-08-27.md).
+
+- **Realtime teardown and topic hardening.** Channel topics are derived from
+  the id set rather than its size, and teardown is serialised per topic so a
+  re-subscribe cannot be handed a channel that is still unsubscribing.
+  Prerequisite, promoted by the architecture review.
+- **jsdom / effect test coverage.** A second Vitest project. No React effect in
+  this codebase had ever run inside a test, which is how finding #9 shipped.
+- **Failure and realtime telemetry.** `client_error`,
+  `realtime_status_changed`, `group_message_send_failed` — fixed vocabularies,
+  never a message. **Migration `0024`; not yet applied to hosted.**
+- **Group chat autoscroll**, **"You" consistency**, **deterministic username
+  colours**, **cross-tab panel synchronisation**.
+- **Temporary `sessionAvailable` relief** for finding #10. Explicitly
+  throwaway, labelled in the source, guarded by a test.
+- **The `ohjuliego` incident remains unresolved and instrumented.**
+
+### NEXT — Multi-destination beta checkpoint
+
+**Approved at the product and architecture level.** Not implemented. Full
+design: [multi-stream-room-architecture-2026-08-27.md](reports/multi-stream-room-architecture-2026-08-27.md).
+
+- `public.presence` becomes account **liveness** only
+- `presence_destinations` becomes destination truth
+- **30-minute ACTIVE window**; at most **3 published destinations**
+- **Focus is never published** — it is a client-local concept, and a local
+  PRIMARY drives only the viewer's own HERE context
+- destination-set activity registry in the worker
+- **additive compatibility migration with an old-client shim**, so no
+  coordinated release is required
+- Gravity consumes every active destination; stale ones contribute nothing
+- per-destination Stream Room state, multiple stable room tabs, per-room
+  unread, retained-but-closed rooms
+- return-to-stream affordance **without adding the `tabs` permission**
+- `togetherWatch` becomes channel-keyed; JOIN and arrival analytics adapt to a
+  destination set
+- **the temporary `sessionAvailable` patch is removed, not extended**
+- RLS and authorization tests expanded for `presence_destinations`
+
+**The rules this must not break:** a room stays `(destination, friendship
+component)` with no stored room record; per-recipient send-time authorization
+stays; unrelated friend components on the same channel stay isolated; blocks
+stay on both graph traversal and delivery; no attention score; no
+`friends × destinations` realtime binding multiplication.
+
+### LATER
+
+In this order, none of it now:
+
+1. removal of legacy `presence.channel` / `presence.platform`, after every
+   tester has upgraded
+2. Firefox
+3. friend-list realtime scaling
+4. group scaling
+5. list virtualization
+6. analytics dashboard
+7. custom realtime infrastructure
+8. unrelated feature expansion
 
 ---
 
@@ -248,5 +329,9 @@ creator value, platform value, B2B, cross-platform strategic value.
 | **Incremental Social Watch Hours does not exist** | Do not quote it. The nearest honest proxy is attributed-arrival dwell |
 | Empty state does not sell the value proposition | Matters for organic installs, not for a hand-delivered cohort |
 | Developer mode required to install | Solved by Chrome Web Store distribution; the ZIP fallback still needs it |
+| **Realtime presence is one binding per friend** | Linear and unavoidable in the current design. Expected to break somewhere between 100 and 250 friends, silently. Unchanged by the multi-destination work |
+| **`broadcast()` is undebounced** | Every state change serialises the full snapshot to every tab. Fine at three testers; the first thing to bite at scale |
+| **Tab switch and stream navigation are indistinguishable to the backend** | The user experiences them as very different actions; presence treats them identically. The multi-destination model makes closing a tab the stronger signal |
+| **The `ohjuliego` group incident has no known cause** | Server-side authorization was eliminated by execution. Telemetry now exists to catch a recurrence. Do not mark it solved without evidence |
 | `https://cdn.7tv.app/*` host permission is probably unnecessary | Emote images are `<img>` loads, which do not need one - `static-cdn.jtvnw.net` is the proof, used the same way with no permission. Not removed before submission because the failure mode is silent; permissions can be reduced later without user re-consent |
 | Account deletion is a manual email request | Correct and complete, but not self-service. Fine for this cohort, a real gap before public launch |

@@ -558,9 +558,15 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
     // Either kind of evidence: presence for a direct friend, or the server for
     // anybody reached through one. Requiring only the second is what made a
     // card say "1 friend watching with you" and offer nowhere to go.
-    expect(PANEL).toContain(
-      'sessionChannel !== null && (view.roomPeers.length > 0 || view.roomMembers.length > 0)',
-    )
+    //
+    // Both are still required to be there, individually, so neither can be
+    // dropped while the expression is being edited. A third condition -
+    // retained messages - was added in Patch 1 as an explicitly temporary fix
+    // for finding #10 and is covered by tests/extension/roomSurfaceRelief.tsx,
+    // including the guard that it stays labelled as removable.
+    expect(PANEL).toContain('view.roomPeers.length > 0 || view.roomMembers.length > 0')
+    expect(PANEL).toContain('const sessionAvailable =')
+    expect(PANEL).toContain('sessionChannel !== null &&')
     expect(PANEL).toContain('{sessionAvailable && sessionChannel && (')
   })
 

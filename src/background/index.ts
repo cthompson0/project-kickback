@@ -48,6 +48,8 @@ import { describePresence } from '../core/personPresence'
 import type { AnalyticsEnvironment } from '../core/analytics'
 import { isAnalyticsEventName } from '../core/analytics'
 import { createNotifier } from './notifier'
+import { toFailureCode, toFailureContext } from '../core/failures'
+import type { RealtimeStatus, RealtimeSurface } from '../core/failures'
 import { findGatherings } from '../core/presence'
 import { parseMessage } from '../core/emotes'
 import { lengthBucket } from '../core/analytics'
@@ -120,9 +122,50 @@ if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
 
 const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, storage)
 
+/**
+ * Reports a failure to analytics.
+ *
+ * A late binding rather than a direct call, because `logError` is wired into
+ * every service that is constructed BEFORE the analytics hub exists - and a
+ * failure during construction is exactly the kind worth keeping. Until the hub
+ * is built this is a no-op; afterwards every call site already points here.
+ */
+let reportFailure: ((context: string, error: unknown) => void) | null = null
+
 const logError = (context: string, error: unknown) => {
   // Never log the error object itself - Supabase errors can quote the request.
   console.warn(`[Kickback] ${context} failed:`, error instanceof Error ? error.message : error)
+  /*
+   * And now it leaves the machine, as a call site and a shape - never a
+   * message. See core/failures.ts for why that distinction is the whole design.
+   *
+   * Analytics' own failures are excluded, and not merely to avoid noise: an
+   * analytics flush that fails would record an event, which would need
+   * flushing, which would fail.
+   */
+  if (context.startsWith('analytics.')) return
+  reportFailure?.(context, error)
+}
+
+/** Last status seen per surface, so only genuine transitions are recorded. */
+const realtimeStatus = new Map<RealtimeSurface, RealtimeStatus>()
+
+/**
+ * A realtime subscription changed state.
+ *
+ * Transitions only. A channel that reconnects every thirty seconds is a
+ * different story from one that connected once, and recording every repeat of
+ * the same status would bury the difference.
+ */
+function noteRealtime(surface: RealtimeSurface, status: 'connected' | 'error'): void {
+  const previous = realtimeStatus.get(surface)
+  // Coming back after a failure is its own answer, not another 'connected'.
+  const next: RealtimeStatus =
+    status === 'connected' && previous === 'error' ? 'reconnected' : status
+  if (previous === next) return
+  realtimeStatus.set(surface, next)
+  console.info(`[Kickback] ${surface} realtime`, next)
+  analytics.track('realtime_status_changed', { surface, status: next })
 }
 
 const auth = createAuthService({
@@ -165,7 +208,9 @@ const socialSync = createSocialSync({
     room.invalidate()
     room.want(sessionChannel())
   },
-  onStatusChange: (status) => console.info('[Kickback] social sync', status),
+  onStatusChange: (status) => {
+    if (status === 'connected' || status === 'error') noteRealtime('social', status)
+  },
   onError: logError,
 })
 
@@ -252,7 +297,9 @@ const presenceSync = createPresenceSync({
     // changes to people we only know through a group.
     void groups.refresh()
   },
-  onStatusChange: (status) => console.info('[Kickback] presence sync', status),
+  onStatusChange: (status) => {
+    if (status === 'connected' || status === 'error') noteRealtime('presence', status)
+  },
   onError: logError,
 })
 
@@ -386,7 +433,9 @@ const groupSync = createGroupSync({
   },
   onMembershipChanged: () => void groups.refresh(),
   onResync: () => void groups.refresh(),
-  onStatusChange: (status) => console.info('[Kickback] group sync', status),
+  onStatusChange: (status) => {
+    if (status === 'connected' || status === 'error') noteRealtime('group', status)
+  },
   onError: logError,
 })
 /**
@@ -407,6 +456,7 @@ const room = createStreamRoom({
 })
 
 const together = createTogetherReactions({
+  onStatus: (status) => noteRealtime('together', status),
   channel: createSupabaseTogetherChannel(supabase),
   backend: createSupabaseTogetherBackend(supabase),
   onChange: () => broadcast(),
@@ -437,6 +487,7 @@ const together = createTogetherReactions({
  * server wrote the row.
  */
 const roomChat = createRoomMessages({
+  onStatus: (status) => noteRealtime('room', status),
   channel: createSupabaseRoomMessageChannel(supabase),
   backend: createSupabaseRoomMessageBackend(supabase),
   onChange: () => broadcast(),
@@ -571,6 +622,18 @@ const METADATA_DIAGNOSTICS =
 const METADATA_KEY = 'kickback:channelMetadata'
 
 const metadataBackend = createSupabaseMetadataBackend(supabase)
+
+/*
+ * The hub exists now, so failures can be reported rather than only logged.
+ * Everything constructed above already calls logError; this is what makes
+ * those calls do something.
+ */
+reportFailure = (context, error) => {
+  analytics.track('client_error', {
+    context: toFailureContext(context),
+    code: toFailureCode(error),
+  })
+}
 
 const metadata = createMetadataService({
   fetcher: metadataBackend,
@@ -1325,7 +1388,22 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
     // Bare emote names become stable provider+id tokens here, once, so the
     // message records exactly which emote was meant.
     const resolved = emoteCatalog.resolveOutgoing(String(body))
-    await groups.sendMessage(String(groupId), resolved)
+    try {
+      await groups.sendMessage(String(groupId), resolved)
+    } catch (error) {
+      /*
+       * Recorded, then rethrown unchanged.
+       *
+       * The composer still shows the user the real message; this only adds the
+       * SHAPE of the refusal to analytics, which is what separates "she sent
+       * and never saw it" from "she never sent at all" - the question the first
+       * external bug report could not answer. The body is not here.
+       */
+      analytics.track('group_message_send_failed', { code: toFailureCode(error) }, {
+        source: 'group',
+      })
+      throw error
+    }
     /*
      * Shape, never content. The bucket and the flag are computed here and the
      * message itself is discarded - there is no property key a body could go

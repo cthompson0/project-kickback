@@ -6,6 +6,7 @@ import type { ReactionChannel, ReactionChannelHandlers } from './togetherReactio
 import type { RoomMessageChannel, RoomMessageChannelHandlers } from './roomMessages'
 import type { MessageRow } from './supabaseBackend'
 import type { GroupChannel, GroupChannelHandlers } from './groupSync'
+import { createTopicGate, topicFor } from './realtimeTopics'
 
 /**
  * Supabase Realtime, used narrowly for social-graph invalidation.
@@ -29,59 +30,99 @@ const GROUP_PREFIX = 'kickback-groups'
 const TOGETHER_PREFIX = 'kickback-together'
 const ROOM_PREFIX = 'kickback-room'
 
+/*
+ * One gate for every channel this module opens.
+ *
+ * Module scope rather than per-factory, because the thing being serialised is
+ * the supabase-js channel registry, and there is one of those. Two subscription
+ * managers that happen to name the same topic must queue behind each other even
+ * though neither knows the other exists.
+ *
+ * See realtimeTopics.ts for why this is needed at all.
+ */
+const gate = createTopicGate()
+
+/**
+ * Subscribe, and remember how to unsubscribe.
+ *
+ * Every channel in this file goes through here so that the two rules are
+ * applied in one place rather than five: wait for any pending teardown of the
+ * same topic before asking for it, and hand back a close that a later open can
+ * actually wait for.
+ */
+async function openChannel(
+  supabase: SupabaseClient,
+  topic: string,
+  bind: (channel: ReturnType<SupabaseClient['channel']>) => void,
+  onStatus: (status: 'connected' | 'error') => void,
+): Promise<() => void> {
+  // The socket must carry this user's JWT or RLS will reject the
+  // subscription. Set it before subscribing, not after.
+  const { data } = await supabase.auth.getSession()
+  const accessToken = data.session?.access_token
+  if (accessToken) {
+    await supabase.realtime.setAuth(accessToken)
+  }
+
+  return gate.enter(topic, async () => {
+    const channel = supabase.channel(topic)
+    bind(channel)
+    channel.subscribe((status: string) => {
+      switch (status) {
+        case 'SUBSCRIBED':
+          onStatus('connected')
+          break
+        case 'CHANNEL_ERROR':
+        case 'TIMED_OUT':
+          onStatus('error')
+          break
+        default:
+          // CLOSED and anything new: not connected, but not fatal either.
+          break
+      }
+    })
+
+    return () => {
+      // Registered with the gate rather than fired and forgotten, so the next
+      // open of this topic waits for the registry slot to be free.
+      void gate.leave(topic, Promise.resolve(supabase.removeChannel(channel)))
+    }
+  })
+}
+
 export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialChannel {
   return {
     async open(userId: string, handlers: SocialChannelHandlers): Promise<() => void> {
-      // The socket must carry this user's JWT or RLS will reject the
-      // subscription. Set it before subscribing, not after.
-      const { data } = await supabase.auth.getSession()
-      const accessToken = data.session?.access_token
-      if (accessToken) {
-        await supabase.realtime.setAuth(accessToken)
-      }
-
-      const channel = supabase.channel(`${CHANNEL_PREFIX}:${userId}`)
       const bump = () => handlers.onEvent()
 
-      channel
-        .on(
+      return openChannel(supabase, `${CHANNEL_PREFIX}:${userId}`, (channel) => {
+        channel
+          .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'friendships', filter: `user_id=eq.${userId}` },
-          bump,
-        )
-        .on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'friend_requests', filter: `to_user=eq.${userId}` },
-          bump,
-        )
-        .on(
-          'postgres_changes',
-          {
-            event: '*',
-            schema: 'public',
-            table: 'friend_requests',
-            filter: `from_user=eq.${userId}`,
-          },
-          bump,
-        )
-        .subscribe((status) => {
-          switch (status) {
-            case 'SUBSCRIBED':
-              handlers.onStatus('connected')
-              break
-            case 'CHANNEL_ERROR':
-            case 'TIMED_OUT':
-              handlers.onStatus('error')
-              break
-            default:
-              // CLOSED and anything new: treat as not connected but not fatal.
-              break
-          }
-        })
-
-      return () => {
-        void supabase.removeChannel(channel)
-      }
+            { event: '*', schema: 'public', table: 'friendships', filter: `user_id=eq.${userId}` },
+            bump,
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'friend_requests',
+              filter: `to_user=eq.${userId}`,
+            },
+            bump,
+          )
+          .on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'friend_requests',
+              filter: `from_user=eq.${userId}`,
+            },
+            bump,
+          )
+      }, handlers.onStatus)
     },
   }
 }
@@ -97,47 +138,36 @@ export function createSupabaseSocialChannel(supabase: SupabaseClient): SocialCha
 export function createSupabasePresenceChannel(supabase: SupabaseClient): PresenceChannel {
   return {
     async open(friendIds: string[], handlers: PresenceChannelHandlers): Promise<() => void> {
-      const { data } = await supabase.auth.getSession()
-      const accessToken = data.session?.access_token
-      if (accessToken) {
-        await supabase.realtime.setAuth(accessToken)
-      }
-
-      const channel = supabase.channel(`${PRESENCE_PREFIX}:${friendIds.length}:${friendIds[0]}`)
-
-      for (const friendId of friendIds) {
-        channel.on(
-          'postgres_changes',
-          { event: '*', schema: 'public', table: 'presence', filter: `user_id=eq.${friendId}` },
-          (payload: { eventType?: string; new?: unknown; old?: unknown }) => {
-            if (payload.eventType === 'DELETE') {
-              handlers.onPresenceGone(friendId)
-              return
-            }
-            const row = payload.new as Parameters<typeof toPresence>[0] | undefined
-            if (!row || typeof row.user_id !== 'string') return
-            handlers.onPresence(toPresence(row))
-          },
-        )
-      }
-
-      channel.subscribe((status) => {
-        switch (status) {
-          case 'SUBSCRIBED':
-            handlers.onStatus('connected')
-            break
-          case 'CHANNEL_ERROR':
-          case 'TIMED_OUT':
-            handlers.onStatus('error')
-            break
-          default:
-            break
-        }
-      })
-
-      return () => {
-        void supabase.removeChannel(channel)
-      }
+      /*
+       * The topic names the SET, not its size.
+       *
+       * It used to be `<count>:<first id>`, so two different friend sets of
+       * equal size that happened to share a first member collided on one
+       * topic - and supabase-js keys its registry by topic. See
+       * realtimeTopics.ts.
+       */
+      return openChannel(
+        supabase,
+        topicFor(PRESENCE_PREFIX, 'friends', friendIds),
+        (channel) => {
+          for (const friendId of friendIds) {
+            channel.on(
+              'postgres_changes',
+              { event: '*', schema: 'public', table: 'presence', filter: `user_id=eq.${friendId}` },
+              (payload: { eventType?: string; new?: unknown; old?: unknown }) => {
+                if (payload.eventType === 'DELETE') {
+                  handlers.onPresenceGone(friendId)
+                  return
+                }
+                const row = payload.new as Parameters<typeof toPresence>[0] | undefined
+                if (!row || typeof row.user_id !== 'string') return
+                handlers.onPresence(toPresence(row))
+              },
+            )
+          }
+        },
+        handlers.onStatus,
+      )
     },
   }
 }
@@ -178,44 +208,25 @@ export function createSupabasePresenceChannel(supabase: SupabaseClient): Presenc
 export function createSupabaseTogetherChannel(supabase: SupabaseClient): ReactionChannel {
   return {
     async open(userId: string, handlers: ReactionChannelHandlers): Promise<() => void> {
-      const { data } = await supabase.auth.getSession()
-      const accessToken = data.session?.access_token
-      if (accessToken) {
-        await supabase.realtime.setAuth(accessToken)
-      }
-
-      const subscription = supabase.channel(`${TOGETHER_PREFIX}:${userId}`)
-
-      subscription.on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'together_reactions',
-          filter: `recipient_id=eq.${userId}`,
+      return openChannel(
+        supabase,
+        `${TOGETHER_PREFIX}:${userId}`,
+        (channel) => {
+          channel.on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'together_reactions',
+              filter: `recipient_id=eq.${userId}`,
+            },
+            (payload: { new?: unknown }) => {
+              if (payload.new) handlers.onReaction(payload.new)
+            },
+          )
         },
-        (payload: { new?: unknown }) => {
-          if (payload.new) handlers.onReaction(payload.new)
-        },
+        handlers.onStatus,
       )
-
-      subscription.subscribe((status) => {
-        switch (status) {
-          case 'SUBSCRIBED':
-            handlers.onStatus('connected')
-            break
-          case 'CHANNEL_ERROR':
-          case 'TIMED_OUT':
-            handlers.onStatus('error')
-            break
-          default:
-            break
-        }
-      })
-
-      return () => {
-        void supabase.removeChannel(subscription)
-      }
     },
   }
 }
@@ -236,125 +247,117 @@ export function createSupabaseTogetherChannel(supabase: SupabaseClient): Reactio
 export function createSupabaseRoomMessageChannel(supabase: SupabaseClient): RoomMessageChannel {
   return {
     async open(userId: string, handlers: RoomMessageChannelHandlers): Promise<() => void> {
-      const { data } = await supabase.auth.getSession()
-      const accessToken = data.session?.access_token
-      if (accessToken) {
-        await supabase.realtime.setAuth(accessToken)
-      }
-
-      const subscription = supabase.channel(`${ROOM_PREFIX}:${userId}`)
-
-      subscription.on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'room_messages',
-          filter: `recipient_id=eq.${userId}`,
+      return openChannel(
+        supabase,
+        `${ROOM_PREFIX}:${userId}`,
+        (channel) => {
+          channel.on(
+            'postgres_changes',
+            {
+              event: 'INSERT',
+              schema: 'public',
+              table: 'room_messages',
+              filter: `recipient_id=eq.${userId}`,
+            },
+            (payload: { new?: unknown }) => {
+              if (payload.new) handlers.onMessage(payload.new)
+            },
+          )
         },
-        (payload: { new?: unknown }) => {
-          if (payload.new) handlers.onMessage(payload.new)
-        },
+        handlers.onStatus,
       )
-
-      subscription.subscribe((status) => {
-        switch (status) {
-          case 'SUBSCRIBED':
-            handlers.onStatus('connected')
-            break
-          case 'CHANNEL_ERROR':
-          case 'TIMED_OUT':
-            handlers.onStatus('error')
-            break
-          default:
-            break
-        }
-      })
-
-      return () => {
-        void supabase.removeChannel(subscription)
-      }
     },
   }
 }
 export function createSupabaseGroupChannel(supabase: SupabaseClient): GroupChannel {
   return {
     async open(groupIds: string[], userId: string, handlers: GroupChannelHandlers) {
-      const { data } = await supabase.auth.getSession()
-      const accessToken = data.session?.access_token
-      if (accessToken) {
-        await supabase.realtime.setAuth(accessToken)
-      }
+      /*
+       * The topic names the SET of groups, not how many there are.
+       *
+       * It used to be `<user>:<count>`, which meant every one-group state
+       * shared a topic - so leaving one group and joining another asked
+       * supabase-js for a name it still had registered, and a retry after
+       * CHANNEL_ERROR asked for the one it was mid-way through removing. The
+       * gate in openChannel closes the second half of that; this closes the
+       * first. See realtimeTopics.ts.
+       *
+       * This is hardening on its own merits. It is NOT a claimed fix for the
+       * unresolved group participation incident - see
+       * docs/reports/friends-beta-investigation-2026-08-27.md §2.
+       */
+      return openChannel(
+        supabase,
+        topicFor(GROUP_PREFIX, userId, groupIds),
+        (channel) => {
+          for (const groupId of groupIds) {
+            channel.on(
+              'postgres_changes',
+              {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'group_messages',
+                filter: `group_id=eq.${groupId}`,
+              },
+              (payload: { new?: unknown }) => {
+                const row = payload.new as MessageRow | undefined
+                if (!row || typeof row.message_id !== 'string') {
+                  // The realtime row is the raw table shape, not the RPC shape:
+                  // it has `id`, and no display name. Re-read handles the rest.
+                  const raw = payload.new as
+                    | {
+                        id?: string
+                        group_id?: string
+                        user_id?: string
+                        body?: string
+                        created_at?: string
+                      }
+                    | undefined
+                  if (!raw?.id || !raw.group_id) return
+                  handlers.onRawMessage({
+                    id: raw.id,
+                    groupId: raw.group_id,
+                    userId: raw.user_id ?? '',
+                    body: raw.body ?? '',
+                    createdAt: raw.created_at ?? new Date().toISOString(),
+                  })
+                  return
+                }
+                handlers.onRawMessage({
+                  id: row.message_id,
+                  groupId: row.group_id,
+                  userId: row.user_id,
+                  body: row.body,
+                  createdAt: row.created_at,
+                })
+              },
+            )
+          }
 
-      const channel = supabase.channel(`${GROUP_PREFIX}:${userId}:${groupIds.length}`)
-
-      for (const groupId of groupIds) {
-        channel.on(
-          'postgres_changes',
-          {
-            event: 'INSERT',
-            schema: 'public',
-            table: 'group_messages',
-            filter: `group_id=eq.${groupId}`,
-          },
-          (payload: { new?: unknown }) => {
-            const row = payload.new as MessageRow | undefined
-            if (!row || typeof row.message_id !== 'string') {
-              // The realtime row is the raw table shape, not the RPC shape:
-              // it has `id`, and no display name. Re-read handles the rest.
-              const raw = payload.new as
-                | { id?: string; group_id?: string; user_id?: string; body?: string; created_at?: string }
-                | undefined
-              if (!raw?.id || !raw.group_id) return
-              handlers.onRawMessage({
-                id: raw.id,
-                groupId: raw.group_id,
-                userId: raw.user_id ?? '',
-                body: raw.body ?? '',
-                createdAt: raw.created_at ?? new Date().toISOString(),
-              })
-              return
-            }
-            handlers.onRawMessage({
-              id: row.message_id,
-              groupId: row.group_id,
-              userId: row.user_id,
-              body: row.body,
-              createdAt: row.created_at,
-            })
-          },
-        )
-      }
-
-      // Membership and invitations: re-read rather than interpret.
-      channel.on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'group_members', filter: `user_id=eq.${userId}` },
-        () => handlers.onMembershipChanged(),
+          // Membership and invitations: re-read rather than interpret.
+          channel.on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'group_members',
+              filter: `user_id=eq.${userId}`,
+            },
+            () => handlers.onMembershipChanged(),
+          )
+          channel.on(
+            'postgres_changes',
+            {
+              event: '*',
+              schema: 'public',
+              table: 'group_invites',
+              filter: `to_user=eq.${userId}`,
+            },
+            () => handlers.onMembershipChanged(),
+          )
+        },
+        handlers.onStatus,
       )
-      channel.on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'group_invites', filter: `to_user=eq.${userId}` },
-        () => handlers.onMembershipChanged(),
-      )
-
-      channel.subscribe((status) => {
-        switch (status) {
-          case 'SUBSCRIBED':
-            handlers.onStatus('connected')
-            break
-          case 'CHANNEL_ERROR':
-          case 'TIMED_OUT':
-            handlers.onStatus('error')
-            break
-          default:
-            break
-        }
-      })
-
-      return () => {
-        void supabase.removeChannel(channel)
-      }
     },
   }
 }

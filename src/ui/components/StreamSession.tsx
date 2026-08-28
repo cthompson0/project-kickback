@@ -215,7 +215,18 @@ export function StreamSession({
   const display = heard.map((message) => ({
     id: message.id,
     userId: message.senderId,
-    displayName: nameOf(message.senderId),
+    /*
+     * The REAL name, even for the viewer.
+     *
+     * MessageList substitutes "You" now, using the selfId it already has, so
+     * that group chat and this surface cannot disagree about what the viewer
+     * is called. Substituting here as well would leave two implementations of
+     * one rule, which is how they came apart in the first place.
+     *
+     * `nameOf` is still right for the cluster and for combo credit below:
+     * those are sentences about a person, not a message byline.
+     */
+    displayName: byId.get(message.senderId)?.user.displayName ?? 'Someone',
     avatarUrl: byId.get(message.senderId)?.user.avatarUrl ?? null,
     body: message.body,
   }))

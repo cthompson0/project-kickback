@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { avatarTint } from '../avatarTint'
 import { EMOTES, isEmoteOnly, parseMessage } from '../../core/emotes'
 import type { ComboAnnotation } from '../../core/combos'
 import type { Emote } from '../../core/emotes'
@@ -88,6 +89,16 @@ export function ComboBadge({ annotation }: { annotation: ComboAnnotation }) {
 }
 
 /**
+ * How close to the bottom still counts as being at the bottom.
+ *
+ * Not zero: a fractional scroll position, a half-pixel device ratio or a font
+ * that measures differently after loading all leave a few pixels behind, and a
+ * strict comparison would silently stop following for reasons the user cannot
+ * see or fix. Roughly one line of chat.
+ */
+const NEAR_BOTTOM_PX = 48
+
+/**
  * The log.
  *
  * Identity opens the same UserCard it opens everywhere else, which is what
@@ -95,6 +106,14 @@ export function ComboBadge({ annotation }: { annotation: ComboAnnotation }) {
  * dead end. `lookup` lets the caller supply richer presence for people it
  * knows; a sender it cannot resolve still renders, because a message from
  * somebody who has since left is still a real message.
+ *
+ * TWO THINGS THIS COMPONENT OWNS FOR BOTH SURFACES
+ *
+ * The viewer is called "You" here rather than by the caller, and a sender's
+ * colour is derived here rather than by the caller, because both are facts
+ * about a message list and neither is a fact about a group or a room. They
+ * used to live in StreamSession, so group chat quietly disagreed with the room
+ * about the viewer's own name.
  */
 export function MessageList({
   messages,
@@ -114,20 +133,130 @@ export function MessageList({
   empty: string
 }) {
   const [openCardFor, setOpenCardFor] = useState<string | null>(null)
-  const endRef = useRef<HTMLDivElement>(null)
+  const logRef = useRef<HTMLDivElement>(null)
 
-  // Follow the conversation as it arrives.
+  /*
+   * FOLLOWING THE CONVERSATION
+   *
+   * This used to be one line - scrollIntoView on an end marker, keyed on
+   * `messages.length` - and it was wrong in four separate ways. The buffers
+   * are capped (60 for a group, 200 for a room), so once a conversation is
+   * full the length never changes again and the effect simply stopped running
+   * forever. It also yanked somebody who had scrolled up to re-read, it
+   * scrolled every scrollable ancestor including Twitch's own page, and it ran
+   * before emotes and avatars had loaded and grown the content.
+   *
+   * See docs/reports/friends-beta-investigation-2026-08-27.md §3.
+   *
+   * WHY THE ANCHOR IS A REF AND A STATE
+   *
+   * The effect needs the freshest value without re-running when it changes;
+   * the affordance needs a render when it changes. So the ref is the truth and
+   * the state is the render trigger, and both are written from the scroll
+   * handler - an event, where setState is allowed - never from an effect.
+   */
+  const lastId = messages.length > 0 ? messages[messages.length - 1].id : null
+  const anchoredRef = useRef(true)
+  const [anchored, setAnchored] = useState(true)
+  /**
+   * The newest message the viewer had seen when they last left the bottom.
+   *
+   * State rather than a ref because the render reads it, and it is only ever
+   * written from an event - the scroll handler and the jump control - because
+   * writing state from an effect is both forbidden here and the wrong shape:
+   * this is a record of something the PERSON did.
+   *
+   * It starts at whatever is on screen, since a fresh list opens at the
+   * bottom, and it advances on any scroll that leaves the viewer caught up -
+   * including the one that carries them away, whose value is exactly "the last
+   * thing they saw before they went looking".
+   */
+  const [seenBottom, setSeenBottom] = useState<string | null>(lastId)
+
+  const toBottom = () => {
+    const log = logRef.current
+    if (!log) return
+    // The container itself, not scrollIntoView: an ancestor walk is how the
+    // old implementation could move Twitch's page underneath the panel.
+    log.scrollTop = log.scrollHeight
+  }
+
+  // Keyed on the newest message's IDENTITY, which keeps changing after the
+  // buffer stops growing. That is the whole fix.
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end' })
-  }, [messages.length])
+    if (!anchoredRef.current) return
+    toBottom()
+  }, [lastId])
+
+  /*
+   * Emotes and avatars finish loading after the effect above has run and make
+   * the log taller, which would leave a follower a little short of the bottom.
+   * `load` does not bubble, so this listens in the capture phase.
+   */
+  useEffect(() => {
+    const log = logRef.current
+    if (!log) return
+    const settle = () => {
+      if (anchoredRef.current) toBottom()
+    }
+    log.addEventListener('load', settle, true)
+    return () => log.removeEventListener('load', settle, true)
+  }, [])
+
+  const onScroll = () => {
+    const log = logRef.current
+    if (!log) return
+    const near = log.scrollHeight - log.scrollTop - log.clientHeight <= NEAR_BOTTOM_PX
+    const wasNear = anchoredRef.current
+    anchoredRef.current = near
+    // Caught up, or in the act of leaving. Not while already away - that is
+    // the whole interval the affordance is counting.
+    if (near || wasNear) setSeenBottom(lastId)
+    setAnchored(near)
+  }
+
+  const resume = () => {
+    anchoredRef.current = true
+    setAnchored(true)
+    setSeenBottom(lastId)
+    toBottom()
+  }
+
+  /*
+   * Something arrived while they were reading further up.
+   *
+   * Derived rather than stored: storing it would mean setting state from the
+   * arrival effect, and the render already happens because `messages` changed.
+   */
+  const hasNew = !anchored && lastId !== null && lastId !== seenBottom
 
   return (
-    <div className="kb-chat-log">
+    <>
+    <div className="kb-chat-log" ref={logRef} onScroll={onScroll}>
       {messages.length === 0 && <div className="kb-quiet-sub kb-chat-empty">{empty}</div>}
 
       {messages.map((message) => {
         const annotation = annotations.get(message.id)
         const known = lookup?.(message.userId)
+        const isSelf = message.userId === selfId
+        /*
+         * The viewer is "You", in every conversation.
+         *
+         * Here rather than in the caller: the room used to substitute this
+         * itself and group chat did not, so the same person read as "You" in
+         * one place and as their Twitch name in the other.
+         */
+        const label = isSelf ? 'You' : message.displayName
+        /*
+         * A stable colour per person, from the same function that tints an
+         * avatar with no picture - so somebody's name in chat matches their
+         * face above it. Deterministic from the user id, so every viewer on
+         * every device sees the same colour without anything being stored.
+         *
+         * Self is left alone: it keeps --kb-here from the stylesheet, which is
+         * what makes your own messages findable at a glance.
+         */
+        const tint = isSelf ? undefined : avatarTint(message.userId)
 
         return (
           <div key={message.id} className="kb-msg">
@@ -150,10 +279,11 @@ export function MessageList({
               <span
                 role="button"
                 tabIndex={0}
-                className={`kb-msg-who kb-msg-who-btn${
-                  message.userId === selfId ? ' kb-msg-who-self' : ''
-                }`}
-                title={`About ${message.displayName}`}
+                className={`kb-msg-who kb-msg-who-btn${isSelf ? ' kb-msg-who-self' : ''}`}
+                style={tint ? { color: tint } : undefined}
+                // Reads the label, so both surfaces say the same thing about
+                // the same person - including the viewer.
+                title={isSelf ? 'About you' : `About ${message.displayName}`}
                 onClick={() => setOpenCardFor((open) => (open === message.id ? null : message.id))}
                 onKeyDown={(event) => {
                   if (event.key !== 'Enter' && event.key !== ' ') return
@@ -169,7 +299,7 @@ export function MessageList({
                     sender's colour; the colon is structural punctuation and
                     takes the ordinary chat foreground, so a coloured name does
                     not bleed into the separator after it. */}
-                {message.displayName}
+                {label}
                 <span className="kb-msg-sep">:</span>
               </span>
               <MessageBody body={message.body} />
@@ -204,8 +334,21 @@ export function MessageList({
           </div>
         )
       })}
-      <div ref={endRef} />
     </div>
+
+    {/*
+      * Only while they are actually missing something.
+      *
+      * Not a permanent scroll-to-bottom button: a control that is always there
+      * is furniture, and one that appears exactly when it has a job to do says
+      * what it is for without a label explaining it.
+      */}
+    {hasNew && (
+      <button type="button" className="kb-chat-jump" onClick={resume} aria-live="polite">
+        New messages ↓
+      </button>
+    )}
+    </>
   )
 }
 

@@ -21,6 +21,12 @@
  */
 
 import type { FeedbackCategory } from '../client/types'
+import type {
+  FailureCode,
+  FailureContext,
+  RealtimeStatus,
+  RealtimeSurface,
+} from './failures'
 
 /** Which build produced an event. A property of the build, not a claim about a person. */
 export type AnalyticsEnvironment = 'development' | 'private_beta' | 'production'
@@ -253,6 +259,35 @@ export interface AnalyticsEventMap {
   feedback_submitted: { category: FeedbackCategory }
   combo_formed: { count: number }
   combo_broken: { count: number }
+
+  // ------------------------------------------------------------- diagnostics
+  /*
+   * Something failed, and we would like to know that without knowing what.
+   *
+   * Both properties come from fixed arrays in core/failures.ts - a call site
+   * from a known list, and a shape from a known list. Nothing is derived from
+   * an exception message, which is the only reason an error event is safe to
+   * put through a pipeline built on the promise that it contains no free text.
+   * See docs/reports/friends-beta-investigation-2026-08-27.md §17.
+   */
+  client_error: { context: FailureContext; code: FailureCode }
+  /**
+   * A realtime subscription changed state.
+   *
+   * `connected` is recorded as well as failures, because a channel that never
+   * connected and a channel nobody opened look identical otherwise - and
+   * telling those apart is the single thing that would have made the first
+   * external bug report diagnosable.
+   */
+  realtime_status_changed: { surface: RealtimeSurface; status: RealtimeStatus }
+  /**
+   * A group message was refused.
+   *
+   * Separate from client_error because it answers a specific product question:
+   * "did she send and never see it, or never send at all". The body is not
+   * here and never will be.
+   */
+  group_message_send_failed: { code: FailureCode }
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap
@@ -359,6 +394,10 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   feedback_submitted: ['category'],
   combo_formed: ['count'],
   combo_broken: ['count'],
+
+  client_error: ['context', 'code'],
+  realtime_status_changed: ['surface', 'status'],
+  group_message_send_failed: ['code'],
 }
 
 export const ANALYTICS_EVENT_NAMES = Object.keys(EVENT_PROPERTIES) as AnalyticsEventName[]

@@ -1527,6 +1527,36 @@
 
 /* The live combo, pinned above the composer. Noticeable, but it must not
    become the loudest thing in a small panel. */
+/*
+ * "New messages" — shown only while the viewer has scrolled up AND something
+ * has arrived since. It sits between the log and whatever is below it rather
+ * than floating over the last message, because a control that covers the thing
+ * it is telling you about is its own small problem.
+ */
+.kb-chat-jump {
+  flex: none;
+  align-self: center;
+  margin: 4px 0 0;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--kb-accent);
+  color: #10121a;
+  font: inherit;
+  font-weight: 700;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.kb-chat-jump:hover {
+  filter: brightness(1.08);
+}
+
+.kb-chat-jump:focus-visible {
+  outline: 2px solid var(--kb-accent);
+  outline-offset: 2px;
+}
+
 .kb-combo-active {
   flex: none;
   display: flex;

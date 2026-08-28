@@ -13,6 +13,7 @@ import {
   serializeLayout,
 } from './layout'
 import type { PanelLayout, Point, ResizeEdge, StoredLayoutRecord, Viewport } from './layout'
+import { useStorageSync } from '../useStorageSync'
 
 /**
  * The panel's position and size, wired to the browser.
@@ -80,7 +81,18 @@ function readStored(): StoredLayoutRecord | null {
 }
 function writeStored(layout: PanelLayout, sized: boolean): void {
   try {
-    window.localStorage.setItem(LAYOUT_KEY, serializeLayout(layout, sized))
+    const next = serializeLayout(layout, sized)
+    /*
+     * A write that changes nothing is skipped, and that is load-bearing.
+     *
+     * Cross-tab sync means this tab can be APPLYING a layout another tab just
+     * saved. Re-persisting it would raise a storage event back at that tab,
+     * which would apply it and persist it again. The value converges
+     * immediately so it would terminate, but not before both panels had
+     * re-rendered in a loop. Comparing first means the echo never starts.
+     */
+    if (window.localStorage.getItem(LAYOUT_KEY) === next) return
+    window.localStorage.setItem(LAYOUT_KEY, next)
   } catch {
     // Nothing to do; the position simply will not be remembered.
   }
@@ -172,6 +184,33 @@ export function usePanelLayout({
     if (!placed.current) return
     writeStored(layout, sized)
   }, [layout, sized])
+  /*
+   * Another Twitch tab moved or resized the panel.
+   *
+   * The panel is one thing, so it should be in one place. A gesture in
+   * progress wins, because yanking the rectangle out from under somebody's
+   * pointer is worse than the two tabs disagreeing for a second - the release
+   * will persist and the other tab will follow.
+   */
+  const applyRemoteLayout = useCallback(
+    (value: string | null) => {
+      if (gesture.current) return
+      const stored = parseStoredLayout(value)
+      if (!stored) {
+        // Storage cleared, or another tab pressed Reset.
+        placed.current = false
+        setSized(false)
+        setLayout(defaultLayout(readViewport(), { topOffset, reservedRight }))
+        return
+      }
+      placed.current = true
+      setSized(stored.sized)
+      // Fitted, not copied: the other tab's window may be a different size.
+      setLayout(fitIntoViewport(stored.layout, readViewport()))
+    },
+    [topOffset, reservedRight],
+  )
+  useStorageSync(LAYOUT_KEY, applyRemoteLayout)
   const begin = useCallback(
     (
       kind: Gesture['kind'],

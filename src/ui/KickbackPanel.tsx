@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ChannelLabel, ChannelNameProvider, useChannelName } from './ChannelNames'
 import { AnalyticsProvider } from './Analytics'
 import { describePresence } from '../core/personPresence'
@@ -16,6 +16,7 @@ import { GroupsTab } from './components/GroupsTab'
 import { KickbackMark, MinimizeIcon } from './components/Icons'
 import { usePanelLayout } from './layout/usePanelLayout'
 import { useLayoutHint } from './layout/useLayoutHint'
+import { useStorageSync } from './useStorageSync'
 import {
   AccountCard,
   FeedbackForm,
@@ -117,6 +118,18 @@ export function KickbackPanel({
 }) {
   const view = useKickbackState(client)
   const [collapsed, setCollapsed] = useState(readCollapsed)
+  /*
+   * Another Twitch tab opened or closed the panel.
+   *
+   * The value has always been shared - localStorage is origin-scoped - but it
+   * was only ever READ once, in the initialiser above, so a new tab inherited
+   * it and an already-open tab never moved. Listening is the whole fix; see
+   * useStorageSync.ts for why this cannot echo.
+   */
+  const applyRemoteCollapsed = useCallback((value: string | null) => {
+    setCollapsed(value === '1')
+  }, [])
+  useStorageSync(COLLAPSED_KEY, applyRemoteCollapsed)
 
   const [accountOpen, setAccountOpen] = useState(false)
   /** The feedback form, which is a sub-view of the account panel. */
@@ -233,8 +246,38 @@ export function KickbackPanel({
    * Nothing about who RECEIVES a message changes: that is still decided
    * server-side, in send_room_message.
    */
+  /*
+   * TEMPORARY - REMOVED BY THE MULTI-DESTINATION ROOM LIFECYCLE.
+   *
+   * The two conditions above require somebody ELSE to be here right now, while
+   * the conversation they had lives for thirty minutes. So the surface could
+   * vanish mid-sentence and take a readable conversation off screen with it -
+   * the proven root cause of beta finding #10. See
+   * docs/reports/friends-beta-investigation-2026-08-27.md §8.
+   *
+   * This third condition keeps the room reachable for exactly as long as its
+   * messages exist, and not one moment longer. It is knowingly throwaway: the
+   * approved architecture replaces `sessionAvailable` entirely with a
+   * per-destination room lifecycle, where a room's presence in the panel
+   * follows the destination set and the retention window rather than a live
+   * peer count. See docs/reports/multi-stream-room-architecture-2026-08-27.md
+   * §4.3 and §16.
+   *
+   * DO NOT BUILD ON THIS. It is not a continuity lease - it introduces no new
+   * clock, no new lifetime and no new state. It reads a buffer that is already
+   * pruned to RETENTION_MS by the worker, so when the last message expires the
+   * surface goes on its own.
+   *
+   * Nothing about who RECEIVES a message changes, here or anywhere: that is
+   * still decided server-side at send time, in send_room_message.
+   */
+  const retainedHere =
+    sessionChannel !== null &&
+    view.roomMessages.some((message) => message.channel === sessionChannel)
+
   const sessionAvailable =
-    sessionChannel !== null && (view.roomPeers.length > 0 || view.roomMembers.length > 0)
+    sessionChannel !== null &&
+    (view.roomPeers.length > 0 || view.roomMembers.length > 0 || retainedHere)
 
   /*
    * The tab actually shown.

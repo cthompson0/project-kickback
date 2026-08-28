@@ -37,7 +37,15 @@ import { pathToFileURL } from 'node:url'
 
 const ENV_PATH = '.env.local'
 
-/** Must match supabase/migrations/0013 through 0023 exactly. */
+/**
+ * Must match supabase/migrations/0013 through 0024 exactly.
+ *
+ * 0024 adds three event NAMES and moves the version marker, and neither is a
+ * new object this script can probe: the registry is revoked from every client
+ * role, so whether an event is registered is checked by the migration bundle
+ * tests against a real Postgres instead. The list below is therefore unchanged
+ * by 0024 - only this range is.
+ */
 const TABLES = [
   'feedback',
   'analytics_events',

@@ -55,6 +55,8 @@ export interface RoomMessagesDeps {
   channel: RoomMessageChannel
   backend: RoomMessageBackend
   onChange?: () => void
+  /** Every realtime transition, not only failures. See core/failures.ts. */
+  onStatus?: (status: 'connected' | 'error') => void
   /** A message arrived, for unread and analytics. Includes the viewer's own. */
   onMessage?: (message: RoomMessage, mine: boolean) => void
   now?: () => number
@@ -159,6 +161,8 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
         .open(id, {
           onMessage: (row) => receive(row, mine),
           onStatus: (status) => {
+            if (mine !== generation) return
+            deps.onStatus?.(status)
             if (status === 'error') deps.onError?.('roomMessages.subscribe', status)
           },
         })

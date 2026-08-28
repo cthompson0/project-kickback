@@ -63,6 +63,8 @@ export interface TogetherReactionsDeps {
   backend: ReactionBackend
   /** Something changed and the panel should be told. */
   onChange?: () => void
+  /** Every realtime transition, not only failures. See core/failures.ts. */
+  onStatus?: (status: 'connected' | 'error') => void
   /** A reaction was delivered, for analytics. Includes the viewer's own. */
   onReaction?: (reaction: TogetherReaction, mine: boolean) => void
   now?: () => number
@@ -147,6 +149,8 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
         .open(id, {
           onReaction: (row) => receive(row, mine),
           onStatus: (status) => {
+            if (mine !== generation) return
+            deps.onStatus?.(status)
             if (status === 'error') deps.onError?.('together.subscribe', status)
           },
         })
