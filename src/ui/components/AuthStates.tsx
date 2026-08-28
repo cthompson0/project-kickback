@@ -473,6 +473,25 @@ export function AccountCard({
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out
       </button>
+
+      {/*
+        * Which build is this?
+        *
+        * The panel footer already carries the version, but the footer is easy
+        * to miss and is replaced by the layout hint on a first run - so the
+        * one question we actually ask testers, "what version are you running",
+        * had no reliable answer. This is that answer, in the place somebody
+        * looks when they are being asked about their own setup.
+        *
+        * __KICKBACK_VERSION__ is the build-time constant every config defines
+        * from public/manifest.json, so there is exactly one version in the
+        * repository and this cannot drift from what Chrome reports.
+        *
+        * Deliberately nothing else: no ids, no channel, no session, no
+        * diagnostics. Those belong in Feedback, which assembles them in the
+        * service worker and sends them deliberately.
+        */}
+      <div className="kb-account-version">Kickback v{__KICKBACK_VERSION__}</div>
     </div>
   )
 }

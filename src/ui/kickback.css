@@ -1084,6 +1084,21 @@
   color: var(--kb-faint);
 }
 
+/*
+ * The build, at the bottom of the account panel.
+ *
+ * Quiet on purpose - it is there to be found when somebody is asked for it,
+ * not to be read every time the panel opens. Selectable, because the whole
+ * point is being able to say it back.
+ */
+.kb-account-version {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 11px;
+  color: var(--kb-faint);
+  user-select: text;
+}
+
 .kb-account-value {
   font-weight: 700;
   overflow: hidden;
