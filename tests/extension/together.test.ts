@@ -277,36 +277,36 @@ describe('the room service asks the server, and never traverses anything', () =>
 
   it('asks once for the channel the viewer is on', async () => {
     const { handle, calls } = service(async () => rows)
-    handle.want('lirik')
+    handle.want(['lirik'])
     await settle()
     expect(calls).toEqual(['lirik'])
-    expect(handle.snapshot()).toHaveLength(1)
+    expect(handle.snapshot('lirik')).toHaveLength(1)
   })
 
   it('does not ask again while the answer is fresh', async () => {
     const { handle, calls } = service(async () => rows)
-    handle.want('lirik')
+    handle.want(['lirik'])
     await settle()
-    for (let i = 0; i < 20; i += 1) handle.want('LIRIK')
+    for (let i = 0; i < 20; i += 1) handle.want(['lirik'])
     await settle()
     expect(calls).toEqual(['lirik'])
   })
 
   it('forgets the room the moment the viewer moves', async () => {
     const { handle } = service(async () => rows)
-    handle.want('lirik')
+    handle.want(['lirik'])
     await settle()
-    expect(handle.snapshot()).toHaveLength(1)
+    expect(handle.snapshot('lirik')).toHaveLength(1)
 
-    handle.want('xqc')
+    handle.want(['xqc'])
     // Not "the old room until the new answer arrives" - that would show the
     // wrong people on the wrong stream.
-    expect(handle.snapshot()).toEqual([])
+    expect(handle.snapshot('lirik')).toEqual([])
   })
 
   it('asks for nothing when the viewer is nowhere', async () => {
     const { handle, calls } = service(async () => rows)
-    handle.want(null)
+    handle.want([])
     await settle()
     expect(calls).toEqual([])
   })
@@ -317,12 +317,12 @@ describe('the room service asks the server, and never traverses anything', () =>
       if (fail) throw new Error('offline')
       return rows
     })
-    handle.want('lirik')
+    handle.want(['lirik'])
     await settle()
 
     fail = true
     handle.reset()
-    handle.want('lirik')
+    handle.want(['lirik'])
     await settle()
 
     // Nothing to keep after a reset, but the failure must not throw and must
@@ -342,15 +342,15 @@ describe('the room service asks the server, and never traverses anything', () =>
       return channel === 'lirik' ? rows : []
     })
 
-    handle.want('lirik')
-    handle.want('xqc')
+    handle.want(['lirik'])
+    handle.want(['xqc'])
     release(null)
     await settle()
     await settle()
 
-    expect(handle.channel()).toBe('xqc')
+    expect(handle.channels()[0] ?? null).toBe('xqc')
     // lirik's answer landed last and was discarded; xqc's empty one stands.
-    expect(handle.snapshot()).toEqual([])
+    expect(handle.snapshot('lirik')).toEqual([])
   })
 })
 
@@ -413,9 +413,9 @@ describe('every reaction row has exactly one interested subscriber', () => {
     expect(opened).toEqual(['me'])
 
     // Moving between channels must NOT churn the subscription.
-    handle.setChannel('lirik')
-    handle.setChannel('xqc')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
+    handle.setChannels(['xqc'])
+    handle.setChannels(['lirik'])
     await settle()
     expect(opened).toEqual(['me'])
   })
@@ -423,7 +423,7 @@ describe('every reaction row has exactly one interested subscriber', () => {
   it('delivers symmetrically - the sender sees their own by the same route', async () => {
     const { handle, seen, deliver } = inbox()
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
 
     deliver(row({ sender_id: 'jake' }))
@@ -442,10 +442,10 @@ describe('every reaction row has exactly one interested subscriber', () => {
     // no longer see.
     const { handle, deliver } = inbox()
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
 
-    handle.setChannel('xqc')
+    handle.setChannels(['xqc'])
     deliver(row({ channel: 'lirik' }))
     expect(handle.snapshot()).toEqual([])
   })
@@ -453,21 +453,21 @@ describe('every reaction row has exactly one interested subscriber', () => {
   it('drops the buffer when the viewer moves', async () => {
     const { handle, deliver } = inbox()
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
     deliver(row())
     expect(handle.snapshot()).toHaveLength(1)
 
-    handle.setChannel('xqc')
+    handle.setChannels(['xqc'])
     expect(handle.snapshot()).toEqual([])
   })
 
   it('sends on the channel the worker knows, never one it was told', async () => {
     const { handle, sent } = inbox()
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
-    handle.send('fire')
+    handle.send('lirik', 'fire')
     await settle()
     expect(sent).toEqual([{ channel: 'lirik', reaction: 'fire' }])
   })
@@ -476,7 +476,7 @@ describe('every reaction row has exactly one interested subscriber', () => {
     const { handle, sent } = inbox()
     handle.setUser('me')
     await settle()
-    handle.send('fire')
+    handle.send('lirik', 'fire')
     await settle()
     expect(sent).toEqual([])
   })
@@ -484,7 +484,7 @@ describe('every reaction row has exactly one interested subscriber', () => {
   it('drops a malformed row rather than storing it', async () => {
     const { handle, deliver } = inbox()
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
 
     deliver(row({ reaction: '<script>' }))
@@ -537,9 +537,9 @@ describe('every reaction row has exactly one interested subscriber', () => {
     })
 
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
-    expect(() => handle.send('lol')).not.toThrow()
+    expect(() => handle.send('lirik', 'lol')).not.toThrow()
     await settle()
     expect(errors).toContain('together.send')
     // Nothing was drawn optimistically, so nothing has to be taken back.
@@ -549,7 +549,7 @@ describe('every reaction row has exactly one interested subscriber', () => {
   it('forgets everything on sign-out', async () => {
     const { handle, closed, deliver } = inbox()
     handle.setUser('me')
-    handle.setChannel('lirik')
+    handle.setChannels(['lirik'])
     await settle()
     deliver(row())
 

@@ -78,12 +78,12 @@ function drawRoom(world: SimWorld): string {
     <ChannelNameProvider people={state.friends.map((f) => f.user)} seen={state.channelNames}>
       <StreamSession
         channel={channel}
-        members={state.roomMembers}
+        members={state.roomMembers[channel] ?? []}
         friends={state.friends}
         reactions={state.togetherReactions}
         messages={state.roomMessages}
         mutedUserIds={state.mutedUserIds}
-        peers={state.roomPeers}
+        peers={state.roomPeers[channel] ?? []}
         metadata={channelMetadata(world, Date.now())[channel]}
         selfId={state.identity?.userId ?? null}
         client={handle.client as KickbackClient}
@@ -358,12 +358,12 @@ describe('reactions in the lab', () => {
       <ChannelNameProvider people={[]} seen={{}}>
         <StreamSession
           channel="lirik"
-          members={handle.client.getState().roomMembers}
+          members={handle.client.getState().roomMembers['lirik'] ?? []}
           friends={handle.client.getState().friends}
           reactions={handle.client.getState().togetherReactions}
           messages={handle.client.getState().roomMessages}
           mutedUserIds={handle.client.getState().mutedUserIds}
-          peers={handle.client.getState().roomPeers}
+          peers={handle.client.getState().roomPeers['lirik'] ?? []}
           selfId={handle.client.getState().identity?.userId ?? null}
           client={handle.client as KickbackClient}
           cardContext={{
@@ -399,12 +399,12 @@ describe('reactions in the lab', () => {
       <ChannelNameProvider people={[]} seen={{}}>
         <StreamSession
           channel="lirik"
-          members={handle.client.getState().roomMembers}
+          members={handle.client.getState().roomMembers['lirik'] ?? []}
           friends={handle.client.getState().friends}
           reactions={handle.client.getState().togetherReactions}
           messages={handle.client.getState().roomMessages}
           mutedUserIds={handle.client.getState().mutedUserIds}
-          peers={handle.client.getState().roomPeers}
+          peers={handle.client.getState().roomPeers['lirik'] ?? []}
           selfId={handle.client.getState().identity?.userId ?? null}
           client={handle.client as KickbackClient}
           cardContext={{

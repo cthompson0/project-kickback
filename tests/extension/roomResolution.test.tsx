@@ -154,18 +154,18 @@ describe('the membership query and our own presence row', () => {
     server.present.add(FRIEND) // the friend is already there
     const room = createStreamRoom({ backend: server.backend, now: () => Date.now() })
 
-    room.want(CHANNEL)
+    room.want(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
 
     expect(server.calls()).toBe(1)
-    expect(room.snapshot()).toEqual([])
+    expect(room.snapshot(CHANNEL)).toEqual([])
 
     // Our presence lands a second later. Nothing re-asks, and the cache holds.
     server.present.add('me')
-    room.want(CHANNEL)
+    room.want(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
     expect(server.calls()).toBe(1)
-    expect(room.snapshot()).toEqual([])
+    expect(room.snapshot(CHANNEL)).toEqual([])
   })
 
   it('resolves when the query waits for the presence write, as the worker now does', async () => {
@@ -210,7 +210,7 @@ describe('the membership query and our own presence row', () => {
     // First activity report: eligible, but we are not visibly there yet.
     reporter.setActivity(WATCHING)
     expect(sessionChannel()).toBeNull()
-    room.want(sessionChannel())
+    room.want(sessionChannel() ? [sessionChannel() as string] : [])
     await vi.advanceTimersByTimeAsync(0)
     expect(server.calls()).toBe(0)
 
@@ -218,11 +218,11 @@ describe('the membership query and our own presence row', () => {
     await vi.advanceTimersByTimeAsync(1_100)
     expect(written).toHaveLength(1)
 
-    room.want(sessionChannel())
+    room.want(sessionChannel() ? [sessionChannel() as string] : [])
     await vi.advanceTimersByTimeAsync(0)
 
     expect(server.calls()).toBe(1)
-    expect(room.snapshot()).toEqual([{ userId: FRIEND, hops: 1, viaUserId: null }])
+    expect(room.snapshot(CHANNEL)).toEqual([{ userId: FRIEND, hops: 1, viaUserId: null }])
   })
 
   it('asks again when a friend arrives after the room resolved empty', async () => {
@@ -236,23 +236,23 @@ describe('the membership query and our own presence row', () => {
     server.present.add('me')
     const room = createStreamRoom({ backend: server.backend, now: () => Date.now() })
 
-    room.want(CHANNEL)
+    room.want(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
-    expect(room.snapshot()).toEqual([])
+    expect(room.snapshot(CHANNEL)).toEqual([])
     expect(server.calls()).toBe(1)
 
     // Presence says somebody arrived. Without invalidate the cache holds.
     server.present.add(FRIEND)
-    room.want(CHANNEL)
+    room.want(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
     expect(server.calls()).toBe(1)
 
     room.invalidate()
-    room.want(CHANNEL)
+    room.want(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
 
     expect(server.calls()).toBe(2)
-    expect(room.snapshot()).toEqual([{ userId: FRIEND, hops: 1, viaUserId: null }])
+    expect(room.snapshot(CHANNEL)).toEqual([{ userId: FRIEND, hops: 1, viaUserId: null }])
   })
 
   it('does not ask again while nobody has come or gone', async () => {
@@ -262,11 +262,11 @@ describe('the membership query and our own presence row', () => {
     server.present.add(FRIEND)
     const room = createStreamRoom({ backend: server.backend, now: () => Date.now() })
 
-    room.want(CHANNEL)
+    room.want(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
     for (let beat = 0; beat < 5; beat += 1) {
       await vi.advanceTimersByTimeAsync(1_000)
-      room.want(CHANNEL)
+      room.want(CHANNEL ? [CHANNEL] : [])
     }
     await vi.advanceTimersByTimeAsync(0)
     expect(server.calls()).toBe(1)
@@ -291,7 +291,9 @@ describe('the worker wires the whole chain', () => {
     expect(WORKER).toContain('function coPresenceKey(')
     expect(WORKER).toContain('room.invalidate()')
     const index = WORKER.slice(WORKER.indexOf('function indexPresence('))
-    expect(index.slice(0, 1_600)).toContain('room.want(here)')
+    expect(index.slice(0, 1_600)).toContain(// Every open destination, not one. A viewer with two streams keeps two
+      // rosters, and a presence change re-asks for all of them.
+      'room.want(sessionChannels())')
   })
 
   it('keys the re-ask on who is here, not on every presence tick', () => {

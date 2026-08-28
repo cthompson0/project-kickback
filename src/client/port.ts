@@ -177,8 +177,8 @@ export function createPortClient(): KickbackClient {
 
     reportActivity: (channel, visible, channelName) =>
       send({ type: 'activity', channel, visible, channelName: channelName ?? null }),
-    sendReaction: (reaction) => send({ type: 'reaction', reaction }),
-    sendRoomMessage: (body) => send({ type: 'roomMessage', body }),
+    sendReaction: (reaction, channel) => send({ type: 'reaction', reaction, channel }),
+    sendRoomMessage: (body, channel) => send({ type: 'roomMessage', body, channel }),
     selectSession: (channel) => send({ type: 'selectSession', channel }),
     setUserMuted: (userId, muted) => send({ type: 'mute', userId, muted }),
     markSeen: (keys) => send({ type: 'seen', keys }),

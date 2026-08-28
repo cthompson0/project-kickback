@@ -3,6 +3,7 @@ import { ChannelLabel, ChannelNameProvider, useChannelName } from './ChannelName
 import { AnalyticsProvider } from './Analytics'
 import { describePresence } from '../core/personPresence'
 import type { KickbackClient } from '../client/types'
+import type { RoomMember } from '../core/streamRoom'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
@@ -75,6 +76,13 @@ function SessionTab({
 }
 
 const COLLAPSED_KEY = 'kickback:collapsed'
+
+/**
+ * Stable empties, so a channel with no room yet does not hand a fresh array to
+ * a memo on every render.
+ */
+const EMPTY_IDS: string[] = []
+const EMPTY_MEMBERS: RoomMember[] = []
 
 /**
  * Build-time constant, so a production build folds this to false and the
@@ -247,37 +255,42 @@ export function KickbackPanel({
    * server-side, in send_room_message.
    */
   /*
-   * TEMPORARY - REMOVED BY THE MULTI-DESTINATION ROOM LIFECYCLE.
+   * THIS TAB'S ROOM.
    *
-   * The two conditions above require somebody ELSE to be here right now, while
-   * the conversation they had lives for thirty minutes. So the surface could
-   * vanish mid-sentence and take a readable conversation off screen with it -
-   * the proven root cause of beta finding #10. See
-   * docs/reports/friends-beta-investigation-2026-08-27.md §8.
+   * `sessionChannel` is `view.channel` - what THIS content script reads from
+   * its own URL - so two Twitch tabs render two different rooms from the same
+   * broadcast without either knowing the other exists. That is the whole of
+   * the multi-room UI: the room you get is the room you are looking at.
    *
-   * This third condition keeps the room reachable for exactly as long as its
-   * messages exist, and not one moment longer. It is knowingly throwaway: the
-   * approved architecture replaces `sessionAvailable` entirely with a
-   * per-destination room lifecycle, where a room's presence in the panel
-   * follows the destination set and the retention window rather than a live
-   * peer count. See docs/reports/multi-stream-room-architecture-2026-08-27.md
-   * §4.3 and §16.
+   * The worker now broadcasts every room it holds, keyed by channel, so
+   * selecting this tab's entry cannot disturb another tab's.
+   */
+  const roomPeers = (sessionChannel && view.roomPeers[sessionChannel]) || EMPTY_IDS
+  const roomMembers = (sessionChannel && view.roomMembers[sessionChannel]) || EMPTY_MEMBERS
+  const roomUnread = (sessionChannel && view.roomUnread[sessionChannel]) || 0
+
+  /*
+   * THE ROOM LIFECYCLE, which supersedes the Patch 1 workaround.
    *
-   * DO NOT BUILD ON THIS. It is not a continuity lease - it introduces no new
-   * clock, no new lifetime and no new state. It reads a buffer that is already
-   * pruned to RETENTION_MS by the worker, so when the last message expires the
-   * surface goes on its own.
+   * A room is available while somebody else is here, OR while its conversation
+   * still exists. The second condition is what stops a readable conversation
+   * vanishing mid-sentence when the last peer leaves - beta finding #10, and
+   * the reason the temporary fix existed at all.
    *
-   * Nothing about who RECEIVES a message changes, here or anywhere: that is
-   * still decided server-side at send time, in send_room_message.
+   * It introduces NO new clock and NO new lifetime. The worker prunes its
+   * buffer to RETENTION_MS, so an expired message is not in `roomMessages` by
+   * the time this reads it: when the last message ages out, the surface goes
+   * on its own. That is why this is not a lease.
+   *
+   * Nothing about who RECEIVES a message changes: that is still decided
+   * server-side at send time, in send_room_message.
    */
   const retainedHere =
     sessionChannel !== null &&
     view.roomMessages.some((message) => message.channel === sessionChannel)
 
   const sessionAvailable =
-    sessionChannel !== null &&
-    (view.roomPeers.length > 0 || view.roomMembers.length > 0 || retainedHere)
+    sessionChannel !== null && (roomPeers.length > 0 || roomMembers.length > 0 || retainedHere)
 
   /*
    * The tab actually shown.
@@ -378,8 +391,17 @@ export function KickbackPanel({
          */
         view.friends.flatMap((friend) => {
           const base = { member: friend, presence: friend.presence, userId: friend.user.id }
-          const destinations = view.friendDestinations[friend.user.id]
-          if (!destinations || destinations.length === 0) return [base]
+          /*
+           * De-duplicated defensively.
+           *
+           * apply_destinations already de-duplicates before its cap, so a
+           * repeat should be unreachable - which is exactly why it is worth
+           * guarding. One duplicated entry would put the same person into a
+           * cluster twice and inflate a gathering count, and gathering counts
+           * are what the product is about.
+           */
+          const destinations = [...new Set(view.friendDestinations[friend.user.id] ?? [])]
+          if (destinations.length === 0) return [base]
           const presence = friend.presence
           if (!presence || presence.activity.type !== 'watching') return [base]
 
@@ -792,7 +814,7 @@ export function KickbackPanel({
               <SessionTab
                 channel={sessionChannel}
                 active={tab === 'session' && !finding}
-                unread={view.roomUnread}
+                unread={roomUnread}
                 onSelect={() => chooseTab('session')}
               />
             )}
@@ -830,12 +852,12 @@ export function KickbackPanel({
                */
               <StreamSession
                 channel={sessionChannel}
-                members={view.roomMembers}
+                members={roomMembers}
                 friends={friends}
                 reactions={view.togetherReactions}
                 messages={view.roomMessages}
                 mutedUserIds={view.mutedUserIds}
-                peers={view.roomPeers}
+                peers={roomPeers}
                 metadata={view.channelMetadata?.[sessionChannel]}
                 selfId={identity?.userId ?? null}
                 client={client}

@@ -85,9 +85,17 @@ export interface TogetherReactions {
    * Not a subscription boundary any more - only a display one. Reactions do
    * not travel between channels, so moving clears the buffer.
    */
-  setChannel(channel: string | null): void
+  /**
+   * Every destination the viewer has open.
+   *
+   * A set, so one room's activity is not erased when the viewer looks at
+   * another. Reactions already carry their own channel and liveReactions
+   * already filters by it, so nothing needed partitioning - only the rule
+   * about what to forget.
+   */
+  setChannels(channels: readonly string[]): void
   /** Send one. Fire-and-forget; failure is logged and never surfaced. */
-  send(reaction: Reaction): void
+  send(channel: string | null, reaction: Reaction): void
   /** Everything still worth showing. */
   snapshot(): TogetherReaction[]
   /** Sign-out, or a different account. */
@@ -100,7 +108,7 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
   const now = deps.now ?? (() => Date.now())
 
   let userId: string | null = null
-  let channel: string | null = null
+  let channels: string[] = []
   let close: (() => void) | null = null
   let reactions: TogetherReaction[] = []
   /** Guards a slow open landing after the subscription was replaced. */
@@ -119,7 +127,7 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
      * moments after they moved. Showing it would be a friend laughing at
      * something they can no longer see.
      */
-    if (reaction.channel !== channel) return
+    if (!channels.includes(reaction.channel)) return
 
     const before = reactions.length
     reactions = withReaction(pruneReactions(reactions, now()), reaction)
@@ -171,18 +179,34 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
         })
     },
 
-    setChannel(next): void {
-      const login = next ? next.trim().toLowerCase() : null
-      if (login === channel) return
-      channel = login
-      // Reactions are about what just happened on THIS stream.
-      reactions = []
-      deps.onChange?.()
+    setChannels(next): void {
+      const wanted = [...new Set(next.map((entry) => entry.trim().toLowerCase()))].filter(
+        (entry) => entry.length > 0,
+      )
+      channels = wanted
+
+      /*
+       * Only what has genuinely closed is forgotten.
+       *
+       * Reactions are eight seconds of punctuation and are never read back, so
+       * there is nothing to fetch here - only the rule about what may still be
+       * shown. Dropping a closed destination's reactions keeps the buffer
+       * bounded; keeping the rest is what stops one room's activity vanishing
+       * because the viewer glanced at another.
+       */
+      const live = new Set(wanted)
+      const kept = reactions.filter((reaction) => live.has(reaction.channel))
+      if (kept.length !== reactions.length) {
+        reactions = kept
+        deps.onChange?.()
+      }
     },
 
-    send(reaction): void {
-      const here = channel
+    send(channel, reaction): void {
+      // The caller names the room, for the same reason a message does.
+      const here = channel ? channel.trim().toLowerCase() : null
       if (!here) return
+      if (!channels.includes(here)) return
 
       void deps.backend.send(here, reaction).catch((error) => {
         // Nothing is drawn optimistically, so a failed send simply does not
@@ -203,7 +227,7 @@ export function createTogetherReactions(deps: TogetherReactionsDeps): TogetherRe
       close?.()
       close = null
       userId = null
-      channel = null
+      channels = []
       reactions = []
       deps.onChange?.()
     },

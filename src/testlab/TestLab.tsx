@@ -110,7 +110,10 @@ export function TestLab() {
   ].sort()
 
   /** The room the panel is showing, so the lab can react as its members. */
-  const roster = handle.client.getState().roomMembers
+  const state = handle.client.getState()
+  // One channel in the lab, so one entry - read by the observer's own channel
+  // exactly as a real panel reads by its own tab's channel.
+  const roster = Object.values(state.roomMembers)[0] ?? []
 
   /** Friends on the observer's channel: exactly who a Together is with. */
   const together = world.observer.channel

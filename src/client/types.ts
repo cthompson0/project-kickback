@@ -191,7 +191,15 @@ export interface KickbackState {
    * from presence and is the viewer's own direct friends. This is the wider
    * social truth, and only the room surface uses it.
    */
-  roomMembers: RoomMember[]
+  /**
+   * Every room roster the worker holds, keyed by channel.
+   *
+   * A map because a viewer with two streams open is in two rooms, and each has
+   * its own membership. The panel reads the entry for ITS OWN tab's channel -
+   * view.channel, which each content script reads from its own URL - so two
+   * tabs render two different rooms from one broadcast.
+   */
+  roomMembers: Record<string, RoomMember[]>
   /**
    * Direct friends whose presence puts them here with the viewer.
    *
@@ -201,7 +209,7 @@ export interface KickbackState {
    * for who is actually in the room, including anybody reached through a
    * friend, and for who receives a message.
    */
-  roomPeers: string[]
+  roomPeers: Record<string, string[]>
   /**
    * The ephemeral conversation on the channel the viewer is on.
    *
@@ -217,7 +225,7 @@ export interface KickbackState {
    * "something is happening right now" and deliberately do not count here -
    * a number that accrued for an eight-second event would never settle.
    */
-  roomUnread: number
+  roomUnread: Record<string, number>
   /**
    * The session the viewer intentionally opened and is still entitled to.
    *
@@ -265,10 +273,10 @@ export const INITIAL_STATE: KickbackState = {
   channelNames: {},
   channelMetadata: {},
   togetherReactions: [],
-  roomMembers: [],
-  roomPeers: [],
+  roomMembers: {},
+  roomPeers: {},
   roomMessages: [],
-  roomUnread: 0,
+  roomUnread: {},
   sessionChannel: null,
   mutedUserIds: [],
   blockedUsers: [],
@@ -341,7 +349,7 @@ export interface KickbackClient {
    * letting the panel name a destination would be a way to react somewhere
    * you are not.
    */
-  sendReaction(reaction: Reaction): void
+  sendReaction(reaction: Reaction, channel?: string): void
   /**
    * Say something in the room on the channel the viewer is on.
    *
@@ -350,7 +358,7 @@ export interface KickbackClient {
    * the server declined does not appear for the one person who could not
    * otherwise tell.
    */
-  sendRoomMessage(body: string): void
+  sendRoomMessage(body: string, channel?: string): void
   /**
    * Remember, or forget, that the viewer opened the contextual session.
    *

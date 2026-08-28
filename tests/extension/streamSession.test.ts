@@ -463,7 +463,7 @@ describe('the message inbox', () => {
      */
     const h = harness([row()])
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
 
     expect(h.service.snapshot()).toHaveLength(1)
@@ -475,9 +475,9 @@ describe('the message inbox', () => {
     // has not moved, but this client may never have seen what was said.
     const h = harness([row()])
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
-    h.service.setChannel(CHANNEL)
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
 
     expect(h.historyCalls()).toBeGreaterThan(1)
@@ -488,7 +488,7 @@ describe('the message inbox', () => {
   it('drops a message for a channel the viewer has left', async () => {
     const h = harness()
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
 
     h.deliver(row({ id: 'elsewhere', channel: 'xqc' }))
@@ -498,20 +498,20 @@ describe('the message inbox', () => {
   it('clears the conversation when the viewer moves', async () => {
     const h = harness()
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
     h.deliver(row())
     expect(h.service.snapshot()).toHaveLength(1)
 
-    h.service.setChannel('xqc')
+    h.service.setChannels(['xqc'])
     expect(h.service.snapshot()).toHaveLength(0)
   })
 
   it('sends to the channel the worker knows about, never one it is told', () => {
     const h = harness()
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
-    h.service.send('  hello  ')
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
+    h.service.send(CHANNEL, '  hello  ')
 
     expect(h.sent).toEqual([{ channel: CHANNEL, body: 'hello' }])
   })
@@ -519,7 +519,7 @@ describe('the message inbox', () => {
   it('sends nothing when there is nowhere to send it', () => {
     const h = harness()
     h.service.setUser('me')
-    h.service.send('into the void')
+    h.service.send(CHANNEL, 'into the void')
     expect(h.sent).toEqual([])
   })
 
@@ -529,15 +529,15 @@ describe('the message inbox', () => {
     // otherwise tell.
     const h = harness()
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
-    h.service.send('hello')
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
+    h.service.send(CHANNEL, 'hello')
     expect(h.service.snapshot()).toHaveLength(0)
   })
 
   it('forgets everything on sign-out', async () => {
     const h = harness()
     h.service.setUser('me')
-    h.service.setChannel(CHANNEL)
+    h.service.setChannels(CHANNEL ? [CHANNEL] : [])
     await vi.advanceTimersByTimeAsync(0)
     h.deliver(row())
 
@@ -564,7 +564,11 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
     // retained messages - was added in Patch 1 as an explicitly temporary fix
     // for finding #10 and is covered by tests/extension/roomSurfaceRelief.tsx,
     // including the guard that it stays labelled as removable.
-    expect(PANEL).toContain('view.roomPeers.length > 0 || view.roomMembers.length > 0')
+    // Both kinds of evidence survive, now read from THIS tab's channel.
+    expect(PANEL).toContain('roomPeers.length > 0 || roomMembers.length > 0')
+    // And the third condition is no longer temporary: a conversation keeps
+    // its own room reachable for as long as its messages live.
+    expect(PANEL).toContain('retainedHere')
     expect(PANEL).toContain('const sessionAvailable =')
     expect(PANEL).toContain('sessionChannel !== null &&')
     expect(PANEL).toContain('{sessionAvailable && sessionChannel && (')
@@ -596,7 +600,9 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
     expect(WORKER).toContain('function restoredSession()')
     expect(WORKER).toContain('if (remembered !== sessionChannel()) return null')
     expect(WORKER).toContain(
-      'return room.snapshot().length > 0 || sessionPeers().length > 0 ? remembered : null',
+      // Restorable on either kind of presence OR on a retained conversation -
+      // the lifecycle that supersedes the Patch 1 workaround.
+      'room.snapshot(remembered).length > 0',
     )
   })
 
@@ -605,7 +611,7 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
   })
 
   it('follows the same session channel everything else does', () => {
-    expect(WORKER).toContain('roomChat.setChannel(here)')
+    expect(WORKER).toContain('roomChat.setChannels(open)')
     // And the LIVE question is asked once, for analytics only.
     expect((WORKER.match(/canWatchLiveTogether\(/g) ?? []).length).toBe(1)
   })

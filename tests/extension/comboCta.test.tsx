@@ -266,7 +266,9 @@ describe('F — unread belongs to the tab', () => {
 
   it('is drawn by the tab, from the worker\'s own count', () => {
     const panel = readFileSync('src/ui/KickbackPanel.tsx', 'utf8')
-    expect(panel).toContain('unread={view.roomUnread}')
+    expect(panel).toContain(// Keyed by this tab's own channel now: the worker broadcasts every room it
+    // holds, and the panel selects its own.
+    'unread={roomUnread}')
     expect(panel).toContain('kb-tab-badge')
   })
 })

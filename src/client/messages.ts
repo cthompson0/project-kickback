@@ -73,7 +73,7 @@ export type ClientMessage =
    * own reaction arrive back through the same realtime path everyone else
    * does, so there is exactly one way for one to appear.
    */
-  | { type: 'reaction'; reaction: string }
+  | { type: 'reaction'; reaction: string; channel?: string }
   /**
    * An ephemeral room message, on whatever channel the worker knows this
    * user is on.
@@ -85,7 +85,7 @@ export type ClientMessage =
    * eligible, and a client that could name one could talk into a room it is
    * not in.
    */
-  | { type: 'roomMessage'; body: string }
+  | { type: 'roomMessage'; body: string; channel?: string }
   /** The viewer opened, or left, the contextual stream session. */
   | { type: 'selectSession'; channel: string | null }
   /** Mute or unmute somebody. Local to this browser; never sent onwards. */

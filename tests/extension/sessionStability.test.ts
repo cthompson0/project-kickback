@@ -61,7 +61,7 @@ function harness() {
         return at.map((m) => ({ user_id: m.userId, hops: m.hops, via_user_id: m.viaUserId }))
       },
     },
-    onChange: () => changes.push(room.snapshot()),
+    onChange: () => changes.push(room.snapshot(CHANNEL)),
     now: () => Date.now(),
   })
 
@@ -108,18 +108,18 @@ describe('a friend arriving while the viewer is already watching', () => {
     const h = harness()
 
     // Alone, and resolved as such.
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
-    expect(h.room.snapshot()).toEqual([])
+    expect(h.room.snapshot(CHANNEL)).toEqual([])
 
     // First event: something changed. Ask.
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     const callsAfterFirst = h.calls()
 
     // Second event, while that request is unanswered. The friend is now here.
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     h.setAnswer([member('friend')])
 
     // The first request answers with the pre-arrival room.
@@ -128,20 +128,20 @@ describe('a friend arriving while the viewer is already watching', () => {
     expect(h.calls()).toBeGreaterThan(callsAfterFirst)
 
     await h.settle()
-    expect(h.room.snapshot()).toEqual([member('friend')])
+    expect(h.room.snapshot(CHANNEL)).toEqual([member('friend')])
   })
 
   it('tells the panel, so the tab can appear', async () => {
     // roomMembers reaching state is what sessionAvailable is derived from;
     // converging without announcing it would look identical to not converging.
     const h = harness()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
 
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     h.setAnswer([member('friend')])
     await h.settle()
     await h.settle()
@@ -151,15 +151,15 @@ describe('a friend arriving while the viewer is already watching', () => {
 
   it('converges on the simple case too, with one request', async () => {
     const h = harness()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
 
     h.setAnswer([member('friend')])
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
 
-    expect(h.room.snapshot()).toEqual([member('friend')])
+    expect(h.room.snapshot(CHANNEL)).toEqual([member('friend')])
     expect(h.calls()).toBe(2)
   })
 })
@@ -182,36 +182,36 @@ describe('a friend leaving', () => {
      */
     const h = harness()
     h.setAnswer([member('friend')])
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
-    expect(h.room.snapshot()).toEqual([member('friend')])
+    expect(h.room.snapshot(CHANNEL)).toEqual([member('friend')])
 
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
 
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     h.setAnswer([])
 
     await h.settle()
     await h.settle()
 
-    expect(h.room.snapshot()).toEqual([])
+    expect(h.room.snapshot(CHANNEL)).toEqual([])
   })
 
   it('does not wait for the refresh interval to notice', async () => {
     const h = harness()
     h.setAnswer([member('friend')])
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
 
     h.setAnswer([])
     h.room.invalidate()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
 
     // No clock was advanced at all.
-    expect(h.room.snapshot()).toEqual([])
+    expect(h.room.snapshot(CHANNEL)).toEqual([])
   })
 })
 
@@ -232,12 +232,12 @@ describe('what must NOT cause a request', () => {
      * polling loop with extra steps.
      */
     const h = harness()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
     expect(h.calls()).toBe(1)
 
     for (let beat = 0; beat < 10; beat += 1) {
-      h.room.want(CHANNEL)
+      h.room.want([CHANNEL])
       await h.settle()
     }
     expect(h.calls()).toBe(1)
@@ -246,12 +246,12 @@ describe('what must NOT cause a request', () => {
   it('asks once for a burst of invalidations, not once each', async () => {
     // Several events in the same instant are one change to converge on.
     const h = harness()
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
     await h.settle()
 
     for (let i = 0; i < 5; i += 1) {
       h.room.invalidate()
-      h.room.want(CHANNEL)
+      h.room.want([CHANNEL])
     }
     expect(h.calls()).toBe(2)
   })
@@ -261,15 +261,15 @@ describe('what must NOT cause a request', () => {
     // previous channel must not land on the new one.
     const h = harness()
     h.setAnswer([member('friend')])
-    h.room.want(CHANNEL)
+    h.room.want([CHANNEL])
 
     h.setAnswer([])
-    h.room.want('xqc')
+    h.room.want(['xqc'])
     await h.settle()
     await h.settle()
 
-    expect(h.room.channel()).toBe('xqc')
-    expect(h.room.snapshot()).toEqual([])
+    expect(h.room.channels()[0] ?? null).toBe('xqc')
+    expect(h.room.snapshot(CHANNEL)).toEqual([])
   })
 })
 
@@ -280,7 +280,7 @@ describe('the worker converges on the same events that redraw HERE', () => {
     expect(WORKER).toContain('const key = coPresenceKey(here)')
     expect(WORKER).toContain('if (key !== coPresence) {')
     expect(WORKER).toContain('room.invalidate()')
-    expect(WORKER).toContain('room.want(here)')
+    expect(WORKER).toContain('room.want(sessionChannels())')
   })
 
   it('does that from the presence path, which is what draws HERE', () => {
@@ -451,7 +451,8 @@ describe('a session outlives the broadcast', () => {
   it('keeps live status for the label and the lifecycle only', () => {
     expect(WORKER).toContain('const channel = liveWatchChannel()')
     // The panel derives the tab from people, not from a broadcast.
-    expect(PANEL).toContain('view.roomPeers.length > 0 || view.roomMembers.length > 0')
+    // Read from this tab's own channel now; both kinds of evidence remain.
+    expect(PANEL).toContain('roomPeers.length > 0 || roomMembers.length > 0')
     expect(PANEL).not.toContain('canWatchLiveTogether')
   })
 
@@ -461,10 +462,13 @@ describe('a session outlives the broadcast', () => {
      * HERE card counts. The server stays authoritative for who is REACHED,
      * which is what actually needs authorizing.
      */
-    expect(WORKER).toContain('function sessionPeers()')
-    expect(WORKER).toContain('roomPeers: sessionPeers()')
+    expect(WORKER).toContain(// Split into a per-channel helper plus a map, because a viewer with two
+      // streams has two different sets of people with them.
+      'function peersOn(here: string)')
+    // Keyed by channel, so a viewer with two streams gets two peer sets.
+    expect(WORKER).toContain('roomPeers: sessionPeerMap()')
     // And the client still invents no membership of its own.
-    expect(WORKER).toContain('room.want(here)')
+    expect(WORKER).toContain('room.want(sessionChannels())')
   })
 })
 

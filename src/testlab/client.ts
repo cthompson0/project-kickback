@@ -128,6 +128,16 @@ function toUser(sim: SimUser): User {
   }
 }
 
+/**
+ * One channel's worth of room state, in the map shape production broadcasts.
+ *
+ * The lab has a single observer on a single channel, so this is always a
+ * one-entry map - which is what a single-destination user is in production.
+ */
+function withChannel<T>(channel: string | null, value: T): Record<string, T> {
+  return channel ? { [channel]: value } : {}
+}
+
 export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
   let world = deps.world
   let state: KickbackState = INITIAL_STATE
@@ -377,7 +387,12 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       togetherReactions: pruneReactions(reactions, now),
       // Computed by the lab because production computes it in SQL, which the
       // lab has no access to. Checked against that SQL by a test.
-      roomMembers: roomMembers(world, now),
+      /*
+       * Keyed by channel, as production is. The lab models one observer with
+       * one channel, so the map has at most one entry - which is exactly what
+       * a single-destination user looks like in production too.
+       */
+      roomMembers: withChannel(observerChannel(), roomMembers(world, now)),
       /*
        * Direct friends presence already proves are here.
        *
@@ -385,16 +400,22 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
        * membership RPC, and availability accepts it - so the lab has to supply
        * it or it would model a panel that still waits for the server.
        */
-      roomPeers: friendsOf(world)
-        .filter((user) => presenceRow(user, now).channel === observerChannel())
-        .map((user) => user.id),
-      roomMessages: pruneMessages(messages, now),
-      roomUnread: unreadCount(
-        messages,
+      roomPeers: withChannel(
         observerChannel(),
-        readAt[observerChannel() ?? ''] ?? 0,
-        world.observer.id,
-        now,
+        friendsOf(world)
+          .filter((user) => presenceRow(user, now).channel === observerChannel())
+          .map((user) => user.id),
+      ),
+      roomMessages: pruneMessages(messages, now),
+      roomUnread: withChannel(
+        observerChannel(),
+        unreadCount(
+          messages,
+          observerChannel(),
+          readAt[observerChannel() ?? ''] ?? 0,
+          world.observer.id,
+          now,
+        ),
       ),
       /*
        * The lab applies the same three conditions production does: same

@@ -126,10 +126,14 @@ describe('the worker keeps the two apart', () => {
   })
 
   it('gives the room, the inbox and the conversation the SESSION rule', () => {
-    expect(WORKER).toContain(`const here = sessionChannel()
-  together.setChannel(here)
-  room.want(here)`)
-    expect(WORKER).toContain('roomChat.setChannel(here)')
+    // The SESSION rule still gates all three - what changed is that it now
+    // yields a SET, so a viewer with two streams keeps two of everything.
+    expect(WORKER).toContain(`const open = sessionChannels()
+  together.setChannels(open)
+  room.want(open)`)
+    expect(WORKER).toContain('roomChat.setChannels(open)')
+    // And the set is still gated on the write having landed.
+    expect(WORKER).toContain('presenceReporter.lastDestinations().filter')
   })
 
   it('gives ONLY the analytics lifecycle the live rule', () => {

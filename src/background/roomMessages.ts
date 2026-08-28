@@ -67,16 +67,26 @@ export interface RoomMessages {
   /** Who the inbox belongs to, or null when signed out. Idempotent. */
   setUser(userId: string | null): void
   /**
-   * Where the viewer is watching, or null.
+   * Every destination the viewer currently has open.
    *
-   * Changing channel clears the buffer and fetches what was said on the new
-   * one. Setting the SAME channel again re-fetches, which is what a refresh
-   * needs: the worker may have been evicted with messages on the server that
-   * this client has never seen.
+   * A SET rather than a channel, because a person with two streams open is in
+   * two conversations at once and neither may clear the other. Every message
+   * already carries its own channel, so the buffer needs no partitioning - what
+   * changed is that it is no longer emptied when the viewer looks elsewhere.
+   *
+   * Messages for a destination that has closed are dropped, since nothing can
+   * render them any more. Everything else is kept and ages out on the same
+   * thirty-minute retention clock it always did.
+   *
+   * A destination that is present again - a refresh, a worker eviction and
+   * restore - is re-fetched, which is what makes a conversation come back
+   * rather than start empty.
    */
-  setChannel(channel: string | null): void
-  /** Send one. Fire-and-forget; failure is logged, never surfaced. */
-  send(body: string): void
+  setChannels(channels: readonly string[]): void
+  /** The destinations currently followed, for tests and diagnostics. */
+  channels(): readonly string[]
+  /** Send one, naming the room. Fire-and-forget; failure is logged. */
+  send(channel: string | null, body: string): void
   /** Everything still worth showing, oldest first. */
   snapshot(): RoomMessage[]
   reset(): void
@@ -88,7 +98,7 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
   const now = deps.now ?? (() => Date.now())
 
   let userId: string | null = null
-  let channel: string | null = null
+  let channels: string[] = []
   let close: (() => void) | null = null
   let messages: RoomMessage[] = []
   /** Guards a slow open or fetch landing after the subscription was replaced. */
@@ -107,7 +117,7 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
      * moments after they moved on. It stays on the server for whoever is still
      * there; it simply does not belong on this screen.
      */
-    if (message.channel !== channel) return
+    if (!channels.includes(message.channel)) return
 
     const before = messages.length
     messages = withMessage(pruneMessages(messages, now()), message)
@@ -121,7 +131,7 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
     void deps.backend
       .history(forChannel)
       .then((payload) => {
-        if (mine !== generation || forChannel !== channel) return
+        if (mine !== generation || !channels.includes(forChannel)) return
         const fetched = parseRoomMessages(payload).filter(
           (message) => message.channel === forChannel,
         )
@@ -173,8 +183,9 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
           }
           close = unsubscribe
           // Subscribed first, then fetched: a message sent in between is
-          // delivered live and folded in by id rather than missed.
-          if (channel) fetchHistory(channel, mine)
+          // delivered live and folded in by id rather than missed. Every open
+          // destination, because the viewer may already have several.
+          for (const login of channels) fetchHistory(login, mine)
         })
         .catch((error) => {
           /*
@@ -186,28 +197,53 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
         })
     },
 
-    setChannel(next): void {
-      const login = next ? next.trim().toLowerCase() : null
-      const changed = login !== channel
-      channel = login
+    setChannels(next): void {
+      const wanted = [...new Set(next.map((entry) => entry.trim().toLowerCase()))].filter(
+        (entry) => entry.length > 0,
+      )
+      const previous = channels
+      channels = wanted
 
-      if (changed) {
-        // A conversation belongs to the stream it happened on.
-        messages = []
+      /*
+       * Drop only what has genuinely gone.
+       *
+       * This is the whole of the multi-room change on the read side: closing a
+       * stream forgets its conversation, and looking at a different one does
+       * not. Before, ANY change emptied the buffer, so switching tabs threw
+       * away a conversation the server was still perfectly willing to serve.
+       */
+      const live = new Set(wanted)
+      const kept = messages.filter((message) => live.has(message.channel))
+      if (kept.length !== messages.length) {
+        messages = kept
+        deps.onChange?.()
+      } else if (previous.length !== wanted.length) {
         deps.onChange?.()
       }
 
-      if (!login || !userId) return
-      // Re-fetched even when the channel did not change: this is what makes a
-      // page refresh, or a worker that was evicted and came back, recover the
-      // conversation rather than start an empty one.
-      fetchHistory(login, generation)
+      if (!userId) return
+      /*
+       * Re-fetched for every live destination, not only the new ones.
+       *
+       * A page refresh and a worker restore both arrive here, and both need
+       * the conversation back rather than an empty one. The fetch merges by
+       * row id, so asking again for something already held costs one request
+       * and changes nothing on screen.
+       */
+      for (const login of wanted) fetchHistory(login, generation)
     },
 
-    send(body): void {
-      const here = channel
+    channels: () => channels,
+
+    send(channel, body): void {
+      // The caller names the room. With several open, "the current channel" is
+      // not a question the worker can answer for one particular tab.
+      const here = channel ? channel.trim().toLowerCase() : null
       const text = body.trim()
       if (!here || text.length === 0) return
+      // Only somewhere the viewer actually has open. The server checks this too
+      // and is the authority; refusing here saves a round trip.
+      if (!channels.includes(here)) return
 
       void deps.backend.send(here, text).catch((error) => {
         /*
@@ -232,7 +268,7 @@ export function createRoomMessages(deps: RoomMessagesDeps): RoomMessages {
       close?.()
       close = null
       userId = null
-      channel = null
+      channels = []
       messages = []
       deps.onChange?.()
     },

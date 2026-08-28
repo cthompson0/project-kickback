@@ -207,7 +207,7 @@ const socialSync = createSocialSync({
      * would stand until the refresh interval happened to lapse.
      */
     room.invalidate()
-    room.want(sessionChannel())
+    room.want(sessionChannels())
   },
   onStatusChange: (status) => {
     if (status === 'connected' || status === 'error') noteRealtime('social', status)
@@ -270,7 +270,7 @@ function indexPresence(next: PresenceIndex): void {
     coPresence = key
     room.invalidate()
   }
-  room.want(here)
+  room.want(sessionChannels())
 
   broadcast()
 }
@@ -499,7 +499,7 @@ const together = createTogetherReactions({
      */
     analytics.track(
       'automatic_room_reaction',
-      { participant_count: roomSize(), direction: mine ? 'sent' : 'received' },
+      { participant_count: roomSize(reaction.channel), direction: mine ? 'sent' : 'received' },
       { source: 'together', channel: reaction.channel },
     )
   },
@@ -533,7 +533,7 @@ const roomChat = createRoomMessages({
       {
         length_bucket: lengthBucket(message.body.length),
         has_emote: isEmoteOnly(message.body) || parseMessage(message.body).some((segment) => segment.type === 'emote'),
-        participant_count: roomSize(),
+        participant_count: roomSize(message.channel),
       },
       { source: 'together', channel: message.channel },
     )
@@ -563,24 +563,45 @@ function restoredSession(): string | null {
   // Either kind of evidence will do, for the same reason availability accepts
   // either: a direct friend the client can already see is not less real than
   // one the server has confirmed.
-  return room.snapshot().length > 0 || sessionPeers().length > 0 ? remembered : null
+  /*
+   * Either kind of evidence, plus the conversation itself.
+   *
+   * Retained messages now count, which is what supersedes the Patch 1
+   * workaround: a room the viewer was in stays restorable for exactly as long
+   * as its messages live, and not one moment longer.
+   */
+  const live =
+    room.snapshot(remembered).length > 0 ||
+    peersOn(remembered).length > 0 ||
+    roomChat.snapshot().some((message) => message.channel === remembered)
+  return live ? remembered : null
 }
 
-/** Messages waiting on the channel the viewer is on. Zero when none. */
-function roomUnread(): number {
-  const here = sessionChannel()
-  if (!here) return 0
-  return unreadCount(
-    roomChat.snapshot(),
-    here,
-    sessionTab.readAt(here),
-    authState.identity?.userId ?? null,
-  )
+/**
+ * Messages waiting, per destination.
+ *
+ * Keyed by channel because unread is a fact about a conversation, and a viewer
+ * with two rooms open has two of them. `sessionTab.readAt` was already per
+ * channel; this is what finally uses it that way.
+ *
+ * Computed over every channel that has retained messages rather than only the
+ * open ones, so a room kept alive by its conversation still shows a count.
+ */
+function roomUnreadMap(): Record<string, number> {
+  const selfId = authState.identity?.userId ?? null
+  const messages = roomChat.snapshot()
+  const channels = new Set([...sessionChannels(), ...messages.map((message) => message.channel)])
+
+  const out: Record<string, number> = {}
+  for (const channel of channels) {
+    out[channel] = unreadCount(messages, channel, sessionTab.readAt(channel), selfId)
+  }
+  return out
 }
 
-/** Everyone in the room, including the viewer. Zero when there is no room. */
-function roomSize(): number {
-  const members = room.snapshot().length
+/** Everyone in one room, including the viewer. Zero when there is no room. */
+function roomSize(channel: string | null): number {
+  const members = room.snapshot(channel).length
   return members === 0 ? 0 : members + 1
 }
 
@@ -602,8 +623,8 @@ function noteTogetherSurface(): void {
   // The session rule, not the live one: a room that exists on an offline
   // channel is still a room somebody arrived in.
   const here = sessionChannel()
-  const members = room.snapshot()
-  const peers = sessionPeers()
+  const members = room.snapshot(here)
+  const peers = here ? peersOn(here) : []
 
   if (!here || (members.length === 0 && peers.length === 0)) {
     togetherShownFor = null
@@ -913,6 +934,25 @@ function sessionChannel(): string | null {
 }
 
 /**
+ * Every destination the viewer has open AND has successfully published.
+ *
+ * The multi-destination counterpart of sessionChannel, and it applies the same
+ * rule for the same reason: a channel is only a room once the WRITE has landed.
+ * `stream_room_members` refuses unless the caller's own presence puts them
+ * there, so asking before that is true returns a correct, empty and
+ * permanently cached answer - the bug that once made a page load resolve to
+ * nothing.
+ *
+ * `lastDestinations()` is what the server acknowledged, not what the tabs
+ * currently show, which is exactly the distinction that matters here.
+ */
+function sessionChannels(): string[] {
+  if (authState.status !== 'signed_in') return []
+  const open = new Set(tabActivity.destinations())
+  return presenceReporter.lastDestinations().filter((channel) => open.has(channel))
+}
+
+/**
  * The destination the viewer is co-viewing a LIVE broadcast at.
  *
  * The narrower rule, and the only consumer is the shared-watch analytics
@@ -942,10 +982,7 @@ function liveWatchChannel(): string | null {
  * component. The client never invents membership - it only declines to
  * pretend it does not already know about a direct friend it can see.
  */
-function sessionPeers(): string[] {
-  const here = sessionChannel()
-  if (!here) return []
-
+function peersOn(here: string): string[] {
   const viewer: Activity = { type: 'watching', platform: 'twitch', channel: here }
   const selfId = authState.identity?.userId ?? null
   const friendIds = new Set(friendsState.friends.map((friend) => friend.user.id))
@@ -956,6 +993,19 @@ function sessionPeers(): string[] {
     if (describePresence(presence, viewer).kind === 'watching_with_you') peers.push(userId)
   }
   return peers.sort()
+}
+
+/**
+ * Co-present friends on every open destination, keyed by channel.
+ *
+ * Per channel because a person watching two streams has two different sets of
+ * people with them, and merging them would put somebody from one room into the
+ * other's count.
+ */
+function sessionPeerMap(): Record<string, string[]> {
+  const out: Record<string, string[]> = {}
+  for (const channel of sessionChannels()) out[channel] = peersOn(channel)
+  return out
 }
 
 function refreshAttention(): void {
@@ -1080,13 +1130,21 @@ function pushActivity(): void {
    * which room to ask about. Driven from the same effective activity presence
    * reports, so multi-tab behaviour is inherited rather than re-derived.
    */
-  const here = sessionChannel()
-  together.setChannel(here)
-  room.want(here)
-  // The conversation follows the same channel, and re-fetches on the same
-  // call: a page refresh reaches here, and the messages have to come back
-  // with it rather than starting empty.
-  roomChat.setChannel(here)
+  /*
+   * Every open destination, not one of them.
+   *
+   * This is the whole of the multi-room change in the worker: the three
+   * contextual stores now follow a SET, so a viewer with two streams open
+   * keeps two rosters, two conversations and two reaction streams, and looking
+   * at one does not destroy the other.
+   */
+  const open = sessionChannels()
+  together.setChannels(open)
+  room.want(open)
+  // The conversations follow the same set, and re-fetch on the same call: a
+  // page refresh reaches here, and the messages have to come back with it
+  // rather than starting empty.
+  roomChat.setChannels(open)
 
   if (authState.status !== 'signed_in') return
   presenceReporter.setActivity(tabActivity.effective())
@@ -1186,10 +1244,10 @@ function currentState(): KickbackState {
     channelNames: { ...channelNames },
     channelMetadata: { ...metadata.snapshot() },
     togetherReactions: together.snapshot(),
-    roomMembers: room.snapshot(),
-    roomPeers: sessionPeers(),
+    roomMembers: room.rosters(),
+    roomPeers: sessionPeerMap(),
     roomMessages: roomChat.snapshot(),
-    roomUnread: roomUnread(),
+    roomUnread: roomUnreadMap(),
     sessionChannel: restoredSession(),
     mutedUserIds: sessionTab.muted(),
     blockedUsers: friendsState.blocked,
@@ -1428,7 +1486,7 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
         channel,
         on_channel: channel !== null,
         friend_count: friendsState.friends.length,
-        session_available: room.snapshot().length > 0,
+        session_available: room.channels().length > 0,
         social_sync: socialSync.getStatus(),
         presence_sync: presenceSync.getStatus(),
       },
@@ -1615,7 +1673,20 @@ chrome.runtime.onConnect.addListener((port) => {
         // Recorded when it is DELIVERED, not when it is asked for - see the
         // onReaction handler. A send that fails should not appear as an
         // interaction that happened.
-        if (isReaction(raw.reaction)) together.send(raw.reaction)
+        /*
+         * The tab names its room.
+         *
+         * A tab knows which stream it is showing; with several open the worker
+         * has no single "current" channel that is right for a particular one.
+         * An older client that sends no channel falls back to the primary,
+         * which is what it always meant.
+         */
+        if (isReaction(raw.reaction)) {
+          together.send(
+            typeof raw.channel === 'string' ? raw.channel : sessionChannel(),
+            raw.reaction,
+          )
+        }
         break
 
       case 'roomMessage': {
@@ -1640,7 +1711,9 @@ chrome.runtime.onConnect.addListener((port) => {
          * why the activity preview outside never lit up.
          */
         const body = emoteCatalog.resolveOutgoing(typed)
-        if (body.length > 0 && body.length <= MAX_MESSAGE_LENGTH) roomChat.send(body)
+        if (body.length > 0 && body.length <= MAX_MESSAGE_LENGTH) {
+          roomChat.send(typeof raw.channel === 'string' ? raw.channel : sessionChannel(), body)
+        }
         break
       }
 
@@ -1820,8 +1893,8 @@ if (METADATA_DIAGNOSTICS) {
   ;(globalThis as unknown as Record<string, unknown>).kickbackSession = {
     why() {
       const here = sessionChannel()
-      const peers = sessionPeers()
-      const members = room.snapshot()
+      const peers = here ? peersOn(here) : []
+      const members = room.snapshot(here)
       return {
         // Where we think we are, and whether our own row says so yet.
         destination: currentChannel(),
@@ -1836,14 +1909,15 @@ if (METADATA_DIAGNOSTICS) {
         sessionAvailable: Boolean(here) && (peers.length > 0 || members.length > 0),
         // The membership request's own state, which is where arrival used to
         // get stuck: an answer computed before somebody arrived, cached.
-        roomChannel: room.channel(),
+        roomChannels: room.channels(),
+        openDestinations: sessionChannels(),
         roomPending: room.pending(),
         // Live status is now ONLY a label and an analytics gate. If this says
         // offline and the session is missing, the two are unrelated.
         liveWatchChannel: liveWatchChannel(),
         live: watchTogetherState(here, metadata.snapshot()),
         messages: roomChat.snapshot().length,
-        unread: roomUnread(),
+        unread: roomUnreadMap(),
       }
     },
   }
