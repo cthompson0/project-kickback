@@ -70,6 +70,27 @@ export interface ActivityRegistry {
   /** True when at least one Twitch tab is open. */
   hasTabs(): boolean
   tabCount(): number
+  /**
+   * Every live tab, exactly as the registry holds it.
+   *
+   * Read-only, and for development diagnostics only - the question "which
+   * ports does the worker actually know about" cannot be answered from
+   * `destinations()`, because a missing tab and a tab on no channel look
+   * identical there. That distinction is what a browser investigation needs.
+   */
+  snapshot(): TabSnapshot[]
+}
+
+/** One live tab, for diagnostics. */
+export interface TabSnapshot {
+  /** The port object the worker keyed this tab by. */
+  key: object
+  channel: string | null
+  visible: boolean
+  /** When this tab last reported anything. */
+  updatedAt: number
+  /** When it arrived at the channel it is on now - what ordering uses. */
+  channelAt: number
 }
 
 function toActivity(tab: TabActivity | null): Activity {
@@ -193,5 +214,14 @@ export function createActivityRegistry(): ActivityRegistry {
 
     hasTabs: () => tabs.size > 0,
     tabCount: () => tabs.size,
+
+    snapshot: () =>
+      [...tabs.entries()].map(([key, tab]) => ({
+        key,
+        channel: tab.channel,
+        visible: tab.visible,
+        updatedAt: tab.updatedAt,
+        channelAt: tab.channelAt,
+      })),
   }
 }

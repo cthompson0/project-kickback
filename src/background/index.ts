@@ -13,6 +13,7 @@ import {
 } from './presenceIndex'
 import type { PresenceIndex } from './presenceIndex'
 import { createPresenceReporter } from './presence'
+import type { PresenceBackend } from './presence'
 import { createActivityRegistry } from './activity'
 import { createGatheringWatcher } from './gatherings'
 import { resolveChannelName } from '../core/channelNames'
@@ -314,9 +315,73 @@ const presenceSync = createPresenceSync({
   onError: logError,
 })
 
+/*
+ * Verbose diagnostics, off in production.
+ *
+ * A build-time constant, so a production bundle folds the whole diagnostic
+ * path away rather than merely declining to print it.
+ */
+const DIAGNOSTICS = (import.meta.env.VITE_KICKBACK_ENV ?? 'development') !== 'production'
+
+/** One presence write, as it went out. */
+interface PresenceWrite {
+  at: string
+  call: 'report_destinations' | 'report_presence' | 'report_offline'
+  /** The exact array handed to the RPC. Null where the call takes none. */
+  payload: string[] | null
+}
+
+/**
+ * The last few presence writes, oldest first.
+ *
+ * Development only, and it exists because of a specific failure: the hosted
+ * table said one destination while every test said three, and there was no way
+ * from inside the browser to tell whether the payload was wrong or the write
+ * was. This answers that in one line.
+ *
+ * Channel names appear here. That is deliberate and it is confined to a
+ * development console - nothing here reaches analytics or failure telemetry,
+ * which take a fixed vocabulary and never a channel.
+ */
+const presenceWrites: PresenceWrite[] = []
+const PRESENCE_WRITE_LOG = 40
+
+function notePresenceWrite(call: PresenceWrite['call'], payload: string[] | null): void {
+  const entry: PresenceWrite = { at: new Date().toISOString(), call, payload }
+  presenceWrites.push(entry)
+  if (presenceWrites.length > PRESENCE_WRITE_LOG) presenceWrites.shift()
+  console.info('[Kickback] presence write', entry.at, call, payload ?? '')
+}
+
+/**
+ * Records what actually goes to the server, without changing what is sent.
+ *
+ * A pass-through in production, and literally the same object - so the thing
+ * being observed is the thing that ships.
+ */
+function watchPresenceWrites(backend: PresenceBackend): PresenceBackend {
+  if (!DIAGNOSTICS) return backend
+  return {
+    reportPresence(platform, channel) {
+      notePresenceWrite('report_presence', channel ? [channel] : [])
+      return backend.reportPresence(platform, channel)
+    },
+    reportDestinations(channels) {
+      notePresenceWrite('report_destinations', [...channels])
+      return backend.reportDestinations(channels)
+    },
+    // Not recorded: it carries nothing and would drown the other three.
+    heartbeat: () => backend.heartbeat(),
+    reportOffline() {
+      notePresenceWrite('report_offline', null)
+      return backend.reportOffline()
+    },
+  }
+}
+
 /** Our own presence: what this browser is watching, and that it still is. */
 const presenceReporter = createPresenceReporter({
-  backend: createSupabasePresenceBackend(supabase),
+  backend: watchPresenceWrites(createSupabasePresenceBackend(supabase)),
   /*
    * The heartbeat doubles as analytics' liveness signal.
    *
@@ -713,8 +778,7 @@ function scheduleDestinationsRefresh(): void {
  * A build-time constant, so a production bundle folds the whole diagnostic
  * path away rather than merely declining to print it.
  */
-const METADATA_DIAGNOSTICS =
-  (import.meta.env.VITE_KICKBACK_ENV ?? 'development') !== 'production'
+const METADATA_DIAGNOSTICS = DIAGNOSTICS
 
 const METADATA_KEY = 'kickback:channelMetadata'
 
@@ -1220,6 +1284,13 @@ let groupsState = groups.getState()
 const ports = new Set<chrome.runtime.Port>()
 
 /**
+ * A stable name per port, so diagnostics can say "tab2" rather than printing
+ * an object. A WeakMap, so a closed tab is not kept alive by being named.
+ */
+const portLabels = new WeakMap<object, string>()
+let nextPortLabel = 1
+
+/**
  * One state object out of two services. Friends come last so their real data
  * wins, but they are cleared whenever auth is not healthy - so a signed-out or
  * erroring panel can never still be showing a friends list.
@@ -1637,6 +1708,7 @@ chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== PORT_NAME) return
 
   ports.add(port)
+  portLabels.set(port, `tab${nextPortLabel++}`)
   port.postMessage({ type: 'state', state: currentState() } satisfies WorkerMessage)
 
   port.onMessage.addListener((raw: ClientMessage) => {
@@ -1877,6 +1949,55 @@ if (METADATA_DIAGNOSTICS) {
       }
     },
     snapshot: () => metadata.snapshot(),
+  }
+
+  /*
+   * Why does Supabase show one destination when I have three streams open?
+   *
+   *     kickbackDestinations.now()
+   *
+   * The whole publisher, from ports to payload, in one object - written after
+   * a browser investigation where every automated test passed and the hosted
+   * table still held a single row. The gap was that nothing could show which
+   * TABS the worker knew about, and a tab the worker has forgotten looks
+   * exactly like a tab on no channel from anywhere else.
+   *
+   * `ports` is what the worker believes is open. `aggregated` is what it would
+   * publish. `published` is what the server acknowledged. `writes` is what
+   * actually went out, in order, with timestamps. If ports is short, the tabs
+   * never reported; if aggregated is short, the registry dropped them; if the
+   * payload is short, the reporter did; and if all three are three and the
+   * table says one, the server did.
+   *
+   * Channel names are here. Development and beta only, on the same build-time
+   * constant the metadata probe uses, and nothing here goes to analytics.
+   */
+  ;(globalThis as unknown as Record<string, unknown>).kickbackDestinations = {
+    now() {
+      const tabs = tabActivity.snapshot()
+      return {
+        // Every content-script port the worker currently holds, and what it
+        // last said it was showing.
+        ports: tabs.map((tab) => ({
+          port: portLabels.get(tab.key) ?? 'unknown',
+          channel: tab.channel,
+          visible: tab.visible,
+          reportedAt: new Date(tab.updatedAt).toISOString(),
+          onChannelSince: new Date(tab.channelAt).toISOString(),
+        })),
+        portCount: ports.size,
+        // Ports the worker has, but which have never reported an activity.
+        // A non-zero count here IS the bug this surface was written for.
+        portsWithoutActivity: ports.size - tabs.length,
+        aggregated: tabActivity.destinations(),
+        published: [...presenceReporter.lastDestinations()],
+        localPrimary: currentChannel(),
+        signedIn: authState.status === 'signed_in',
+        writes: [...presenceWrites],
+      }
+    },
+    /** Just the writes, for watching a reconnect happen live. */
+    writes: () => [...presenceWrites],
   }
 
   /*

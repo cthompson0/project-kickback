@@ -509,10 +509,40 @@ describe('the harness matches the worker', () => {
     expect(WORKER).toContain('tabActivity.remove(port)')
   })
 
-  /** Nothing outside the reporter may reach the presence RPCs. */
+  /**
+   * Nothing outside the reporter may ISSUE a presence write.
+   *
+   * Two places are allowed to name the entry points: the reporter's own
+   * construction, and `watchPresenceWrites`, the development diagnostic that
+   * wraps the backend. The wrapper does not originate a call - it records what
+   * the reporter is already sending and delegates - so it is excluded by name
+   * rather than by loosening the rule, and the test below pins it to being a
+   * pass-through.
+   */
   it('leaves both presence entry points to the reporter alone', () => {
-    const outside = WORKER.replace(/createPresenceReporter\(\{[\s\S]*?\n\}\)/, '')
+    const outside = WORKER.replace(
+      /function watchPresenceWrites\([\s\S]*?\n\}\n/,
+      '',
+    ).replace(/createPresenceReporter\(\{[\s\S]*?\n\}\)/, '')
     expect(outside).not.toContain('reportPresence(')
     expect(outside).not.toContain('reportDestinations(')
+  })
+
+  /**
+   * And the diagnostic cannot change what is sent.
+   *
+   * It returns the backend untouched in production, and every branch it does
+   * add forwards its arguments through unmodified - so the thing being watched
+   * is the thing that ships.
+   */
+  it('records presence writes without altering them', () => {
+    const wrapper = WORKER.slice(
+      WORKER.indexOf('function watchPresenceWrites('),
+      WORKER.indexOf('/** Our own presence:'),
+    )
+    expect(wrapper).toContain('if (!DIAGNOSTICS) return backend')
+    expect(wrapper).toContain('return backend.reportPresence(platform, channel)')
+    expect(wrapper).toContain('return backend.reportDestinations(channels)')
+    expect(wrapper).toContain('return backend.reportOffline()')
   })
 })

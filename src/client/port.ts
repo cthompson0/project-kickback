@@ -16,6 +16,26 @@ import type { ClientMessage, RpcMethod } from './messages'
  * shut down, connecting wakes it, so a dropped port is routine rather than an
  * error - we simply reconnect, and any request that was in flight is rejected
  * so the UI can recover instead of hanging on a promise that will never settle.
+ *
+ * A DROPPED PORT LOSES THE WORKER'S MEMORY OF THIS TAB
+ *
+ * That is the part that is easy to miss, and it is why `reportActivity` is
+ * replayed below. An MV3 service worker is evicted routinely - roughly thirty
+ * seconds after it goes quiet - and eviction destroys its module scope, which
+ * is where the tab registry lives. Every port then disconnects and every tab
+ * reconnects here, transparently.
+ *
+ * Reconnecting is not enough. The worker learns which channel a tab is on from
+ * one `activity` message, and the content script only sends that on mount, on
+ * navigation, on visibilitychange, on pageshow and when the title settles - so
+ * a tab sitting quietly in the background sends nothing, and the revived worker
+ * never finds out it exists. With three streams open, only the tab the user
+ * touched next was known, and multi-destination presence published exactly one
+ * destination however many were open.
+ *
+ * So the last activity is remembered and re-sent on every connect. The tab is
+ * the authority on what it is showing; the worker is entitled to ask again by
+ * simply losing its memory.
  */
 
 const RECONNECT_DELAY_MS = 500
@@ -34,6 +54,14 @@ export function createPortClient(): KickbackClient {
   let reconnectDelay = RECONNECT_DELAY_MS
   let nextCallId = 1
   let disposed = false
+  /**
+   * The last thing this tab told the worker it was showing.
+   *
+   * Durable per-tab state, unlike every other message here, which is an event.
+   * Replayed on connect so a revived worker rebuilds the whole tab registry
+   * rather than only the tabs that happen to move next.
+   */
+  let lastActivity: ClientMessage | null = null
 
   const setState = (next: KickbackState) => {
     state = next
@@ -80,6 +108,15 @@ export function createPortClient(): KickbackClient {
     })
 
     send({ type: 'hello' })
+    /*
+     * And say where we are again, because the worker has forgotten.
+     *
+     * After `hello`, so the state snapshot the worker sends back is not racing
+     * a registry update. Skipped on the very first connect only because there
+     * is nothing to replay yet - the content script's own first report follows
+     * a moment later.
+     */
+    if (lastActivity) send(lastActivity)
   }
 
   function scheduleReconnect(): void {
@@ -175,8 +212,12 @@ export function createPortClient(): KickbackClient {
       await rpc('refreshFriends')
     },
 
-    reportActivity: (channel, visible, channelName) =>
-      send({ type: 'activity', channel, visible, channelName: channelName ?? null }),
+    reportActivity: (channel, visible, channelName) => {
+      // Remembered before it is sent, so a report that arrives while the port
+      // is down is still replayed the moment it comes back.
+      lastActivity = { type: 'activity', channel, visible, channelName: channelName ?? null }
+      send(lastActivity)
+    },
     sendReaction: (reaction, channel) => send({ type: 'reaction', reaction, channel }),
     sendRoomMessage: (body, channel) => send({ type: 'roomMessage', body, channel }),
     selectSession: (channel) => send({ type: 'selectSession', channel }),
