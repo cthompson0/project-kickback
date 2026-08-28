@@ -35,7 +35,7 @@ export default defineConfig({
         define: { __KICKBACK_VERSION__: JSON.stringify(version) },
         test: {
           name: 'node',
-          include: ['tests/extension/**/*.test.ts', 'tests/extension/**/*.test.tsx', 'tests/db/**/*.test.ts', 'tests/testlab/**/*.test.ts'],
+          include: ['tests/extension/**/*.test.ts', 'tests/extension/**/*.test.tsx', 'tests/db/**/*.test.ts', 'tests/testlab/**/*.test.{ts,tsx}'],
           environment: 'node',
           testTimeout: 30_000,
           hookTimeout: 60_000,

@@ -536,4 +536,62 @@ destination analytics, `document.hasFocus()` as network presence state, the
 
 ---
 
+## 13. ADDENDUM — testlab `.tsx` collection regression, found and fixed
+
+**The regression.** Patch 1 replaced a single vitest include with per-directory
+globs, and one of them omitted `.tsx`:
+
+```
+'tests/testlab/**/*.test.ts'        // matched world.test.ts and isolation.test.ts only
+```
+
+Three suites therefore stopped being collected — not skipped, not failing, never
+gathered, so nothing reported them missing.
+
+**The fix — configuration only, one glob:**
+
+```
+- 'tests/testlab/**/*.test.ts'
++ 'tests/testlab/**/*.test.{ts,tsx}'
+```
+
+No product code, no test code, no other include changed.
+
+**Restored suites — run alone first, all passing:**
+
+| Suite | |
+| --- | --- |
+| `tests/testlab/gravity.test.tsx` | Social Gravity rendering |
+| `tests/testlab/metadata.test.tsx` | Twitch metadata |
+| `tests/testlab/together.test.tsx` | the Together surface |
+| **Total** | **3 files, 81 tests, 81 passing, 0 failing** |
+
+**Full suite with the corrected config:**
+
+| | Before | After |
+| --- | --- | --- |
+| Files | 65 | **68** |
+| Tests | 1715 | **1796** |
+| Failures | 0 | **0** |
+| Skipped | 0 | **0** |
+
+68 files executed against 68 `*.test.ts(x)` files on disk — collection is now
+complete, and the +81 matches the restored suites exactly.
+
+**The earlier 1715 total was incomplete.** Every claim of "1715 passing,
+nothing skipped, nothing disabled" in this report and in
+[friends-beta-patch-1-2026-08-27.md](friends-beta-patch-1-2026-08-27.md) was
+measured against a suite missing 81 tests. **1796 across 68 files is the correct
+figure.** The 1712 → 1715 arithmetic that looked benign was 81 tests leaving and
+84 arriving; a file count would have caught what a test count hid.
+
+**Deliberately not investigated here.** The separate `test:authz` mutation-harness
+question — exit 1, 14/18 detected, 4 missed, attribution unmeasured — remains
+documented in §4 and was **not** re-examined in this pass, on instruction. It is
+unrelated to this glob: the four uncovered mutations are asserted by
+`tests/db/authorization.test.ts` and `tests/db/groups.test.ts`, both of which
+were collected throughout.
+
+---
+
 *End of report.*
