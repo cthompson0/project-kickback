@@ -8,6 +8,57 @@ there — the version in the account panel tells you which build you are running
 
 ---
 
+## 0.5.0 — Multi-Destination Presence *(unreleased — local smoke build)*
+
+> **Not on the Chrome Web Store.** This version exists only as a local
+> unpacked build for owner smoke testing. The Store still carries **0.4.1**,
+> and testers installed from the Store will not receive anything below until
+> a build is actually published. The account panel reads `Kickback v0.5.0`,
+> which is how you tell the two apart.
+
+Presence stops being *the one channel you are on* and becomes *the streams you
+have open*.
+
+### Presence
+
+- Kickback now publishes **every Twitch stream you have open**, not just the
+  tab you happen to be looking at, up to **three at once**.
+- Open a fourth stream and the longest-open destination drops out, so what
+  friends see stays the three you most recently opened.
+- Duplicate tabs on the same stream are one destination — opening a second tab
+  on a stream you are already watching changes nothing.
+- **Switching between your Twitch tabs publishes nothing.** Which tab you are
+  looking at is yours; it never reaches the network, never reorders what
+  friends see, and is not recorded anywhere.
+- If your browser crashes or your laptop sleeps, every destination disappears
+  with your presence rather than lingering.
+
+### Social Gravity
+
+- Friends now appear at **each** of the streams they have open, so a friend
+  watching two things counts toward both gatherings.
+- A friend in two places is one person in each — no fractional weighting, and
+  nowhere to put one.
+
+### Stream Rooms
+
+- Each open stream now has **its own Stream Room**, resolved independently.
+  Two streams means two rosters, and looking at one no longer discards the
+  other.
+- Messages and reactions are **isolated per channel** — one room's
+  conversation cannot appear in another's.
+- A room stays available while its conversation is still on screen, within the
+  existing 30-minute retention window. This replaces the temporary
+  availability rule shipped in 0.4.1 outright; there is no new lease and no
+  new clock.
+
+### Fixes
+
+- Fixed the defect that made all of the above invisible: with several streams
+  open, friends could only ever see one of them.
+
+---
+
 ## 0.4.1 — Friends Beta Patch 1
 
 The first round of fixes from real beta use. Ten things came out of that
