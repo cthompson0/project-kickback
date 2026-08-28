@@ -9,7 +9,7 @@ import { Avatar } from './components/Avatar'
 import { FriendsTab } from './components/FriendsTab'
 import { SocialGravity } from './components/SocialGravity'
 import { StreamSession } from './components/StreamSession'
-import { gravityOpportunities, socialGravity } from '../core/socialGravity'
+import { expandDestinations, gravityOpportunities, socialGravity } from '../core/socialGravity'
 import { resolveArm } from '../core/experiment'
 import { FindFriends } from './components/FindFriends'
 import { IncomingRequests } from './components/IncomingRequests'
@@ -373,43 +373,21 @@ export function KickbackPanel({
         /*
          * One entry per FRIEND PER ACTIVE DESTINATION.
          *
-         * `clusterMembers` buckets by the channel it finds on a presence, and
-         * it is deliberately not changed: HERE, the group rosters, the user
-         * card, JOIN eligibility and Gravity all still answer from one
-         * interpretation. What changed is the input - a friend watching two
-         * streams arrives as two entries, each carrying the same presence with
-         * a different channel on it.
-         *
-         * Presence at a destination is BINARY. Somebody with three streams
-         * open counts once at each, not a third at each: there is no weight
-         * here and there is deliberately nowhere to put one. See
-         * docs/reports/multi-stream-room-architecture-2026-08-27.md §6.
-         *
-         * A friend with no destination entry falls back to their presence as
-         * it stands, which is what keeps a v0.4.1 client - who publishes only
-         * presence.channel - visible in Gravity during the rollout.
+         * The expansion itself lives in core/socialGravity.ts rather than
+         * here, because having it in one place and the rendered component
+         * clustering the singular list beside it is exactly how
+         * multi-destination came to be computed correctly and shown nowhere.
+         * SocialGravity is handed the same destinations and calls the same
+         * function, so the two cannot drift again.
          */
-        view.friends.flatMap((friend) => {
-          const base = { member: friend, presence: friend.presence, userId: friend.user.id }
-          /*
-           * De-duplicated defensively.
-           *
-           * apply_destinations already de-duplicates before its cap, so a
-           * repeat should be unreachable - which is exactly why it is worth
-           * guarding. One duplicated entry would put the same person into a
-           * cluster twice and inflate a gathering count, and gathering counts
-           * are what the product is about.
-           */
-          const destinations = [...new Set(view.friendDestinations[friend.user.id] ?? [])]
-          if (destinations.length === 0) return [base]
-          const presence = friend.presence
-          if (!presence || presence.activity.type !== 'watching') return [base]
-
-          return destinations.map((channel) => ({
-            ...base,
-            presence: { ...presence, activity: { ...presence.activity, channel } },
-          }))
-        }),
+        expandDestinations(
+          view.friends.map((friend) => ({
+            member: friend,
+            presence: friend.presence,
+            userId: friend.user.id,
+          })),
+          view.friendDestinations,
+        ),
         view.localActivity,
         undefined,
         view.identity?.userId ?? null,
@@ -899,6 +877,7 @@ export function KickbackPanel({
                 ) : arm === 'gravity' ? (
                   <SocialGravity
                     friends={friends}
+                    destinations={view.friendDestinations}
                     localActivity={view.localActivity}
                     onRemove={removeFriend}
                     client={client}

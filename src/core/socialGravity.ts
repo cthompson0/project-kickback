@@ -120,6 +120,60 @@ export function isGravity<T>(section: GravitySection<T>): boolean {
 }
 
 /**
+ * One entry per friend PER ACTIVE DESTINATION - the input Gravity clusters.
+ *
+ * This is the whole of multi-destination on the read side, and it lives here,
+ * once, because it has already been got wrong by existing twice: the panel
+ * computed this expansion for its analytics exposure report while the rendered
+ * component clustered the plain singular friends list beside it. Both were
+ * individually correct and the feature was invisible.
+ *
+ * `clusterMembers` buckets by the channel it finds on a presence, and is
+ * deliberately not changed: HERE, group rosters, the user card, JOIN
+ * eligibility and Gravity all still answer from one interpretation of
+ * presence. What changes is the INPUT - a friend watching two streams arrives
+ * as two entries, each carrying the same presence with a different channel.
+ *
+ * Presence at a destination is BINARY. Somebody with three streams open counts
+ * once at each, not a third at each: there is no weight here and deliberately
+ * nowhere to put one. See
+ * docs/reports/multi-stream-room-architecture-2026-08-27.md §6.
+ *
+ * A friend with no destination entry falls through unchanged, which is what
+ * keeps a v0.4.1 client - who publishes only presence.channel - visible during
+ * the rollout.
+ */
+export function expandDestinations<T>(
+  friends: readonly MemberLike<T>[],
+  destinations: Readonly<Record<string, readonly string[]>>,
+): Array<MemberLike<T>> {
+  return friends.flatMap((friend) => {
+    const id = friend.userId ?? friend.presence?.userId
+    /*
+     * De-duplicated defensively.
+     *
+     * apply_destinations already de-duplicates before its cap, so a repeat
+     * should be unreachable - which is exactly why it is worth guarding. One
+     * duplicated entry would put the same person into a cluster twice and
+     * inflate a gathering count, and gathering counts are what the product is
+     * about.
+     */
+    const open = id ? [...new Set(destinations[id] ?? [])] : []
+    if (open.length === 0) return [friend]
+
+    // Only a watching presence has a destination to be at. Somebody browsing,
+    // hiding their activity or offline is left exactly as they are.
+    const presence = friend.presence
+    if (!presence || presence.activity.type !== 'watching') return [friend]
+
+    return open.map((channel) => ({
+      ...friend,
+      presence: { ...presence, activity: { ...presence.activity, channel } },
+    }))
+  })
+}
+
+/**
  * The live social map.
  *
  * ORDER, AND WHY

@@ -15,6 +15,14 @@ import type { PresenceIndex } from './presenceIndex'
 import { createPresenceReporter } from './presence'
 import type { PresenceBackend } from './presence'
 import { createActivityRegistry } from './activity'
+// The same selector and the same expansion the panel renders from, so the
+// diagnostic below cannot report a map the UI does not draw.
+import {
+  GRAVITY_THRESHOLD,
+  expandDestinations,
+  isGravity,
+  socialGravity,
+} from '../core/socialGravity'
 import { createGatheringWatcher } from './gatherings'
 import { resolveChannelName } from '../core/channelNames'
 import {
@@ -1998,6 +2006,89 @@ if (METADATA_DIAGNOSTICS) {
     },
     /** Just the writes, for watching a reconnect happen live. */
     writes: () => [...presenceWrites],
+  }
+
+  /*
+   * The OBSERVER'S half: what this account can see of its friends' streams.
+   *
+   *     kickbackGravity.now()
+   *
+   * kickbackDestinations answers "am I publishing my streams". This answers
+   * "am I receiving, and rendering, everyone else's" - and the two failed
+   * independently, which is why they are separate commands.
+   *
+   * It runs the REAL selector on the REAL state, through the same
+   * expandDestinations the panel uses, so it cannot report a map the UI does
+   * not draw. That is not a nicety: the defect this was written for was a
+   * correct expansion computed beside a rendered component that ignored it.
+   *
+   * Friend user ids and channel names appear here. Development and beta only,
+   * on the same build-time constant as the metadata probe, and nothing here
+   * reaches analytics or failure telemetry.
+   */
+  ;(globalThis as unknown as Record<string, unknown>).kickbackGravity = {
+    now() {
+      const friends = stampFriends(friendsState.friends, presenceIndex)
+      const selfId = authState.identity?.userId ?? null
+
+      const input = expandDestinations(
+        friends.map((friend) => ({
+          member: friend,
+          presence: friend.presence,
+          userId: friend.user.id,
+        })),
+        friendDestinations,
+      )
+
+      const sections = socialGravity(
+        input,
+        tabActivity.effective(),
+        Date.now(),
+        selfId,
+        metadata.snapshot(),
+      )
+
+      /** Which friends the expansion put on each channel. */
+      const byChannel: Record<string, string[]> = {}
+      for (const entry of input) {
+        const presence = entry.presence
+        if (!presence || presence.activity.type !== 'watching') continue
+        const channel = presence.activity.channel
+        ;(byChannel[channel] ??= []).push(entry.member.user.username || entry.member.user.id)
+      }
+
+      return {
+        signedIn: authState.status === 'signed_in',
+        // What list_friend_destinations last returned, per friend.
+        received: Object.fromEntries(
+          Object.entries(friendDestinations).map(([userId, channels]) => [
+            friends.find((friend) => friend.user.id === userId)?.user.username || userId,
+            [...channels],
+          ]),
+        ),
+        friendsWithDestinations: Object.keys(friendDestinations).length,
+        // One entry per friend per destination - the thing Gravity clusters.
+        gravityInput: byChannel,
+        gravityInputCount: input.length,
+        // And what came out, with why each one renders as it does.
+        gravityOutput: sections.map((section) => ({
+          channel: section.channel,
+          kind: section.kind,
+          count: section.count,
+          rank: section.rank,
+          rendered: section.kind === 'here' || section.kind === 'destination',
+          gathering: isGravity(section),
+          why:
+            section.kind === 'here'
+              ? 'rendered as HERE - the viewer is on this channel'
+              : section.kind === 'destination'
+                ? section.count >= GRAVITY_THRESHOLD
+                  ? `rendered as a destination card, and marked a gathering (${section.count} friends)`
+                  : 'rendered as a destination card, without the gathering flame (1 friend)'
+                : `not a destination - ${section.kind}`,
+        })),
+      }
+    },
   }
 
   /*

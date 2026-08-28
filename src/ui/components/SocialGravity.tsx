@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { socialGravity, isGravity } from '../../core/socialGravity'
+import { expandDestinations, socialGravity, isGravity } from '../../core/socialGravity'
 import type { GravitySection } from '../../core/socialGravity'
 import { formatViewers } from '../../core/twitchMetadata'
 import type { ChannelMetadata } from '../../core/twitchMetadata'
@@ -51,8 +51,22 @@ import type { UserCardContext } from './UserCard'
  * default view costs nobody their friend management.
  */
 
+/** A stable empty default, so an omitted prop is not a new object each render. */
+const EMPTY_DESTINATIONS: Readonly<Record<string, readonly string[]>> = {}
+
 interface SocialGravityProps {
   friends: Friend[]
+  /**
+   * Every ACTIVE destination each friend has open, keyed by user id.
+   *
+   * The multi-destination half of the map. Optional and defaulted to nothing,
+   * because a friend with no entry - a v0.4.1 client, or anyone before the
+   * first read lands - must still appear at their single presence channel.
+   *
+   * Omitting it produces exactly the map this component produced before
+   * multi-destination existed.
+   */
+  destinations?: Readonly<Record<string, readonly string[]>>
   localActivity: Activity
   onRemove?: (userId: string) => void
   client: KickbackClient
@@ -445,6 +459,7 @@ function DestinationCard({
 
 export function SocialGravity({
   friends,
+  destinations = EMPTY_DESTINATIONS,
   localActivity,
   onRemove,
   client,
@@ -459,11 +474,22 @@ export function SocialGravity({
   const sections = useMemo(
     () =>
       socialGravity(
-        friends.map((friend) => ({
-          member: friend,
-          presence: friend.presence,
-          userId: friend.user.id,
-        })),
+        /*
+         * One entry per friend PER ACTIVE DESTINATION.
+         *
+         * This is where multi-destination reaches the screen. Before it, this
+         * component clustered the plain friends list - one presence, one
+         * channel each - so a friend with three streams open could only ever
+         * appear on one card, whatever the database said.
+         */
+        expandDestinations(
+          friends.map((friend) => ({
+            member: friend,
+            presence: friend.presence,
+            userId: friend.user.id,
+          })),
+          destinations,
+        ),
         localActivity,
         // Left to the selector's own default: reading the clock during render
         // is impure, and it is only used to age presence out.
@@ -474,7 +500,7 @@ export function SocialGravity({
         // be evidence reports `unknown` and ranks and renders as none at all.
         metadata,
       ),
-    [friends, localActivity, cardContext.selfId, metadata],
+    [friends, destinations, localActivity, cardContext.selfId, metadata],
   )
 
   if (friends.length === 0) {

@@ -361,3 +361,32 @@ describe('the production bundle collects nothing it should not', () => {
     expect(background).toContain(version)
   })
 })
+
+/**
+ * The worker-console diagnostics are actually in the shipped worker.
+ *
+ * This exists because a report once told the owner to run a command that
+ * produced `ReferenceError: kickbackDestinations is not defined` - the build
+ * they had loaded predated it. A diagnostic that is not in the artifact is
+ * worse than none, because it costs a debugging session to discover.
+ *
+ * Asserted as a TOP-LEVEL assignment to globalThis, which is what makes the
+ * command callable the moment the service worker starts, from the DevTools
+ * console opened via chrome://extensions → Kickback → "service worker".
+ */
+describe('the worker console diagnostics ship', () => {
+  const attached = (name: string) => background.includes(`globalThis.${name}=`)
+
+  it('attaches the publisher diagnostic', () => {
+    expect(attached('kickbackDestinations')).toBe(true)
+  })
+
+  it('attaches the observer diagnostic', () => {
+    expect(attached('kickbackGravity')).toBe(true)
+  })
+
+  it('still attaches the ones that were already there', () => {
+    expect(attached('kickbackMetadata')).toBe(true)
+    expect(attached('kickbackSession')).toBe(true)
+  })
+})
