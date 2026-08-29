@@ -16,7 +16,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { PACKAGE_DIR, findFirefox } from './harness.mjs'
+import { PACKAGE_DIR, findFirefox, seedProfile } from './harness.mjs'
 
 const SCENARIOS = join('scripts', 'firefox-e2e', 'scenarios')
 
@@ -74,6 +74,22 @@ async function main() {
     const scenario = module.default
     console.log(`\n== ${scenario.name}`)
     if (scenario.why) console.log(`   ${scenario.why}`)
+
+    /*
+     * A social scenario needs an authenticated actor, and a missing one is a
+     * FAILURE rather than a skip. A permanently-skipped social test decays
+     * into looking like coverage, which is worse than having none.
+     */
+    const missing = (scenario.requires || [])
+      .map((actor) => seedProfile(actor))
+      .filter((seed) => !seed.present)
+    if (missing.length) {
+      const detail = missing.map((s) => s.key + (s.path ? ' (path not found: ' + s.path + ')' : ' is not set')).join('; ')
+      const error = new AssertionError(scenario.name + ': required seed profile unavailable - ' + detail)
+      results.push({ name: scenario.name, pass: false, ms: 0, error })
+      console.error('   FAIL  ' + error.message)
+      break
+    }
 
     const at = Date.now()
     let driver = null

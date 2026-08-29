@@ -214,6 +214,7 @@ function createChannel(port) {
 
   return {
     listening,
+    port: () => server.address().port,
     send,
     agents,
     boots,
@@ -227,16 +228,29 @@ function createChannel(port) {
 export async function launch({
   profile,
   startUrl = 'https://www.twitch.tv/',
-  port = 8900 + Math.floor(Math.random() * 90),
+  label = 'actor',
   timeoutMs = 60_000,
 } = {}) {
   if (!existsSync(PACKAGE_DIR)) {
     throw new Error(`No Firefox package at ${PACKAGE_DIR}. Run: npm run package:firefox`)
   }
 
-  const sourceDir = instrument({ dir: join(SANDBOX_ROOT, 'instrumented'), port })
-  const channel = createChannel(port)
+  /*
+   * Bind first, instrument second.
+   *
+   * The agents need the port baked into their source, and two actors running
+   * at once must not collide - so the OS picks the port (0), we read back what
+   * it gave us, and only then write the agent files. Guessing a port and
+   * hoping was the earlier design and it is a race with nothing to gain.
+   */
+  const channel = createChannel(0)
   await channel.listening
+  const port = channel.port()
+
+  const sourceDir = instrument({
+    dir: join(SANDBOX_ROOT, `instrumented-${label}`),
+    port,
+  })
 
   /*
    * web-ext is run through its own entry point rather than npx, and WITHOUT a
@@ -359,6 +373,25 @@ export async function launch({
   }
 
   return driver
+}
+
+/**
+ * Where an actor's authenticated seed profile lives.
+ *
+ *   A  WATCHSIDE_E2E_SEED_A  (or the older WATCHSIDE_E2E_SEED_PROFILE)
+ *   B  WATCHSIDE_E2E_SEED_B
+ *
+ * Seeds are authenticated ONCE by the owner and then copied for every run.
+ * They are never opened directly, so a test cannot disturb the identity it
+ * depends on. Credentials never reach this file: it only ever handles a path.
+ */
+export function seedProfile(actor) {
+  const key = actor === 'B' ? 'WATCHSIDE_E2E_SEED_B' : 'WATCHSIDE_E2E_SEED_A'
+  const value =
+    process.env[key] ||
+    (actor === 'A' ? process.env.WATCHSIDE_E2E_SEED_PROFILE : null) ||
+    null
+  return { key, path: value, present: Boolean(value && existsSync(value)) }
 }
 
 export { SANDBOX_ROOT }

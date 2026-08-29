@@ -9,6 +9,10 @@ scope change, no Chrome Store action, no hosted change.
 
 ## 1. Executive result
 
+> **Updated 2026-08-29 - see '28. Social E2E - two-actor architecture' at the
+> end of this report.** The two-actor harness is built and verified; the social
+> scenarios remain blocked on a one-time owner sign-in for Actor B.
+
 **A real-Firefox E2E harness exists and passes**: four scenarios, ~65
 assertions, **95 seconds**, driving the real packaged extension in a real
 Firefox 154.0.1. It closes three of F4's six gaps outright and permanently
@@ -498,3 +502,220 @@ scenarios, the npm script, and this report. Pushed to `origin/main`.
 - Chrome Web Store: submitted v0.6.0 — untouched.
 - Firefox: harness live and green; **Gravity, JOIN and Stream Rooms remain
   unproven** and Firefox is not yet shippable.
+
+---
+
+# 28. Social E2E — two-actor architecture (2026-08-29)
+
+The §4 design is approved and the harness now supports it. **Actor B does not
+exist yet**, so the social scenarios are not written and F5 remains incomplete.
+This section records what was built, one finding that needs a decision, and the
+exact owner step.
+
+## 28.1 Approved two-actor architecture
+
+Built into the existing harness rather than beside it:
+
+```
+seed profile A (authenticated, read-only)  ──copy──▶  disposable profile A ──▶ Firefox A
+seed profile B (authenticated, read-only)  ──copy──▶  disposable profile B ──▶ Firefox B
+```
+
+Three changes, all in `scripts/firefox-e2e/`:
+
+- **`launch({ label })`** gives each actor its own instrumented package
+  directory, so two browsers never share one.
+- **The port is now assigned by the OS.** The channel binds port 0, reads back
+  what it was given, and only then writes the agents with that port baked in.
+  The old design guessed a port in a range and hoped — a race with nothing to
+  gain, and one that two concurrent actors would eventually lose.
+- **`seedProfile(actor)`** resolves `WATCHSIDE_E2E_SEED_A` / `WATCHSIDE_E2E_SEED_B`
+  (the older `WATCHSIDE_E2E_SEED_PROFILE` still works for A).
+
+### Verified, not assumed
+
+Two browsers were driven concurrently against two isolated profiles:
+
+```
+actor A port 55580  boot boot-1787998550730-883
+actor B port 55581  boot boot-1787998551139-813
+distinct ports : true      distinct boots : true
+A url /lirik  hosts 1      B url /shroud  hosts 1
+A aggregated ["lirik"]     B aggregated ["shroud"]
+ISOLATED     : true
+```
+
+Deliberately run with two **signed-out** profiles: this proves concurrency, port
+allocation and isolation while touching no Watchside account.
+
+## 28.2 Seed-profile model
+
+A seed is authenticated **once**, by the owner, and thereafter only ever
+**copied**. `createProfile()` builds solely under `dist-firefox/e2e/` and throws
+if a resolved path escapes it, so a test cannot execute against a seed even by
+mistake. Credentials never reach the harness — it handles a filesystem path and
+nothing else.
+
+## 28.3 Actor A — a finding that needs your decision
+
+§4 said to stop and recommend if Actor A is the owner's normal account and
+isolation cannot be guaranteed. **It cannot**, and the reason is structural
+rather than a matter of care:
+
+1. **Presence is broadcast to every friend.** `0026_growth_loop.sql:343` gates
+   destination reads on `public.is_friend(user_id)`. Every E2E run would publish
+   `AnoterosTV` watching test channels to all three real beta friends —
+   `bobtheunstoppable`, `ohjuliego`, `wtfchuck27` — with no per-run opt-out.
+2. **Rooms admit any friend on the channel.** `sessionState.ts:74` builds room
+   peers from *every* friend whose presence matches the channel. A real friend
+   who happened to be on the E2E channel would be pulled into the room and would
+   see the per-run marker messages.
+3. **Gathering notifications** would fire on real friends' machines.
+
+None of that mutates their rows, which is the line §4 draws — but it does inject
+synthetic activity into three real people's experience on every run, forever.
+
+### Recommendation: two dedicated identities, A′ and B′
+
+Then the E2E friend graph is exactly `{A′, B′}`, and "no unrelated user is
+introduced" becomes **provable** rather than hoped. The cost is one extra
+sign-in, once. Against sending indefinite synthetic presence and possible room
+messages to three real testers, that is cheap.
+
+If you would rather keep `AnoterosTV` as Actor A, that is a legitimate call —
+the data is not corrupted, only observed — but it should be a decision, not a
+default, which is why it is here.
+
+## 28.4 Actor B setup — READY, AWAITING YOU
+
+The profile directory has been created and the launch command verified end to
+end in real PowerShell (it started Firefox, installed the add-on and wrote
+`prefs.js`). No credential of any kind passed through this session: the harness
+handles a path, and Twitch authentication happens directly between you and
+Twitch in a browser window.
+
+See §28.10 for the command and steps.
+
+## 28.5 Friendship establishment — NOT PERFORMED
+
+Planned as the normal product flow — A sends a friend request, B accepts,
+through the panel UI the page agent already knows how to click. No row
+insertion, no authorization bypass, no test-only mechanism. Once it exists it is
+durable server state, so the suite will **verify** friendship rather than
+recreate it each run.
+
+## 28.6 Presence provenance — NOT PERFORMED
+
+By design, Actor B's presence will be produced **by Watchside**: profile B opens
+a Twitch channel and the real publisher does the rest. The harness may open
+tabs, navigate and read diagnostics; it may not write presence. That is the
+whole point — a Gravity assertion fed by injected rows would prove nothing about
+the pipeline.
+
+## 28.7 Gravity — NOT PERFORMED
+## 28.8 JOIN — NOT PERFORMED
+## 28.9 Stream Room and bidirectional messaging — NOT PERFORMED
+
+All three need Actor B. Not written as skipped tests: the runner now **fails**
+on a missing seed rather than skipping (§28.13), because a permanently-skipped
+social scenario decays into looking like coverage.
+
+## 28.10 OWNER ACTION — authenticate Actor B
+
+Run this from `c:\Users\sk8bo\Projects\Kickback` in PowerShell. One line:
+
+```
+node node_modules\web-ext\bin\web-ext.js run --source-dir dist-firefox\package --firefox "C:\Program Files\Mozilla Firefox\firefox.exe" --firefox-profile C:\Users\sk8bo\watchside-e2e\seed-b --profile-create-if-missing --keep-profile-changes --start-url https://www.twitch.tv/lirik --no-reload
+```
+
+Then:
+
+1. Sign in to **a dedicated throwaway Twitch account** — not your main one.
+2. In the Watchside panel, click **Continue with Twitch**.
+3. Wait until the panel shows the test identity.
+4. Close Firefox, and tell me.
+
+The profile keeps the session, so no further sign-in is needed on any run.
+
+**If you accept §28.3**, run the same command a second time with `seed-a`
+instead of `seed-b`, signing in as a second dedicated throwaway account. That
+becomes Actor A′ and replaces the current Actor A seed.
+
+## 28.11 Isolation proof
+
+- Harness-level: §28.1's measurement — two profiles, two contexts, two
+  destination sets, no bleed.
+- Structural: `createProfile()` cannot address a path outside its sandbox.
+- Social-level: **not yet provable**, and that is exactly what §28.3 is about.
+
+## 28.12 False-positive mutations
+
+The five from §18 stand and still bite. The three new social mutations the brief
+requires — suppress B's presence, break the rendered JOIN, drop one actor's room
+message — cannot be written before the scenarios exist. They are the first thing
+to land after Actor B.
+
+## 28.13 Release gate
+
+A scenario may now declare `requires: ['A', 'B']`. The runner resolves each seed
+and, if one is missing, **fails that scenario with a named reason** —
+`WATCHSIDE_E2E_SEED_B is not set` — and stops the gate. It never skips.
+
+Filtering still works for development: `npm run verify:firefox:e2e -- injection`.
+
+Once the social scenarios land, `npm run verify:firefox:e2e` runs everything by
+default, including the ~83s lifecycle scenario. That is the right shape for a
+release gate; the fast subsets remain available by name.
+
+## 28.14 Analytics
+
+Unchanged. E2E runs are built `VITE_KICKBACK_ENV=private_beta`, so their events
+are cohort-labelled and separable, but they **currently share the `private_beta`
+cohort with real testers**. A dedicated `e2e` value would need the analytics
+enum widened, which the brief rules out for F5 — recorded as potential
+M3/pre-public work.
+
+## 28.15 Runtime
+
+Unchanged: 4 scenarios, ~97s, of which the lifecycle scenario is ~83s. The
+social scenarios will add browser launches; two concurrent actors start in about
+the same wall-clock as one, since they launch in parallel.
+
+## 28.16 Remaining human acceptance
+
+Unchanged from §25, plus the one-time Actor B (and possibly A′) sign-in above.
+
+## 28.17 F5 verdict
+
+### F5: INCOMPLETE - stopped at the owner boundary, as instructed
+
+Infrastructure for two actors is built and verified. Seven of the thirteen
+completion criteria in §14 of the brief are met and passing; the six social ones
+are not, and no fake data was introduced to make them look met.
+
+| Criterion | State |
+| --- | --- |
+| initial injection · SPA navigation · collapsed chat · Strict ETP · notifications · lifecycle · permission revocation | **PASS** |
+| two-actor presence · Gravity · rendered JOIN · arrival · Stream Room · bidirectional messages | **blocked on Actor B** |
+
+## 28.18 Production and hosted impact
+
+**Zero production code.** **Zero hosted changes** — no schema, policy, RPC or
+configuration change, and no seeding mechanism of any kind. Changes are confined
+to `scripts/firefox-e2e/` and this report.
+
+## 28.19 Chrome
+
+Untouched. Both submitted artifacts unchanged
+(`150e3c5b…b7a818d3d`, `c1217ff5…6067203e`), neither packager run, no Store
+action.
+
+## 28.20 Git status
+
+- Branch `main`, tracking `origin/main`, pushed.
+- Changed: `scripts/firefox-e2e/{harness,run}.mjs`,
+  `scripts/firefox-e2e/scenarios/02-lifecycle.mjs`, this report.
+- `dist-firefox/` and the seed profiles are outside version control.
+- Chromium extension ID `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged.
+- Hosted schema 28 — untouched.
+- Firefox: harness ready for two actors; **social pipeline still unproven**.

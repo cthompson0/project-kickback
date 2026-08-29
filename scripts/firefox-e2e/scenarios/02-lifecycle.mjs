@@ -1,4 +1,4 @@
-import { createProfile, launch } from '../harness.mjs'
+import { createProfile, launch, seedProfile } from '../harness.mjs'
 
 const TWITCH_ORIGIN = 'https://www.twitch.tv/*'
 
@@ -27,7 +27,7 @@ export default {
      * and the same scenario also proves what reaches the SERVER. The seed is
      * copied, never opened, so it cannot be mutated by the run.
      */
-    const seed = process.env.WATCHSIDE_E2E_SEED_PROFILE || null
+    const seed = seedProfile('A').path
     const profile = createProfile({ name: 'lifecycle', seed })
     const driver = await launch({ profile, startUrl: 'https://www.twitch.tv/lirik' })
 
