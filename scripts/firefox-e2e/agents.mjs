@@ -334,6 +334,27 @@ const handlers = {
 
   state: () => ({ states: states.slice(-6), errors }),
 
+  /*
+   * Is this browser logged in to twitch.tv?
+   *
+   * Answered from the DOM - the logged-in avatar button versus the log-in
+   * button - NOT from cookies. Watchside does not need a Twitch website
+   * session to work; it needs one only for the one-time OAuth hop. This
+   * command exists to prove that distinction rather than assume it.
+   */
+  twitchLogin: () => {
+    const avatar =
+      document.querySelector('[data-a-target="user-menu-toggle"]') ||
+      document.querySelector('button[data-a-target="user-menu-toggle"]')
+    const loginButton = document.querySelector('[data-a-target="login-button"]')
+    const signupButton = document.querySelector('[data-a-target="signup-button"]')
+    return {
+      loggedIn: Boolean(avatar),
+      loginButtonPresent: Boolean(loginButton || signupButton),
+      url: location.pathname,
+    }
+  },
+
   localStorage: () => {
     try {
       const probe = 'kickback:e2e:probe'

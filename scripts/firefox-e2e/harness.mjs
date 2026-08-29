@@ -28,7 +28,7 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { backgroundAgent, contentAgent } from './agents.mjs'
 
 const FIREFOX_CANDIDATES = [
@@ -39,6 +39,9 @@ const FIREFOX_CANDIDATES = [
 ]
 
 export const PACKAGE_DIR = join('dist-firefox', 'package')
+
+/** Built from a char code so no editor or shell can mangle it into a literal. */
+const NEWLINE = String.fromCharCode(10)
 
 /** Profiles this harness is allowed to touch all live under here. */
 const SANDBOX_ROOT = resolve(join('dist-firefox', 'e2e'))
@@ -127,6 +130,25 @@ function instrument({ dir, port }) {
   writeFileSync(join(dir, 'e2e-background.js'), backgroundAgent(port))
   writeFileSync(join(dir, 'e2e-content.js'), contentAgent())
   return dir
+}
+
+/**
+ * Bind a channel on the first free port in a range.
+ *
+ * Sequential rather than random so a failure is reproducible, and bounded so a
+ * genuinely exhausted range reports that rather than looping.
+ */
+async function bindChannel(from, to) {
+  for (let port = from; port <= to; port += 1) {
+    const channel = createChannel(port)
+    try {
+      await channel.listening
+      return channel
+    } catch (error) {
+      if (error && error.code !== 'EADDRINUSE') throw error
+    }
+  }
+  throw new Error(`no free port for the E2E channel between ${from} and ${to}`)
 }
 
 /** The command channel: agents long-poll, the harness queues and awaits. */
@@ -251,8 +273,21 @@ export async function launch({
    * it gave us, and only then write the agent files. Guessing a port and
    * hoping was the earlier design and it is a race with nothing to gain.
    */
-  const channel = createChannel(0)
-  await channel.listening
+  /*
+   * A FIXED-RANGE port, probed upward - deliberately not the OS ephemeral
+   * range.
+   *
+   * Letting the OS choose (port 0) looked tidier and broke every launch:
+   * web-ext picks Firefox's debugger port from the ephemeral range too, and
+   * once our server had taken the number it wanted, Firefox could not bind its
+   * listener and web-ext retried ECONNREFUSED 250 times before giving up. The
+   * symptom - "timed out waiting for the extension background to boot" - said
+   * nothing about ports, which is why it took a manual web-ext run to see it.
+   *
+   * 8900 upward is outside the dynamic range, and probing means two concurrent
+   * actors still never collide with each other.
+   */
+  const channel = await bindChannel(8900, 8999)
   const port = channel.port()
 
   const sourceDir = instrument({
@@ -344,17 +379,92 @@ export async function launch({
       }
     },
 
+    /**
+     * Shut down only what this harness started - identified by PROFILE PATH.
+     *
+     * Two earlier attempts were wrong in instructive ways. `taskkill /F /IM
+     * firefox.exe` killed EVERY Firefox on the machine: the owner's browsing,
+     * a second actor mid-run, and any window somebody was signing in to - and
+     * a force kill also denies Firefox the chance to flush its profile, so
+     * cookies written moments earlier vanish and the next launch looks logged
+     * out. Killing our own process TREE then failed the other way: Firefox's
+     * launcher exits immediately and the real browser reparents, so the tree
+     * no longer contains it and thirty processes leaked into the next scenario.
+     *
+     * The profile directory is unique per run and lives inside our sandbox, so
+     * matching on it selects exactly our browser and nothing else. Ask
+     * politely first so the profile is flushed; escalate only for stragglers.
+     */
     async close() {
-      child.kill()
       await channel.close()
-      // web-ext leaves Firefox running when killed mid-flight on Windows.
-      if (process.platform === 'win32') {
-        try {
-          spawn('taskkill', ['/F', '/IM', 'firefox.exe'], { stdio: 'ignore', shell: true })
-        } catch {
-          /* best effort */
-        }
+      child.kill()
+
+      if (process.platform !== 'win32') {
+        await new Promise((r) => setTimeout(r, 1_000))
+        return
       }
+
+      /*
+       * Matched on the profile DIRECTORY NAME rather than the full path, so
+       * forward and back slashes cannot make the comparison miss. The name is
+       * unique per scenario and lives only inside our sandbox, so it selects
+       * our browser and nothing else.
+       */
+      const marker = basename(profile)
+      const script =
+        `Get-CimInstance Win32_Process -Filter "Name='firefox.exe'" | ` +
+        `Where-Object { $_.CommandLine -like '*${marker}*' } | ` +
+        `ForEach-Object { $_.ProcessId }`
+
+      const pidsMatching = () =>
+        new Promise((done) => {
+          let out = ''
+          const ps = spawn('powershell', ['-NoProfile', '-Command', script], {
+            stdio: ['ignore', 'pipe', 'ignore'],
+          })
+          ps.stdout.on('data', (d) => { out += String(d) })
+          ps.on('close', () =>
+            done(
+              out
+                .split(NEWLINE)
+                .map((line) => line.trim())
+                .filter(Boolean),
+            ),
+          )
+          ps.on('error', () => done([]))
+        })
+
+      const ours = await pidsMatching()
+
+      const taskkill = (args) =>
+        new Promise((done) => {
+          const proc = spawn('taskkill', args, { stdio: 'ignore' })
+          proc.on('close', done)
+          proc.on('error', done)
+        })
+
+      /*
+       * FORCE, but only on processes matching our profile.
+       *
+       * Being polite here was a mistake worth recording: a graceful kill left
+       * content processes alive holding the debugger port, and the NEXT launch
+       * then failed with ECONNREFUSED. It also bought nothing, because the
+       * harness never opens a seed profile - it opens disposable copies, so
+       * there is no login here that an unflushed profile could lose. The
+       * graceful shutdown that genuinely matters is the owner closing their
+       * own authentication window, which this code never touches.
+       *
+       * What DOES matter is the scoping: matched by profile name, so the
+       * owner's browser and any concurrent actor are never in range.
+       */
+      for (const pid of ours) await taskkill(['/PID', pid, '/T', '/F'])
+
+      // Confirm they are gone rather than assuming, then let the OS settle.
+      const deadline = Date.now() + 15_000
+      while ((await pidsMatching()).length > 0 && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 250))
+      }
+      await new Promise((r) => setTimeout(r, 750))
     },
   }
 

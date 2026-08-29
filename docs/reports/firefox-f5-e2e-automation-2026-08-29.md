@@ -9,7 +9,10 @@ scope change, no Chrome Store action, no hosted change.
 
 ## 1. Executive result
 
-> **Updated 2026-08-29 - see sections 28 and 29 at the end of this report.**
+> **Updated 2026-08-29 - see sections 28, 29 and 30 at the end of this report.**
+> Section 30 explains why Actor B kept needing 2FA: the harness teardown was
+> killing every Firefox on the machine, and a persistent twitch.tv login turns
+> out not to be required at all.
 > The two-actor harness is built and verified. The owner has approved using
 > their two existing accounts (section 29.1), and Actor A is confirmed as
 > AnoterosTV. The social scenarios remain blocked on one owner sign-in for
@@ -880,3 +883,178 @@ one `package.json` script (`e2e:actors`), and this report.
 - Branch `main`, tracking `origin/main`, pushed.
 - Chromium extension ID `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged.
 - Hosted schema 28 — untouched.
+
+---
+
+# 30. Session persistence — why Actor B kept needing 2FA (2026-08-29)
+
+The owner reported repeated Twitch email 2FA, with the Twitch website appearing
+logged out after harness launches. That is a harness fault, not a product one,
+and the answer is not "log in again".
+
+## 30.1 What the social E2E actually requires
+
+Four different things were being conflated. They are not equally required:
+
+| State | Where it lives | Required for the social E2E? |
+| --- | --- | --- |
+| **Watchside/Supabase session** | extension storage, `sb-<project>-auth-token` | **YES.** Everything - presence, Gravity, JOIN, rooms - hangs off it. |
+| **Firefox profile persistence** | the seed directory | **YES**, because it is what carries the above between runs. |
+| **Twitch website session** | twitch.tv cookies | **NO**, after the one-time OAuth. |
+| **OAuth provider state** | PKCE verifier, transient | **NO.** Consumed during the hop and irrelevant afterwards. |
+
+### Why a persistent twitch.tv login is not required
+
+Watchside never uses a Twitch *user* session after OAuth:
+
+- **No Twitch scopes are requested at all** - pinned by
+  `tests/extension/oauthContract.test.ts`, which asserts the `scopes` key is
+  absent rather than empty, and confirmed on the wire in F3 (`scopes: null`).
+- **Channel detection is DOM/URL work.** `platforms/twitch/channels.ts` reads
+  the path; navigation watches `popstate` and the title. None of it needs an
+  account.
+- **Channel metadata comes from our own Edge Function**, using the app's Twitch
+  client credentials - not the viewer's. `metadataSecurity.test.ts` pins that it
+  carries no user identity and no scopes.
+- **Presence, Gravity, JOIN and rooms are Supabase calls**, authorised by the
+  Watchside session.
+
+Corroborated empirically: F5's scenarios 01, 03 and 04 run on **fresh profiles
+with no Twitch login at all** and still inject the panel, connect the port,
+detect channels and aggregate destinations. The only thing they cannot do is
+publish - because they lack a *Watchside* session, not a Twitch one.
+
+**So the F5 acceptance criterion is corrected**: what must survive between runs
+is the *Watchside* session. A logged-out twitch.tv is not a failure and must
+never be the reason to ask for another 2FA.
+
+## 30.2 Root cause of the logouts
+
+Three faults, all mine, all in the harness or in how I drove it.
+
+**1. The teardown killed every Firefox on the machine.**
+`close()` ran `taskkill /F /IM firefox.exe` - by image name, so it killed the
+owner's own browsing, any concurrent actor, and **any window in which somebody
+was signing in**. `/F` also denies Firefox the chance to flush its profile, so
+cookies written moments earlier are lost and the next launch looks logged out.
+That is a direct mechanism for the repeating 2FA.
+
+**2. I deleted the seed-b profile twice** while verifying the launch command.
+Any login performed between those runs was destroyed by me, not by Firefox.
+
+**3. Stale profile locks.** A seed captured from a force-killed browser keeps
+`parent.lock`, and Firefox then refuses to start in the *copy* - surfacing as an
+unexplained boot timeout rather than anything about sessions.
+
+## 30.3 What the profile handling actually does
+
+Checked rather than assumed:
+
+- `--keep-profile-changes` **does** reuse the supplied directory in place, so
+  the owner's login lands in `seed-b` and stays there.
+- Without it, web-ext copies the profile and discards changes - which is why the
+  flag matters for the login run.
+- The extension's internal UUID is recorded in the profile's prefs, so with a
+  fixed `gecko.id` **extension storage persists across launches in the same
+  profile**. Actor A is the proof: its Watchside session has survived every run
+  for two days.
+- The harness **never opens a seed** - `createProfile()` copies it and runs in
+  `dist-firefox/e2e/`, and refuses any path outside that sandbox.
+
+**Measured:** a full four-scenario suite run leaves Actor A's seed
+byte-identical by name-and-size fingerprint (`c2c3da3eaac3ba69…` before and
+after). The harness cannot cost the owner a login.
+
+## 30.4 Harness changes
+
+**Teardown is now scoped and verified.** Processes are matched by the disposable
+**profile directory name** - unique per scenario, inside our sandbox - so the
+owner's browser and any concurrent actor are never in range. It force-kills
+*those* processes (harmless: the harness only ever runs disposable copies, so
+there is no login here to lose), then polls until they are actually gone rather
+than waiting a guessed number of seconds.
+
+Getting there took two wrong turns worth recording, because both looked correct:
+
+- *Kill our own process tree.* Firefox's launcher exits immediately and the real
+  browser reparents, so the tree no longer contained it - thirty processes
+  leaked into the next scenario and broke it.
+- *Be graceful.* A polite kill left content processes alive holding the debugger
+  port, and the next launch failed with `ECONNREFUSED`. Politeness bought
+  nothing here, since the harness never touches a seed.
+
+**Seed copies are unlocked.** `createProfile()` strips `parent.lock` and friends
+after copying - safe, because the copy is new and nothing is running in it.
+
+**The channel port left the ephemeral range.** This one cost the most and is the
+most instructive. Making the port OS-assigned (`0`) for two-actor safety looked
+tidy and broke **every** launch: web-ext picks Firefox's debugger port from the
+same dynamic range, and once our server held the number it wanted, Firefox could
+not bind its listener - web-ext retried `ECONNREFUSED` 250 times and gave up.
+The harness reported *"timed out waiting for the extension background to boot"*,
+which says nothing about ports; it took running web-ext manually with
+`--verbose` to see it. The channel now probes upward from 8900, outside the
+dynamic range, so two actors still never collide with each other **or** with
+Firefox.
+
+## 30.5 Verification
+
+| Check | Result |
+| --- | --- |
+| Full suite | **4/4 scenarios, 105s** |
+| Firefox processes left behind | **0** |
+| Actor A seed fingerprint after a full run | **unchanged** |
+| An unrelated Firefox during a suite run | **11 processes before, 11 after — untouched** |
+| `tsc -b --force` · `eslint .` | clean |
+| `npm test` | **2273 passed / 87 files** |
+| `verify:firefox` · `verify:store` | pass |
+| Chrome artifacts | `150e3c5b…`, `c1217ff5…` — unchanged |
+
+The bystander check is the one that matters: before the fix a suite run would
+have killed it.
+
+## 30.6 Session persistence plan
+
+1. The owner authenticates Actor B **once**, in place, with
+   `--keep-profile-changes`, and closes Firefox normally.
+2. Every automated run **copies** that seed and runs in the copy. The seed is
+   never opened, so no run can expire, overwrite or delete it. Proven by the
+   unchanged fingerprint.
+3. Nothing deletes a seed. The earlier deletions were me, not the harness, and
+   will not recur.
+4. A logged-out twitch.tv is expected and irrelevant (§30.1). Only the Watchside
+   session matters, and `npm run e2e:actors` reports it without touching a
+   cookie.
+
+## 30.7 Is another owner login required?
+
+**Yes, once** - Actor B has never been authenticated, so there is no session to
+preserve. This is not a repeat of a lost login.
+
+What is different now: the harness can no longer kill the browser during
+sign-in, no longer force-kills anything outside its sandbox, cannot start from a
+locked seed copy, and cannot lose Firefox's debugger to a port collision. And
+Actor A's seed has demonstrably survived a full suite run untouched, which is
+the same mechanism that will protect Actor B.
+
+If the 2FA prompt still appears during that one login, it is Twitch asking a
+new device to verify itself - expected on a fresh profile, and it should not
+recur once the session is stored.
+
+### The command, unchanged
+
+Run from `c:\Users\sk8bo\Projects\Kickback` in PowerShell:
+
+```
+node node_modules\web-ext\bin\web-ext.js run --source-dir dist-firefox\package --firefox "C:\Program Files\Mozilla Firefox\firefox.exe" --firefox-profile C:\Users\sk8bo\watchside-e2e\seed-b --profile-create-if-missing --keep-profile-changes --start-url https://www.twitch.tv/lirik --no-reload
+```
+
+Sign in as your **second** account, wait for the panel to show that identity,
+then **close Firefox normally** and run `npm run e2e:actors` - it should print
+two signed-in accounts with different user ids. No Watchside E2E run will be
+started until it does.
+
+## 30.8 Production, hosted, Chrome
+
+**Zero production code. Zero hosted changes.** Chrome untouched; neither
+packager run; no Store action. All changes are in `scripts/firefox-e2e/`.
