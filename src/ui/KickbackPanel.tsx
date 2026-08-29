@@ -818,6 +818,7 @@ export function KickbackPanel({
                * already computes from presence.
                */
               <StreamSession
+                badges={view.socialBadges}
                 channel={sessionChannel}
                 members={roomMembers}
                 friends={friends}

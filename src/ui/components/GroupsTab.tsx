@@ -440,6 +440,7 @@ function GroupDetail({
             selfId={view.identity?.userId ?? null}
           />
           <GroupChat
+            badges={view.socialBadges}
             groupId={groupId}
             messages={messages}
             selfId={view.identity?.userId ?? null}

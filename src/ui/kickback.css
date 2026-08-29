@@ -3175,3 +3175,20 @@ a.kb-ghost-btn {
 .kb-badge-name {
   white-space: nowrap;
 }
+
+/*
+ * A sender's chosen badge, beside their name in chat.
+ *
+ * Chat is where a person's Kickback identity is read most often, so it is
+ * where an equipped badge belongs. One badge, a chip, nothing else: no hover
+ * card, no rarity, no animation. Outside the name control on purpose, so it
+ * neither copies with the name nor widens the click target.
+ */
+.kb-msg-badge {
+  margin-right: 4px;
+  font-size: 11px;
+  line-height: 1;
+  vertical-align: baseline;
+  /* Never a reason to break a line between a name and its badge. */
+  white-space: nowrap;
+}

@@ -178,9 +178,9 @@ describe('the generated bundle', () => {
      *
      * It exists so verify:analytics can tell a half-applied schema from a
      * complete one, and everything else those migrations change is revoked from
-     * clients and therefore invisible to it. 0026 owns it now.
+     * clients and therefore invisible to it. 0027 owns it now.
      */
-    expect(version).toBe(26)
+    expect(version).toBe(27)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.

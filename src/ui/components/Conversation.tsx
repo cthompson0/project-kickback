@@ -9,6 +9,7 @@ import type { Presence } from '../../core/types'
 import { EmoteImage } from './EmoteImage'
 import { EmotePicker } from './EmotePicker'
 import { UserCard } from './UserCard'
+import type { DisplayedBadge } from '../../background/supabaseBackend'
 import type { UserCardContext } from './UserCard'
 
 /**
@@ -122,6 +123,7 @@ export function MessageList({
   client,
   cardContext,
   lookup,
+  badges,
   empty,
 }: {
   messages: readonly DisplayMessage[]
@@ -130,6 +132,15 @@ export function MessageList({
   client: KickbackClient
   cardContext: UserCardContext
   lookup?: (userId: string) => { user: User; presence: Presence | null } | undefined
+  /**
+   * The badge each person chose to show, keyed by user id.
+   *
+   * Chat is where a person's Kickback identity is most often read, so it is
+   * where an equipped badge belongs. Optional and empty by default, so a
+   * caller that does not have the projection - or a database without 0027 -
+   * renders exactly the chat it rendered before badges existed.
+   */
+  badges?: Readonly<Record<string, DisplayedBadge>>
   empty: string
 }) {
   const [openCardFor, setOpenCardFor] = useState<string | null>(null)
@@ -302,6 +313,26 @@ export function MessageList({
                 {label}
                 <span className="kb-msg-sep">:</span>
               </span>
+              {/*
+                * The sender's chosen badge, if they are showing one.
+                *
+                * After the name and outside the identity control, so it does
+                * not become part of the text that copies with a name and does
+                * not widen the click target. One badge, no hover card, no
+                * rarity - a chip and nothing else.
+                *
+                * Title says who issued it, because Kickback must never look
+                * like it granted somebody a Twitch badge.
+                */}
+              {badges?.[message.userId] && (
+                <span
+                  className="kb-msg-badge"
+                  title={`${badges[message.userId].name} — Kickback badge`}
+                  aria-label={`${badges[message.userId].name}, a Kickback badge`}
+                >
+                  {badges[message.userId].icon}
+                </span>
+              )}
               <MessageBody body={message.body} />
               {annotation && <ComboBadge annotation={annotation} />}
             </div>

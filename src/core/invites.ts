@@ -30,8 +30,20 @@
  * bypass a block - see 0026. So carrying it in a URL is not a secret in a URL.
  */
 
-/** Where a shared invite points. The landing page is external - see the report. */
-export const INVITE_LANDING_BASE = 'https://anoteroslabs.github.io/kickback/invite'
+/**
+ * Where a shared invite points.
+ *
+ * The GitHub organisation is `Anoteros-Labs`, so the Pages host is
+ * `anoteros-labs.github.io` WITH the hyphen. Confirmed against the live
+ * repository, whose existing pages are `/kickback/privacy/` and
+ * `/kickback/support/`. An earlier value here omitted the hyphen and pointed
+ * at a domain that does not exist - every invite link built from it would have
+ * failed to resolve.
+ *
+ * Trailing slash to match those two: the Pages layout is a directory per page
+ * with an index.html inside it.
+ */
+export const INVITE_LANDING_BASE = 'https://anoteros-labs.github.io/kickback/invite/'
 
 /** The query parameter the landing page's continue button carries to Twitch. */
 export const INVITE_PARAM = 'kickback_invite'

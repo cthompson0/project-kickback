@@ -13,7 +13,11 @@ import type { Reaction, TogetherReaction } from '../core/together'
 import type { RoomMember } from '../core/streamRoom'
 import type { RoomMessage } from '../core/roomMessages'
 import type { DestinationsByUser } from '../core/socialGravity'
-import type { EarnedBadge, FriendSuggestion } from '../background/supabaseBackend'
+import type {
+  DisplayedBadge,
+  EarnedBadge,
+  FriendSuggestion,
+} from '../background/supabaseBackend'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -131,6 +135,15 @@ export interface KickbackState {
   displayedBadge: EarnedBadge | null
   /** How many referrals have been credited. Drives the invite surface copy. */
   referralCount: number
+  /**
+   * The badge each visible person is showing, keyed by user id.
+   *
+   * Only people the caller may already see, and only the badge they chose -
+   * the server decides both. Empty until 0027 is applied, which is why a
+   * client running against an older schema simply draws no badges rather than
+   * failing.
+   */
+  socialBadges: Readonly<Record<string, DisplayedBadge>>
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
   friendsLoading: boolean
@@ -280,6 +293,7 @@ export const INITIAL_STATE: KickbackState = {
   channelMetadataPending: [],
   displayedBadge: null,
   referralCount: 0,
+  socialBadges: {},
   incomingRequests: [],
   outgoingRequests: [],
   friendsLoading: false,

@@ -26,7 +26,7 @@ import {
 import { needsRefresh } from '../core/twitchMetadata'
 import { mutualBucket } from '../core/analytics'
 import { normalizeInviteCode } from '../core/invites'
-import type { EarnedBadge } from './supabaseBackend'
+import type { DisplayedBadge, EarnedBadge } from './supabaseBackend'
 // The same selector and the same expansion the panel renders from, so the
 // diagnostic below cannot report a map the UI does not draw.
 import {
@@ -95,6 +95,7 @@ import {
   createSupabaseGroupsBackend,
   createSupabasePresenceBackend,
   listFriendDestinations,
+  listDisplayedBadges,
   claimInvite,
   myBadges,
   myInviteCode,
@@ -782,6 +783,14 @@ let pendingInviteCode: string | null = null
 let inviteLinkAnnounced = false
 let displayedBadge: EarnedBadge | null = null
 let referralCount = 0
+/**
+ * Which badge each visible person is showing.
+ *
+ * Read rather than pushed, on the same schedule as the badge shelf: badges
+ * change on the order of days, so a broadcast carrying a stale one is worse
+ * than one carrying none.
+ */
+let socialBadges: Readonly<Record<string, DisplayedBadge>> = {}
 
 /**
  * Claim a code, and record what the server said.
@@ -843,9 +852,21 @@ async function refreshBadges(): Promise<void> {
   const nextBadge = badges.find((badge) => badge.displayed) ?? null
   const nextCount = summary.value?.successful ?? 0
 
-  if (nextBadge?.key === displayedBadge?.key && nextCount === referralCount) return
+  /*
+   * And what everybody else is showing.
+   *
+   * Failure is silence rather than an error: against a database without 0027
+   * this returns nothing, and the panel draws the badges it drew before the
+   * projection existed - which is none.
+   */
+  const social = await listDisplayedBadges(supabase)
+  const nextSocial = social.value ?? {}
+
+  const sameSocial = JSON.stringify(nextSocial) === JSON.stringify(socialBadges)
+  if (nextBadge?.key === displayedBadge?.key && nextCount === referralCount && sameSocial) return
   displayedBadge = nextBadge
   referralCount = nextCount
+  socialBadges = nextSocial
   broadcast()
 }
 
@@ -1444,6 +1465,7 @@ function currentState(): KickbackState {
     friendDestinations: { ...friendDestinationsSnapshot() },
     displayedBadge,
     referralCount,
+    socialBadges: { ...socialBadges },
   }
 }
 
@@ -1509,6 +1531,7 @@ auth.subscribe((next) => {
     gatheringWatcher.reset()
     displayedBadge = null
     referralCount = 0
+    socialBadges = {}
     inviteLinkAnnounced = false
     together.reset()
     roomChat.reset()

@@ -1,3 +1,4 @@
+import type { DisplayedBadge } from '../../background/supabaseBackend'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { COMBO_MIN_DISPLAY, scanCombos } from '../../core/combos'
 import { emoteKey } from '../../core/emotes'
@@ -44,6 +45,8 @@ import type { UserCardContext } from './UserCard'
 
 interface StreamSessionProps {
   /** Canonical lowercase login. */
+  /** The badge each person chose to show, keyed by user id. See 0027. */
+  badges?: Readonly<Record<string, DisplayedBadge>>
   channel: string
   members: readonly RoomMember[]
   friends: readonly Friend[]
@@ -66,6 +69,7 @@ interface StreamSessionProps {
 }
 
 export function StreamSession({
+  badges,
   channel,
   members,
   friends,
@@ -360,6 +364,7 @@ export function StreamSession({
           const friend = byId.get(userId)
           return friend ? { user: friend.user, presence: friend.presence } : undefined
         }}
+        badges={badges}
         empty="Nobody has said anything yet."
       />
 

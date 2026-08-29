@@ -938,3 +938,46 @@ export async function setDisplayedBadge(
     return { value: null, error: describe(error) }
   }
 }
+
+/** Somebody else's chosen badge, as it is drawn beside their name. */
+export interface DisplayedBadge {
+  userId: string
+  key: string
+  name: string
+  icon: string
+  issuer: 'kickback' | 'twitch'
+}
+
+/**
+ * Which badge each visible person is showing.
+ *
+ * Seeded at the caller server-side - there is no user parameter and no way to
+ * ask about an arbitrary account. Returns only people the caller may already
+ * see, and only the badge they chose. See 0027.
+ */
+export async function listDisplayedBadges(
+  supabase: SupabaseClient,
+): Promise<{ value: Record<string, DisplayedBadge> | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('list_displayed_badges')
+    if (error) return { value: null, error: describe(error) }
+
+    const byUser: Record<string, DisplayedBadge> = {}
+    for (const row of Array.isArray(data) ? data : []) {
+      const entry = row as Record<string, unknown>
+      if (typeof entry.user_id !== 'string' || typeof entry.badge_key !== 'string') continue
+      byUser[entry.user_id] = {
+        userId: entry.user_id,
+        key: entry.badge_key,
+        name: typeof entry.name === 'string' ? entry.name : entry.badge_key,
+        icon: typeof entry.icon === 'string' ? entry.icon : '•',
+        // Never invent an issuer: claiming Twitch granted something it did not
+        // is the one mistake here that would actually matter.
+        issuer: entry.issuer === 'twitch' ? 'twitch' : 'kickback',
+      }
+    }
+    return { value: byUser }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}

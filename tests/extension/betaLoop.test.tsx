@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AccountCard } from '../../src/ui/components/AuthStates'
 import { BadgeShelf } from '../../src/ui/components/BadgeShelf'
+import { MessageList } from '../../src/ui/components/Conversation'
 import { codeFromUrl, inviteLinkFor } from '../../src/core/invites'
 import { INITIAL_STATE } from '../../src/client/types'
 import type {
@@ -10,7 +11,7 @@ import type {
   KickbackIdentity,
   KickbackPreferences,
 } from '../../src/client/types'
-import type { EarnedBadge } from '../../src/background/supabaseBackend'
+import type { DisplayedBadge, EarnedBadge } from '../../src/background/supabaseBackend'
 
 /**
  * The Friends Beta loop, end to end, at the cheapest layer that can prove each
@@ -258,5 +259,73 @@ describe('the equipped badge reaches the panel state', () => {
   it('reports the referral count that earned it', () => {
     expect(Object.keys(INITIAL_STATE)).toContain('referralCount')
     expect(INITIAL_STATE.referralCount).toBe(0)
+  })
+})
+
+// ------------------------------------- the equipped badge, seen by a friend
+
+describe('a friend sees the badge you equipped', () => {
+  const MESSAGES = [
+    { id: 'm1', userId: 'alice', displayName: 'Alice', avatarUrl: null, body: 'hey' },
+  ]
+
+  const cardContext = {
+    selfId: 'bob',
+    viewerActivity: { type: 'idle' } as const,
+    friendIds: new Set(['alice']),
+    outgoingRequestIds: new Set<string>(),
+  }
+
+  const draw = (badges?: Record<string, DisplayedBadge>) =>
+    renderToStaticMarkup(
+      <MessageList
+        messages={MESSAGES}
+        annotations={new Map()}
+        selfId="bob"
+        client={{} as unknown as KickbackClient}
+        cardContext={cardContext}
+        badges={badges}
+        empty="Nothing yet."
+      />,
+    )
+
+  const ALICE_BADGE: Record<string, DisplayedBadge> = {
+    alice: {
+      userId: 'alice',
+      key: 'referrer_1',
+      name: 'Connector',
+      icon: '🔗',
+      issuer: 'kickback',
+    },
+  }
+
+  it('draws it beside their name', () => {
+    const html = draw(ALICE_BADGE)
+    expect(html).toContain('kb-msg-badge')
+    expect(html).toContain('🔗')
+    expect(html).toContain('Alice')
+  })
+
+  /** The title says who issued it - never that Twitch did. */
+  it('says it is a Kickback badge', () => {
+    expect(draw(ALICE_BADGE)).toContain('Connector — Kickback badge')
+  })
+
+  /** Disabling display removes the projection, so the chip disappears. */
+  it('draws nothing when they are showing none', () => {
+    const html = draw({})
+    expect(html).not.toContain('kb-msg-badge')
+    expect(html).toContain('Alice')
+  })
+
+  it('draws nothing when the projection is absent entirely', () => {
+    const html = draw(undefined)
+    expect(html).not.toContain('kb-msg-badge')
+    expect(html).toContain('Alice')
+  })
+
+  /** One badge per person. Never a row of them. */
+  it('draws exactly one chip', () => {
+    expect(draw(ALICE_BADGE).match(/kb-msg-badge/g)).toHaveLength(1)
   })
 })

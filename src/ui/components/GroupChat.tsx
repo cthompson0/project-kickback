@@ -1,3 +1,4 @@
+import type { DisplayedBadge } from '../../background/supabaseBackend'
 import { useEffect, useMemo, useRef } from 'react'
 import { scanCombos } from '../../core/combos'
 import { emoteKey } from '../../core/emotes'
@@ -26,6 +27,7 @@ const MAX_LENGTH = 500
 const NO_MEMBERS: GroupMember[] = []
 
 export function GroupChat({
+  badges,
   groupId,
   messages,
   selfId,
@@ -33,6 +35,8 @@ export function GroupChat({
   members = NO_MEMBERS,
   cardContext,
 }: {
+  /** The badge each person chose to show, keyed by user id. See 0027. */
+  badges?: Readonly<Record<string, DisplayedBadge>>
   groupId: string
   messages: ChatMessage[]
   selfId: string | null
@@ -129,6 +133,7 @@ export function GroupChat({
         client={client}
         cardContext={cardContext}
         lookup={(userId) => byUserId.get(userId)}
+        badges={badges}
         empty="No messages yet. Say something."
       />
 
