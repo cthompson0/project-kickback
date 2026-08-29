@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { restoredSessionChannel } from '../../src/background/sessionState'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoomMessages } from '../../src/background/roomMessages'
 import { createSessionTab, SELECTION_TTL_MS } from '../../src/background/sessionTab'
@@ -594,16 +595,23 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
     expect(PANEL).not.toContain('onOpenRoom')
   })
 
+  /**
+   * Was three string matches against the worker's source; the rule now lives
+   * in an importable module, so it is asserted by running it. See
+   * tests/extension/sessionState.test.ts for the full set of cases.
+   */
   it('checks eligibility again before honouring a remembered selection', () => {
-    // A stale record must never reopen an unrelated streamer's session, so
-    // the worker re-derives all three conditions rather than trusting storage.
-    expect(WORKER).toContain('function restoredSession()')
-    expect(WORKER).toContain('if (remembered !== sessionChannel()) return null')
-    expect(WORKER).toContain(
-      // Restorable on either kind of presence OR on a retained conversation -
-      // the lifecycle that supersedes the Patch 1 workaround.
-      'room.snapshot(remembered).length > 0',
-    )
+    expect(WORKER).toContain('restoredSessionChannel({')
+    // A stale record must never reopen an unrelated streamer's session.
+    expect(
+      restoredSessionChannel({
+        remembered: 'lirik',
+        here: 'someone_else',
+        members: [{}],
+        peers: ['friend'],
+        messages: [],
+      }),
+    ).toBeNull()
   })
 
   it('only ever remembers the channel the viewer is actually on', () => {

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { sessionChannelOf } from '../../src/background/sessionState'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { SocialGravity } from '../../src/ui/components/SocialGravity'
@@ -276,12 +277,15 @@ describe('the membership query and our own presence row', () => {
 describe('the worker wires the whole chain', () => {
   const WORKER = readFileSync('src/background/index.ts', 'utf8')
 
+  /**
+   * The gate is the PUBLISHED set - what the server actually holds for us, and
+   * exactly what is_present_at consults - not the intent. Asserted by running
+   * the rule rather than by matching the worker's source.
+   */
   it('will not ask for a room before our presence row exists', () => {
-    // The gate is the PUBLISHED set - what the server actually holds for us,
-    // and exactly what is_present_at consults - not the intent.
-    expect(WORKER).toContain(
-      'return presenceReporter.lastDestinations().includes(here) ? here : null',
-    )
+    expect(WORKER).toContain('sessionChannelOf(currentChannel(), presenceReporter.lastDestinations())')
+    expect(sessionChannelOf('lirik', [])).toBeNull()
+    expect(sessionChannelOf('lirik', ['lirik'])).toBe('lirik')
   })
 
   /**

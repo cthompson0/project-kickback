@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { openSessionChannels } from '../../src/background/sessionState'
 import { describe, expect, it } from 'vitest'
 import {
   canSessionForm,
@@ -132,8 +133,11 @@ describe('the worker keeps the two apart', () => {
   together.setChannels(open)
   room.want(open)`)
     expect(WORKER).toContain('roomChat.setChannels(open)')
-    // And the set is still gated on the write having landed.
-    expect(WORKER).toContain('presenceReporter.lastDestinations().filter')
+    // And the set is still gated on the write having landed - asserted by
+    // running the rule, not by matching the source that implements it.
+    expect(WORKER).toContain('openSessionChannels(tabActivity.destinations()')
+    expect(openSessionChannels(['a', 'b'], ['a'])).toEqual(['a'])
+    expect(openSessionChannels(['a'], ['a', 'b'])).toEqual(['a'])
   })
 
   it('gives ONLY the analytics lifecycle the live rule', () => {
