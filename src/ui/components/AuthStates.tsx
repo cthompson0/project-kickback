@@ -7,7 +7,7 @@ import type {
   PresenceVisibility,
 } from '../../client/types'
 import { BadgeShelf } from './BadgeShelf'
-import { BackIcon, KickbackMark } from './Icons'
+import { BackIcon, WatchsideMark } from './Icons'
 
 /**
  * The states the panel can be in before it has any friends to show. Each one is
@@ -18,8 +18,8 @@ import { BackIcon, KickbackMark } from './Icons'
 export function SignInCard({ onSignIn, busy }: { onSignIn: () => void; busy: boolean }) {
   return (
     <div className="kb-signin">
-      <KickbackMark size={34} />
-      <div className="kb-signin-title">Kickback</div>
+      <WatchsideMark size={34} />
+      <div className="kb-signin-title">Watchside</div>
       <div className="kb-signin-sub">See who&rsquo;s around.</div>
       <button type="button" className="kb-signin-btn" onClick={onSignIn} disabled={busy}>
         {busy ? 'Waiting for Twitch…' : 'Continue with Twitch'}
@@ -39,7 +39,7 @@ export function LoadingState() {
 export function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <div className="kb-quiet">
-      <div className="kb-quiet-title">Kickback is offline</div>
+      <div className="kb-quiet-title">Watchside is offline</div>
       <div className="kb-quiet-sub">{message}</div>
       <button type="button" className="kb-ghost-btn" onClick={onRetry}>
         Try again
@@ -65,7 +65,7 @@ export function EmptyFriends({
 
   return (
     <div className="kb-quiet">
-      <div className="kb-quiet-title">Your Kickback is quiet.</div>
+      <div className="kb-quiet-title">Your Watchside is quiet.</div>
       <div className="kb-quiet-sub">Your friends will show up here once you add them.</div>
       <button type="button" className="kb-signin-btn kb-find-btn" onClick={onFindFriends}>
         Find friends
@@ -74,7 +74,7 @@ export function EmptyFriends({
   )
 }
 
-/** Identity card behind the header avatar: who Kickback thinks you are. */
+/** Identity card behind the header avatar: who Watchside thinks you are. */
 const VISIBILITY_OPTIONS: Array<{
   value: PresenceVisibility
   label: string
@@ -469,7 +469,7 @@ export function AccountCard({
         * It is a secondary action people reach for occasionally, and a
         * permanent button on the main surface would take space from the thing
         * the product is actually for. The account panel is where the other
-        * "about Kickback rather than about your friends" controls already are.
+        * "about Watchside rather than about your friends" controls already are.
         */}
       <button type="button" className="kb-ghost-btn" onClick={onFeedback}>
         Feedback
@@ -500,12 +500,12 @@ export function AccountCard({
         * Earned badges, above the version line.
         *
         * The account panel is where a person already goes to see who they are
-        * in Kickback, so it is where a badge they earned should be waiting -
+        * in Watchside, so it is where a badge they earned should be waiting -
         * rather than a new screen nobody opens twice.
         */}
       <BadgeShelf client={client} />
 
-      <div className="kb-account-version">Kickback v{__KICKBACK_VERSION__}</div>
+      <div className="kb-account-version">Watchside v{__KICKBACK_VERSION__}</div>
     </div>
   )
 }

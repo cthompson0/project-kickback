@@ -135,7 +135,7 @@ export function MessageList({
   /**
    * The badge each person chose to show, keyed by user id.
    *
-   * Chat is where a person's Kickback identity is most often read, so it is
+   * Chat is where a person's Watchside identity is most often read, so it is
    * where an equipped badge belongs. Optional and empty by default, so a
    * caller that does not have the projection - or a database without 0027 -
    * renders exactly the chat it rendered before badges existed.
@@ -321,14 +321,14 @@ export function MessageList({
                 * not widen the click target. One badge, no hover card, no
                 * rarity - a chip and nothing else.
                 *
-                * Title says who issued it, because Kickback must never look
+                * Title says who issued it, because Watchside must never look
                 * like it granted somebody a Twitch badge.
                 */}
               {badges?.[message.userId] && (
                 <span
                   className="kb-msg-badge"
-                  title={`${badges[message.userId].name} — Kickback badge`}
-                  aria-label={`${badges[message.userId].name}, a Kickback badge`}
+                  title={`${badges[message.userId].name} — Watchside badge`}
+                  aria-label={`${badges[message.userId].name}, a Watchside badge`}
                 >
                   {badges[message.userId].icon}
                 </span>

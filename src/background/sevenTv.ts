@@ -16,7 +16,7 @@ import type { Emote } from '../core/emotes'
 
 export const SEVENTV_API = 'https://7tv.io/v3'
 
-/** 7TV keys channels by numeric Twitch user id, but Kickback only knows the
+/** 7TV keys channels by numeric Twitch user id, but Watchside only knows the
  *  login from the URL. Their GraphQL search bridges the two, unauthenticated. */
 const SEVENTV_GQL = `${SEVENTV_API}/gql`
 

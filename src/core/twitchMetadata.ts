@@ -1,5 +1,5 @@
 /**
- * Public Twitch metadata about a channel, as Kickback models it.
+ * Public Twitch metadata about a channel, as Watchside models it.
  *
  * WHAT THIS IS FOR
  *
@@ -173,7 +173,7 @@ function count(value: unknown): number | null {
 }
 
 /**
- * Validate one record arriving from Kickback's own metadata endpoint.
+ * Validate one record arriving from Watchside's own metadata endpoint.
  *
  * Our server, but still parsed rather than cast. The values in it came from
  * Twitch and pass through a cache; a shape assumption here is a shape

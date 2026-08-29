@@ -6,7 +6,7 @@
 /**
  * Top-level Twitch paths that are pages rather than channels. Anything not on
  * this list and shaped like a login is treated as a channel, which is the right
- * default: guessing wrong just means Kickback shows "Browsing Twitch".
+ * default: guessing wrong just means Watchside shows "Browsing Twitch".
  */
 const RESERVED_PATHS = new Set([
   '',

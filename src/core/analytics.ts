@@ -1,5 +1,5 @@
 /**
- * Kickback's analytics vocabulary.
+ * Watchside's analytics vocabulary.
  *
  * This is the whole contract: every event that may be emitted, every property
  * it may carry, and the shape that goes on the wire. It is pure - no Supabase,
@@ -38,7 +38,7 @@ export const ANALYTICS_ENVIRONMENTS: readonly AnalyticsEnvironment[] = [
 ]
 
 /**
- * Which Kickback surface an event came from.
+ * Which Watchside surface an event came from.
  *
  * Shared with JoinSource rather than parallel to it: "which surface drove a
  * JOIN" and "which surface showed the opportunity" have to use the same
@@ -240,7 +240,7 @@ export interface AnalyticsEventMap {
    *
    * No properties at all, and that is deliberate. Who was blocked - as an id, a
    * login or a name - would turn this table into a record of who dislikes whom,
-   * which is far more sensitive than anything else Kickback keeps and answers no
+   * which is far more sensitive than anything else Watchside keeps and answers no
    * question we have. Whether people need the feature is answered by a count.
    *
    * There is no reason field either. That would be Report, which is a different

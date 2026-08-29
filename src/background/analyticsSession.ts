@@ -1,13 +1,13 @@
 /**
- * What a Kickback session is, precisely.
+ * What a Watchside session is, precisely.
  *
- * A session is a stretch of the user being on Twitch with Kickback loaded. It
+ * A session is a stretch of the user being on Twitch with Watchside loaded. It
  * OPENS the first time a Twitch tab reports activity, and CLOSES after
  * IDLE_MS with no Twitch tab open at all. Signing out closes it too.
  *
  * WHY IT IS DEFINED ON TAB LIFECYCLE
  *
- * Kickback already knows exactly this, from the activity registry that drives
+ * Watchside already knows exactly this, from the activity registry that drives
  * presence: how many Twitch tabs exist and which one the user is looking at.
  * Inventing a second notion of "active" would mean two answers to the same
  * question, and the analytics one would be the one nobody noticed drifting.

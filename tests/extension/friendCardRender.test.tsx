@@ -11,7 +11,7 @@ import type { Activity, Presence, User } from '../../src/core/types'
  *
  * Two things are pinned here. First that a friend's identity is a control that
  * opens the shared card rather than a Friends-only one - there should be
- * exactly one way to look at a person in Kickback. Second that JOIN is a
+ * exactly one way to look at a person in Watchside. Second that JOIN is a
  * separate target from that control, so the two never compete for one click.
  */
 

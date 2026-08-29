@@ -3,8 +3,8 @@
  *
  * THE PROBLEM
  *
- * A person shares a link. The recipient does not have Kickback yet, so
- * whatever they land on must explain what Kickback is and how to install it -
+ * A person shares a link. The recipient does not have Watchside yet, so
+ * whatever they land on must explain what Watchside is and how to install it -
  * and then, once installed, the extension has to learn which code brought
  * them. The obvious solution is a content script on the landing page, and it
  * is the wrong one: it means a new host permission, which Chrome shows the
@@ -12,11 +12,11 @@
  *
  * THE SHAPE THAT NEEDS NO NEW PERMISSION
  *
- *   1. the shared link points at the Kickback landing page, which explains the
+ *   1. the shared link points at the Watchside landing page, which explains the
  *      product and links to the Chrome Web Store;
  *   2. the landing page's "continue" button points at TWITCH, carrying the
  *      code as a query parameter;
- *   3. Kickback's content script already runs on twitch.tv - that is its whole
+ *   3. Watchside's content script already runs on twitch.tv - that is its whole
  *      job - so it reads the parameter there and hands it to the worker.
  *
  * The recipient therefore lands somewhere that makes sense at every step, and
@@ -34,18 +34,28 @@
  * Where a shared invite points.
  *
  * The GitHub organisation is `Anoteros-Labs`, so the Pages host is
- * `anoteros-labs.github.io` WITH the hyphen. Confirmed against the live
- * repository, whose existing pages are `/kickback/privacy/` and
- * `/kickback/support/`. An earlier value here omitted the hyphen and pointed
- * at a domain that does not exist - every invite link built from it would have
- * failed to resolve.
+ * `anoteros-labs.github.io` WITH the hyphen. Trailing slash because the Pages
+ * layout is a directory per page with an index.html inside it.
  *
- * Trailing slash to match those two: the Pages layout is a directory per page
- * with an index.html inside it.
+ * NEW links are minted under `/watchside/`. The OLD `/kickback/invite/` path
+ * is not retired: links already sitting in somebody's DMs must keep working
+ * forever, so that route stays published and forwards to this one carrying `c`
+ * untouched. Nothing here needs to know about that - a forwarded visitor
+ * arrives at exactly the URL this constant builds.
  */
-export const INVITE_LANDING_BASE = 'https://anoteros-labs.github.io/kickback/invite/'
+export const INVITE_LANDING_BASE = 'https://anoteros-labs.github.io/watchside/invite/'
 
-/** The query parameter the landing page's continue button carries to Twitch. */
+/**
+ * The query parameter the landing page's continue button carries to Twitch.
+ *
+ * Deliberately still `kickback_invite` after the rename. This name is a wire
+ * contract between two things that update independently: the landing page
+ * (which mints it) and the installed extension (which reads it). Renaming it
+ * would strand anybody whose extension had not yet updated when the page did -
+ * a silent, unreportable loss of referral credit, in exchange for a string no
+ * user ever reads. The compatibility risk is real and the branding gain is
+ * zero, so the old name stays.
+ */
 export const INVITE_PARAM = 'kickback_invite'
 
 /** The same alphabet friend codes use, and the same length the server checks. */

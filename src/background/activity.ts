@@ -5,7 +5,7 @@ import type { Activity } from '../core/types'
  * Decides what the user is *actually* doing, from however many Twitch tabs
  * they have open.
  *
- * The rule, in product terms: Kickback should say what you are watching, not
+ * The rule, in product terms: Watchside should say what you are watching, not
  * whatever a background tab last mentioned. Concretely:
  *
  *   1. A visible tab always beats a hidden one. If you are looking at Lirik,

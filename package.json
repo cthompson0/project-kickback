@@ -53,5 +53,5 @@
     "vite": "^8.2.0",
     "vitest": "^4.1.11"
   },
-  "description": "Kickback - Phase 0 Twitch prototype (Chrome MV3 extension)"
+  "description": "Watchside - Phase 0 Twitch prototype (Chrome MV3 extension)"
 }

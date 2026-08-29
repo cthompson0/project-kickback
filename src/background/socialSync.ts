@@ -1,5 +1,5 @@
 /**
- * Keeps the social graph fresh while Kickback is running.
+ * Keeps the social graph fresh while Watchside is running.
  *
  * This is an *invalidation* channel, not a data channel: it never applies an
  * event payload to state. When the database says something about our

@@ -566,7 +566,7 @@ describe('badges', () => {
     expect(rows.length).toBeGreaterThanOrEqual(5)
   })
 
-  it('marks every referral badge as Kickback-issued, never Twitch', async () => {
+  it('marks every referral badge as Watchside-issued, never Twitch', async () => {
     const rows = await db.as<{ issuer: string }>(
       carol,
       `select issuer from public.badge_definitions where key like 'referrer_%'`,

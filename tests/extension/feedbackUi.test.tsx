@@ -173,7 +173,7 @@ describe('where feedback is reached from', () => {
     /*
      * A permanent feedback button on the main surface would take space from the
      * thing the product is for. The account panel is where the other "about
-     * Kickback rather than about your friends" controls already are.
+     * Watchside rather than about your friends" controls already are.
      */
     for (const file of ['SocialGravity.tsx', 'FriendsTab.tsx', 'PersonRow.tsx', 'UserCard.tsx']) {
       const source = readFileSync(
@@ -210,7 +210,7 @@ describe('what feedback puts into analytics', () => {
     /*
      * analytics_events is built on the promise that it cannot contain free
      * text - 64-character values, unknown keys dropped on both sides. Feedback
-     * is the one thing in Kickback that IS free text, so it goes to its own
+     * is the one thing in Watchside that IS free text, so it goes to its own
      * table and analytics learns only that it happened.
      */
     const worker = readFileSync(join(process.cwd(), 'src', 'background', 'index.ts'), 'utf8')

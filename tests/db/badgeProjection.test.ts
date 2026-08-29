@@ -197,7 +197,7 @@ describe('what a displayed badge projection contains', () => {
     expect(rows).toEqual([])
   })
 
-  it('says the badge is Kickback-issued', async () => {
+  it('says the badge is Watchside-issued', async () => {
     await earnBadge(alice, bob)
     await db.as(alice, `select public.set_displayed_badge('referrer_1')`)
     const [row] = await seenBy(bob)

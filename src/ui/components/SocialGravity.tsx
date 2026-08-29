@@ -44,7 +44,7 @@ import type { UserCardContext } from './UserCard'
  * Those people are not a destination, and dressing them up as one would be
  * noise. They keep PersonRow, so they keep exactly what the flat list gave
  * them: the status line, the identity that opens a card, and the inline remove
- * for friends Kickback has no presence for.
+ * for friends Watchside has no presence for.
  *
  * Removing anyone who IS online has always happened from their user card
  * rather than from a row, and that is unchanged - the identity inside a
@@ -108,7 +108,7 @@ interface SocialGravityProps {
  * made metadata ARRIVING shove the whole header sideways.
  *
  * So the slot is always there. With a Twitch image it holds the image; without
- * one it holds a tinted monogram - the same treatment every avatar in Kickback
+ * one it holds a tinted monogram - the same treatment every avatar in Watchside
  * uses when there is no picture, so it reads as "no picture yet", not as an
  * error, and it is visibly generated rather than pretending to be Twitch's.
  *

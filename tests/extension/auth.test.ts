@@ -171,7 +171,7 @@ describe('initialisation', () => {
     expect(state.identity).toBeNull()
   })
 
-  it('flags a missing Kickback profile distinctly from an outage', async () => {
+  it('flags a missing Watchside profile distinctly from an outage', async () => {
     backend.session = LIVE_SESSION
     backend.identity = null
     const auth = makeService(succeedingLaunch)

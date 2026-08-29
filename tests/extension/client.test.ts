@@ -220,7 +220,7 @@ describe('port client friend operations', () => {
       type: 'rpcResult',
       callId: lastRpc().callId,
       ok: false,
-      error: 'Your Kickback session ended. Sign in again.',
+      error: 'Your Watchside session ended. Sign in again.',
     })
 
     await expect(pending).rejects.toThrow(/session ended/i)

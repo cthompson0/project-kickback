@@ -70,7 +70,7 @@ export function sealNetwork(
     attempts.push(attempt)
     onAttempt(attempt)
     throw new Error(
-      `Kickback Test Lab: blocked ${api} to ${attempt.target}. ` +
+      `Watchside Test Lab: blocked ${api} to ${attempt.target}. ` +
         'The lab may not talk to anything but its own dev server - simulated state must ' +
         'never reach a server. See docs/TEST_LAB.md.',
     )
@@ -145,7 +145,7 @@ export function sealNetwork(
 export function assertTestLabBuild(mode: string | undefined): void {
   if (mode !== 'test_lab') {
     throw new Error(
-      `Kickback Test Lab loaded in a "${mode ?? 'production'}" build. ` +
+      `Watchside Test Lab loaded in a "${mode ?? 'production'}" build. ` +
         'The lab is development-only and must never ship.',
     )
   }

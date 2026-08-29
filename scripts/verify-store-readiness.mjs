@@ -1,5 +1,5 @@
 /**
- * Is Kickback ready to be a Chrome Web Store item?
+ * Is Watchside ready to be a Chrome Web Store item?
  *
  *   npm run verify:store
  *
@@ -110,7 +110,7 @@ step('Stale extension IDs')
 const PERMISSION_JUSTIFICATIONS = {
   identity:
     'Sign in with Twitch. chrome.identity.launchWebAuthFlow runs the OAuth flow and ' +
-    'getRedirectURL provides the redirect; Kickback holds no client secret and never ' +
+    'getRedirectURL provides the redirect; Watchside holds no client secret and never ' +
     'sees a Twitch password.',
   storage:
     'chrome.storage.local holds the session, the panel position, muted people and the ' +
@@ -127,7 +127,7 @@ const PERMISSION_JUSTIFICATIONS = {
 
 const HOST_JUSTIFICATIONS = {
   'https://*.supabase.co/*':
-    "Kickback's own backend: authentication, the friend graph, presence, and realtime. " +
+    "Watchside's own backend: authentication, the friend graph, presence, and realtime. " +
     'All application data lives here and nowhere else.',
   'https://7tv.io/*':
     'Public emote metadata for the channel being watched, so chat can render the emotes ' +
@@ -196,13 +196,13 @@ step('Listing identity')
 
 {
   /*
-   * The submitted item is called "Kickback BETA" while the manifest says
-   * "Kickback". That is allowed and deliberate - the store name and the
+   * The submitted item is called "Watchside BETA" while the manifest says
+   * "Watchside". That is allowed and deliberate - the store name and the
    * manifest name are separate fields - but the manifest name is what a user
    * sees in chrome://extensions, so the two should not tell different stories.
    */
   console.log(`  manifest name: ${manifest.name}`)
-  note('store listing name is "Kickback BETA"; the manifest says "Kickback" (both intentional)')
+  note('store listing name is "Watchside BETA"; the manifest says "Watchside" (both intentional)')
 
   if (manifest.name.length > 75) fail('manifest name is over the 75-character store limit')
   if ((manifest.description ?? '').length > 132) {

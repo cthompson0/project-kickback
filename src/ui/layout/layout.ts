@@ -1,5 +1,5 @@
 /**
- * Where the Kickback panel sits, and how big it is.
+ * Where the Watchside panel sits, and how big it is.
  *
  * All of it is pure arithmetic over a rectangle and a viewport, deliberately
  * kept away from the DOM. Layout bugs are the kind that only show up on

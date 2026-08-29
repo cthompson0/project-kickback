@@ -67,7 +67,7 @@ function stubClient(sections: unknown[] = []): KickbackClient {
 describe('the picker', () => {
   it('offers the built-ins before any provider has answered', () => {
     const html = renderToStaticMarkup(<EmotePicker client={stubClient()} onPick={() => {}} />)
-    expect(html).toContain('Kickback')
+    expect(html).toContain('Watchside')
     expect(html).toContain('Search emotes')
     // One button per built-in.
     expect(html.match(/kb-emote-btn/g)?.length).toBe(EMOTES.length)

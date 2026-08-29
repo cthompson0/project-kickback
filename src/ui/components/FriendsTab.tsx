@@ -17,7 +17,7 @@ type Bucket = 'here' | 'watching' | 'online' | 'offline' | 'unknown'
 
 /**
  * Buddy-list grouping: here, out watching something, around, gone - and
- * "unknown" for friends Kickback has no presence for, which is every real
+ * "unknown" for friends Watchside has no presence for, which is every real
  * friend until Checkpoint 5. That bucket renders without a heading, so the
  * list reads as a plain list of people rather than an empty status board.
  */

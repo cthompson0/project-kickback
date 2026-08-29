@@ -3,7 +3,7 @@
  *
  * Its own module rather than an export from Avatar.tsx, for two reasons. Fast
  * refresh wants a component file to export only components - but more usefully,
- * this is now shared by two DIFFERENT identities: a Kickback user and a Twitch
+ * this is now shared by two DIFFERENT identities: a Watchside user and a Twitch
  * channel. Neither owns it.
  *
  * The two must look consistent without being the same thing. A friend's avatar

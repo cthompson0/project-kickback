@@ -12,7 +12,7 @@ import type { EarnedBadge } from '../../background/supabaseBackend'
  *
  * KICKBACK-ISSUED, SAID OUT LOUD
  *
- * Every badge here carries its issuer and the heading says so. Kickback must
+ * Every badge here carries its issuer and the heading says so. Watchside must
  * never look like it granted somebody a Twitch badge, and the moment a second
  * issuer exists that distinction has to already be on screen rather than
  * retrofitted.
@@ -64,7 +64,7 @@ export function BadgeShelf({ client }: { client: KickbackClient }) {
 
   return (
     <div className="kb-badges">
-      <div className="kb-section-label">Kickback badges</div>
+      <div className="kb-section-label">Watchside badges</div>
 
       {error && <div className="kb-inline-note">{error}</div>}
 
@@ -92,7 +92,7 @@ export function BadgeShelf({ client }: { client: KickbackClient }) {
       <div className="kb-quiet-sub">
         {equipped
           ? `Showing ${equipped.name}. Tap it again to show none.`
-          : 'Tap a badge to show it. Earned by inviting friends to Kickback.'}
+          : 'Tap a badge to show it. Earned by inviting friends to Watchside.'}
       </div>
     </div>
   )

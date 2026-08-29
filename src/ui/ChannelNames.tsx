@@ -23,7 +23,7 @@ export function ChannelNameProvider({
   metadata,
   children,
 }: {
-  /** Everyone whose Twitch display name Kickback already holds. */
+  /** Everyone whose Twitch display name Watchside already holds. */
   people: readonly NamedTwitchUser[]
   /** login -> casing, learned from pages this browser has opened. */
   seen: Readonly<Record<string, string>>

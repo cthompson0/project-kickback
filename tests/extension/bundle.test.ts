@@ -231,7 +231,7 @@ describe('user-facing wording', () => {
   })
 })
 
-describe('Kickback does not modify Twitch', () => {
+describe('Watchside does not modify Twitch', () => {
   const CONTENT_SOURCE = () =>
     readdirSync(join(SRC, 'content'), { recursive: true, encoding: 'utf8' })
       .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
@@ -240,7 +240,7 @@ describe('Kickback does not modify Twitch', () => {
 
   it('appends exactly one host element and removes nothing', () => {
     const source = CONTENT_SOURCE()
-    // The only mutation Kickback performs on the page is appending its own
+    // The only mutation Watchside performs on the page is appending its own
     // host to <body>. Everything it renders lives inside that host's shadow
     // root, so no Twitch node is moved, wrapped, restyled or removed.
     expect(source).toContain('document.body.appendChild(host)')
@@ -300,7 +300,7 @@ describe('emote providers are reached only from the worker', () => {
     expect(background).not.toContain('Client-Id')
   })
 
-  it("reads no provider token in Kickback's own code", () => {
+  it("reads no provider token in Watchside's own code", () => {
     // supabase-js parses provider_token out of an auth response, so the string
     // is in the vendored SDK. What matters is that we never touch it: the
     // source is the honest place to assert that, since the bundle cannot tell
@@ -331,7 +331,7 @@ describe('the demo build sends no analytics', () => {
       throw new Error('dist-demo/ is missing or stale - run `npm run build:demo`')
     }
     const demoContent = readFileSync(join(DEMO_DIST, 'kickback-content.js'), 'utf8')
-    // The content script is the whole of the demo build's Kickback: the worker
+    // The content script is the whole of the demo build's Watchside: the worker
     // is never connected to, so nothing can reach the network from here.
     expect(demoContent).not.toContain('analytics_track')
   })
@@ -372,7 +372,7 @@ describe('the production bundle collects nothing it should not', () => {
  *
  * Asserted as a TOP-LEVEL assignment to globalThis, which is what makes the
  * command callable the moment the service worker starts, from the DevTools
- * console opened via chrome://extensions → Kickback → "service worker".
+ * console opened via chrome://extensions → Watchside → "service worker".
  */
 describe('the worker console diagnostics ship', () => {
   const attached = (name: string) => background.includes(`globalThis.${name}=`)

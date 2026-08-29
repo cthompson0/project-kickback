@@ -3,7 +3,7 @@
  *
  *   npm run screenshots:store
  *
- * Real Kickback, real Twitch, mock friends. The demo build is loaded as an
+ * Real Watchside, real Twitch, mock friends. The demo build is loaded as an
  * actual extension into an actual browser and pointed at actual twitch.tv, so
  * what comes out is a photograph of the product rather than a picture of a
  * mock-up: every pixel of the panel is the same React the beta ships, and
@@ -16,7 +16,7 @@
  * All of that is what a person would have done before taking the screenshot
  * themselves.
  *
- * Not staged: anything about what Kickback draws. The friends, their channels,
+ * Not staged: anything about what Watchside draws. The friends, their channels,
  * the clustering, the JOIN buttons and the conversation all come from the demo
  * fixtures through the real components. Nothing is drawn for the camera.
  *
@@ -156,7 +156,7 @@ function stageLayout(layout) {
   window.localStorage.setItem('kickback:layout', JSON.stringify(layout))
   window.localStorage.setItem('kickback:collapsed', '0')
   // The first-run nudge is real UI, but it is about learning to drag a panel
-  // rather than about what Kickback does.
+  // rather than about what Watchside does.
   window.localStorage.setItem('kickback:layout-hint-seen', '1')
   return true
 }
@@ -283,7 +283,7 @@ async function main() {
      * 1 - PRESENCE. The viewer is not watching anything, so the panel is purely
      * "here is where everyone else is" - no HERE card competing for attention,
      * just people, channels, and who is merely around. This is what opening
-     * Kickback looks like before you have decided anything.
+     * Watchside looks like before you have decided anything.
      */
     report.push([
       'store-01-presence.png',

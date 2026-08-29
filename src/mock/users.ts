@@ -1,7 +1,7 @@
 import type { User } from '../core/types'
 
 /**
- * Everyone Kickback knows about in Phase 0. Note this is a directory of users,
+ * Everyone Watchside knows about in Phase 0. Note this is a directory of users,
  * not a friends list - some of these people are only reachable through a group.
  */
 export const MOCK_USERS: User[] = [

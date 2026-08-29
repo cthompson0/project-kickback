@@ -3,7 +3,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
 /**
- * Content-script bundle: the Kickback panel that runs inside a Twitch tab.
+ * Content-script bundle: the Watchside panel that runs inside a Twitch tab.
  *
  * Content scripts are not ES modules, so this is emitted as one IIFE with no
  * code splitting. Everything in `public/` (manifest, icons, popup) is copied to

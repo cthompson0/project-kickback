@@ -47,7 +47,7 @@ group by event_name
 order by n desc;
 ```
 
-## 1. Did people actually open Kickback?
+## 1. Did people actually open Watchside?
 
 ```sql
 -- One row per person per day they did anything.
@@ -160,7 +160,7 @@ order by clicks desc;
 
 `source` is `social_gravity`, `user_card` or `notification`. **Organic Twitch
 navigation emits nothing**, so it can never appear here and can never be
-mistaken for a Kickback-caused visit.
+mistaken for a Watchside-caused visit.
 
 ## 5. Notification → JOIN → arrival
 
@@ -192,7 +192,7 @@ group by from_join;
 ```
 
 `from_join = false` is organic co-viewing — people who ended up on the same
-stream without Kickback moving anybody. **It is the baseline**, and the honest
+stream without Watchside moving anybody. **It is the baseline**, and the honest
 thing to compare an attributed shared watch against.
 
 And whether they stayed after everyone else left:
@@ -382,13 +382,13 @@ limit 20;
 
 ## What none of this can tell you
 
-- **Whether Kickback caused a JOIN.** Everyone is in the `gravity` arm during
+- **Whether Watchside caused a JOIN.** Everyone is in the `gravity` arm during
   beta — deliberately, because a holdout across five people measures nothing.
   There is no control group, so nothing here is a causal claim.
 - **Whether a visible combo makes people JOIN.** Combos are only drawn on the
   HERE card, and HERE is the channel you are already on — never a JOIN
   opportunity. The question is unanswerable by construction, not by omission.
 - **Incremental Twitch watch hours.** See ANALYTICS.md §11a. What exists is
-  shared-watch duration and post-social retention on destinations Kickback
+  shared-watch duration and post-social retention on destinations Watchside
   attributed. Generic Twitch watch time is not measured and must not be claimed.
 - **Anything with a p-value.** Six people for a week.

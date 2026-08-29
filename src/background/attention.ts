@@ -1,7 +1,7 @@
 import type { AsyncStorageArea } from './storage'
 
 /**
- * What Kickback thinks is worth your attention, and what you have already seen.
+ * What Watchside thinks is worth your attention, and what you have already seen.
  *
  * Deliberately small. It models "here are the things currently worth noticing"
  * plus "here is what has been seen", and derives unread from the difference.

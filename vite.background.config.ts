@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { defineConfig } from 'vite'
 
 /**
- * Service-worker bundle: the only part of Kickback that holds a session or
+ * Service-worker bundle: the only part of Watchside that holds a session or
  * talks to Supabase.
  *
  * Built as a second pass so it does not share a chunk with the content script.

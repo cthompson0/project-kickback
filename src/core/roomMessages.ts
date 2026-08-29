@@ -353,7 +353,7 @@ export function roomActivity(
  *
  * `soleEmote` rather than a lookup in the built-in palette, because the
  * palette is not the whole vocabulary: an emote-only message can carry a
- * channel or global emote from the picker, and matching only Kickback tokens
+ * channel or global emote from the picker, and matching only Watchside tokens
  * meant the room counted it and the preview outside did not - two surfaces
  * disagreeing about the same run, which is the exact thing one combo model
  * exists to prevent.

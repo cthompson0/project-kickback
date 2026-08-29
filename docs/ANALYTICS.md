@@ -1,6 +1,6 @@
-# Kickback analytics
+# Watchside analytics
 
-What Kickback measures, why, and exactly what leaves your browser.
+What Watchside measures, why, and exactly what leaves your browser.
 
 This document is the source for beta disclosure, the eventual privacy policy,
 and the Chrome Web Store listing. It is meant to be factual rather than
@@ -10,14 +10,14 @@ reassuring: if something is collected, it is named here.
 
 ## 1. Two kinds of data, kept apart
 
-**Product data** is what Kickback needs in order to work at all: your account,
+**Product data** is what Watchside needs in order to work at all: your account,
 your friendships, your groups, the messages in them, and your presence. Without
 it there is no product. It lives in the `users`, `friendships`, `groups`,
 `group_messages` and `presence` tables.
 
-**Analytics data** is what we look at to understand whether Kickback works: a
+**Analytics data** is what we look at to understand whether Watchside works: a
 small set of events about what was shown and what was done. It lives in
-`analytics_events` and nothing else reads it while Kickback is running.
+`analytics_events` and nothing else reads it while Watchside is running.
 
 The two are deliberately separate islands. No product table has a foreign key
 into analytics, nothing in the extension ever reads analytics back, and all
@@ -32,14 +32,14 @@ Every event carries:
 
 | Field | What it is |
 |---|---|
-| `actor_id` | Your Kickback user id. **Taken from your session server-side**, never from anything the extension sends. |
+| `actor_id` | Your Watchside user id. **Taken from your session server-side**, never from anything the extension sends. |
 | `environment` | `development`, `private_beta` or `production` — which build produced it. |
 | `event_name` | One of the events in section 4. Anything else is discarded. |
-| `session_id` | A random id for this stretch of Kickback use. Not linked to anything outside analytics. |
+| `session_id` | A random id for this stretch of Watchside use. Not linked to anything outside analytics. |
 | `occurred_at` | When the thing **happened**, which for a shared watch ending is not when it was noticed. See section 8. |
 | `received_at` | When the row reached the database. Always the server's clock. |
 | `app_version` | e.g. `0.5.0`. So a tester on an old ZIP is identifiable as such. |
-| `source` | Which Kickback surface: `friend_row`, `user_card`, `social_gravity`, `notification`, `group`. `gathering` is retired — see section 6a. |
+| `source` | Which Watchside surface: `friend_row`, `user_card`, `social_gravity`, `notification`, `group`. `gathering` is retired — see section 6a. |
 | `destination_channel` | A Twitch channel login, for events that are about going somewhere. See section 3. |
 | `attribution_id` | A random id linking one JOIN click to its arrival, shared watch and post-social retention. Held in the browser for minutes, then dropped. |
 | `properties` | A handful of counts, buckets and flags. Each event's allowed keys are listed in the database. |
@@ -85,7 +85,7 @@ no titles, and no history.
 Post-social retention does not widen this. It is recorded **only** for a
 destination where co-viewing had already happened, so it adds one interval to a
 channel that was already in the record for a social reason. Watching a channel
-Kickback knows nothing about produces no event at all, whatever you do there
+Watchside knows nothing about produces no event at all, whatever you do there
 and however long you stay.
 
 ---
@@ -132,7 +132,7 @@ a source value rather than a parallel funnel.
 
 ## 5. What a session means
 
-A Kickback session **opens** the first time a Twitch tab reports activity with
+A Watchside session **opens** the first time a Twitch tab reports activity with
 the extension loaded, and **closes** after 30 minutes with no Twitch tab open.
 Signing out closes it too.
 
@@ -257,7 +257,7 @@ The display spelling is resolved separately, at render time, by
 looks the login up and returns the login unchanged if nothing knows better.
 Two sources, neither needing a Twitch API call:
 
-1. **A person Kickback already knows.** A channel is a Twitch user, so a
+1. **A person Watchside already knows.** A channel is a Twitch user, so a
    friend's stored display name IS that channel's display name.
 2. **A page this browser has opened.** The content script reads the casing off
    the `<title>`, which is Twitch telling us directly, and the worker keeps a
@@ -671,7 +671,7 @@ therefore by how long the panel is left open with a large friends list.
 The server budget is **600 events per 5 minutes per user**, charged per *event*
 rather than per call so batching cannot be used to cheat it, with a hard cap of
 **50 events per call**. That is around forty times the heaviest realistic
-session and is not reachable by using Kickback.
+session and is not reachable by using Watchside.
 
 The extension batches every 5 seconds, holds at most 400 events, drops the
 **oldest** when full, and backs off exponentially on failure. Analytics being
@@ -861,7 +861,7 @@ where environment = 'private_beta' and effective_ended_at is not null;
 
 ```sql
 -- Social amplification, as far as it can be measured today: how many distinct
--- viewers a destination drew through Kickback in a window.
+-- viewers a destination drew through Watchside in a window.
 --
 -- Per-DESTINATION, not per-gathering. Counting the viewers one specific
 -- gathering produced needs `opportunity_key`, which nothing sets yet.
@@ -900,16 +900,16 @@ not computable now and must not be quoted.
 | 5 | **Post-Social Retention Duration** | ✅ now | `analytics_together_v.post_social_duration` |
 | 6 | **Social Follow Conversion** | 🚫 FUTURE | needs Twitch follow state; see §11b |
 | 7 | **Social Amplification** | ⚠️ partial | arrivals per destination per window are computable now; *per gathering* needs `opportunity_key`, which is reserved and unset until Social Gravity |
-| 8 | **Incremental Twitch Engagement** | 🚫 FUTURE | requires a randomised holdout **and** watch-time measurement Kickback does not have |
+| 8 | **Incremental Twitch Engagement** | 🚫 FUTURE | requires a randomised holdout **and** watch-time measurement Watchside does not have |
 | 9 | **Retention lift** | ⚠️ partial | D1/D7/D30 by cohort is computable; *lift* is a causal claim and needs an experiment |
 
 ## 11b. Twitch follow state: the future integration point
 
 Two of the metrics above need to know whether the viewer already followed the
-creator when they joined, and whether they followed afterwards. **Kickback
+creator when they joined, and whether they followed afterwards. **Watchside
 cannot know either today**, and nothing in the schema pretends otherwise.
 
-The reason is architectural, not an oversight: Kickback deliberately retains no
+The reason is architectural, not an oversight: Watchside deliberately retains no
 usable Twitch provider token. Supabase holds the OAuth result, the extension
 never sees a provider access token, and no scope beyond the default has been
 requested. Inventing `following_at_join` from anything we *do* have would be
@@ -958,9 +958,9 @@ named for what it observes — `following_at_join` — and never read as
 first-ever-exposure.
 
 If we later want to track first exposure, it must be named honestly (something
-like `first_observed_by_kickback_at`), scoped to destinations Kickback already
-records for a social reason, and understood as *what Kickback saw*, never as
-*what the viewer had done*. Kickback's records begin when Kickback was
+like `first_observed_by_kickback_at`), scoped to destinations Watchside already
+records for a social reason, and understood as *what Watchside saw*, never as
+*what the viewer had done*. Watchside's records begin when Watchside was
 installed; they are not the viewer's history.
 
 ---
@@ -970,9 +970,9 @@ installed; they are not the viewer's history.
 This matters more than any single query.
 
 **Observational data supports** statements about *association*, and about
-things Kickback itself did, where the counterfactual is not in question:
+things Watchside itself did, where the counterfactual is not in question:
 
-- ✅ "This JOIN was initiated through Kickback" — we performed the navigation.
+- ✅ "This JOIN was initiated through Watchside" — we performed the navigation.
 - ✅ "31% of weekly active users clicked JOIN" — a fact about our own UI.
 - ✅ "62% of JOIN clicks resulted in arriving at that channel" — our funnel.
 - ✅ "After co-viewing ended, viewers stayed a median of 11 more minutes" — a
@@ -985,19 +985,19 @@ things Kickback itself did, where the counterfactual is not in question:
 
 **Observational data cannot support** causal claims about Twitch behaviour:
 
-- ❌ "Kickback caused +18% watch time."
-- ❌ "Kickback caused the follow." Following *after* an attributed JOIN is a
+- ❌ "Watchside caused +18% watch time."
+- ❌ "Watchside caused the follow." Following *after* an attributed JOIN is a
   sequence, not a cause: the viewer chose to join because they were already
   interested, and might well have found the creator anyway.
 - ❌ "X% of gathering notifications *produced* a Twitch session."
 - ❌ "Social Gravity increased JOINs by Y%."
-- ❌ "Post-social retention proves Kickback creates lasting viewership." It
+- ❌ "Post-social retention proves Watchside creates lasting viewership." It
   shows the viewer stayed; it does not show they would have left otherwise.
 
 The reason is selection, not sample size. People who click JOIN are people who
 had a reason to — friends online, an evening free, an interest in that
 streamer. They would very likely have watched longer anyway. No amount of extra
-observational data separates "Kickback caused this" from "the kind of person
+observational data separates "Watchside caused this" from "the kind of person
 who does this was going to".
 
 **What would establish causality:**
@@ -1005,10 +1005,10 @@ who does this was going to".
 | Claim | What it needs |
 |---|---|
 | "Social Gravity outperforms a flat friends list" | A randomised holdout: assign users to Gravity or flat at signup, compare JOIN rate between arms. This is the one the current schema is shaped for — `source` and the impression events make the comparison a group-by once the arms exist. |
-| "Kickback caused +N% watch time" | A holdout where some users get no gathering surface at all, plus watch-time measurement Kickback does not currently have. Out of scope today. |
+| "Watchside caused +N% watch time" | A holdout where some users get no gathering surface at all, plus watch-time measurement Watchside does not currently have. Out of scope today. |
 | "Notifications produce sessions" | A randomised notification holdout. `gathering_notification_shown` is recorded for everyone precisely so a suppressed arm would be comparable. |
-| "Kickback caused the follow" | A holdout on the social surface, plus follow state. Comparing followers-after-JOIN to a group that never saw the opportunity - not to people who saw it and declined, who differ in exactly the way that matters. |
-| "Kickback creates lasting viewership" | A holdout, plus watch-time measurement. Post-social retention is the right *outcome* to measure in such an experiment; on its own it is a description of one arm. |
+| "Watchside caused the follow" | A holdout on the social surface, plus follow state. Comparing followers-after-JOIN to a group that never saw the opportunity - not to people who saw it and declined, who differ in exactly the way that matters. |
+| "Watchside creates lasting viewership" | A holdout, plus watch-time measurement. Post-social retention is the right *outcome* to measure in such an experiment; on its own it is a description of one arm. |
 
 Nothing is ever stored under a name like `incremental`. Events record
 descriptive facts — `already_on_twitch`, `navigated`, `from_join` — and the

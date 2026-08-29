@@ -30,7 +30,7 @@ import type {
 import type { KeyValueStorage } from './storage'
 
 /**
- * The only file that knows Kickback's backend is Supabase. Everything above it
+ * The only file that knows Watchside's backend is Supabase. Everything above it
  * sees the AuthBackend interface, which is what keeps the UI and the auth state
  * machine free of vendor detail.
  */
@@ -755,7 +755,7 @@ export function createSupabaseRoomMessageBackend(supabase: SupabaseClient): Room
   }
 }
 /**
- * Kickback's Twitch metadata endpoint.
+ * Watchside's Twitch metadata endpoint.
  *
  * An Edge Function rather than an RPC, because it needs the Twitch client
  * secret and outbound HTTP - neither of which belongs in Postgres. Invoked
@@ -912,7 +912,7 @@ export async function myBadges(
         name: entry.name,
         description: typeof entry.description === 'string' ? entry.description : '',
         icon: typeof entry.icon === 'string' ? entry.icon : '•',
-        // Never invent an issuer: an unknown value is Kickback's own, because
+        // Never invent an issuer: an unknown value is Watchside's own, because
         // claiming Twitch issued something it did not is the one mistake here
         // that would actually matter.
         issuer: entry.issuer === 'twitch' ? 'twitch' : 'kickback',

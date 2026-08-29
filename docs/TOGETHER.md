@@ -9,7 +9,7 @@
 > What changed: a room is now the connected component of the friendship graph
 > among people present on a destination, not the viewer's direct friends;
 > reaction recipients are decided at write time rather than by read-time RLS;
-> and reactions are Kickback emotes counted by the existing combo engine rather
+> and reactions are Watchside emotes counted by the existing combo engine rather
 > than a second implementation.
 >
 > **Superseded again by the UX correction** -
@@ -22,7 +22,7 @@
 
 The last step of **Presence → Social Gravity → JOIN → Together**.
 
-When you and some friends end up on the same Twitch stream, Kickback notices.
+When you and some friends end up on the same Twitch stream, Watchside notices.
 That is the whole feature: no room to create, no name to choose, nobody to
 invite, nothing to leave.
 
@@ -30,7 +30,7 @@ invite, nothing to leave.
 
 ## It is not a room
 
-Kickback already has persistent private spaces — **Groups**, with intentional
+Watchside already has persistent private spaces — **Groups**, with intentional
 membership and a conversation that is still there tomorrow. Automatic Together
 is the opposite of that on every axis, and the two must not be merged.
 
@@ -169,7 +169,7 @@ output. The threshold and the `×N` language are shared; the rules are not.
 ### No text chat
 
 Deliberately. Twitch chat exists, Groups exist, and a third place to type would
-be the point at which Kickback started becoming Discord. Nothing in this
+be the point at which Watchside started becoming Discord. Nothing in this
 checkpoint adds a text field, and the reaction table has no body column for one
 to arrive in.
 
@@ -290,12 +290,12 @@ One subscription per user, only while they are on a channel, closed when they
 leave. Inserts are bounded by the rate budget (60/minute/user) and rows live a
 minute.
 
-The pressure that would arrive first is **fan-out**: 10,000 Kickback users on
+The pressure that would arrive first is **fan-out**: 10,000 Watchside users on
 one popular stream means 10,000 subscribers on one `postgres_changes` filter,
 and Realtime evaluates RLS per subscriber per row. The mitigations, in order of
 how much they cost: raise the combo window so bursts collapse before they are
 sent; move to a per-user inbox channel; move reactions off Postgres entirely.
-None is worth building now — a channel needs thousands of *Kickback* users
+None is worth building now — a channel needs thousands of *Watchside* users
 before any of it matters, and that is a problem worth having.
 
 ---

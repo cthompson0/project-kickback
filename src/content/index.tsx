@@ -12,9 +12,9 @@ import { codeFromUrl } from '../core/invites'
 import panelStyles from '../ui/kickback.css?inline'
 
 /**
- * Kickback's entry point on Twitch.
+ * Watchside's entry point on Twitch.
  *
- * Everything Kickback renders lives inside a single host element with its own
+ * Everything Watchside renders lives inside a single host element with its own
  * shadow root, appended to <body>. Twitch's own React tree is never touched, so
  * there is nothing here that can break the site, and our CSS cannot leak out.
  */
@@ -41,7 +41,7 @@ function createHost(): HTMLDivElement {
   host.id = HOST_ID
   // A transparent layer over the whole viewport. It ignores pointer events
   // entirely - only the panel inside it accepts them - so Twitch behaves
-  // exactly as if Kickback were not here, while the panel is free to be
+  // exactly as if Watchside were not here, while the panel is free to be
   // dragged anywhere rather than being pinned to one edge.
   host.style.cssText = [
     'position:fixed',
@@ -98,7 +98,7 @@ async function mount(): Promise<void> {
 }
 
 /**
- * An invite code, if this page was reached from a Kickback invite link.
+ * An invite code, if this page was reached from a Watchside invite link.
  *
  * The landing page's continue button sends people to Twitch carrying the code,
  * because the content script already runs here - which means attribution needs
@@ -162,7 +162,7 @@ function reportActivity(client: KickbackClient): void {
 /**
  * Twitch re-renders large parts of the page. It should never touch a node it
  * does not own, but if our host ever disappears we simply put it back rather
- * than leaving the user without Kickback until a reload.
+ * than leaving the user without Watchside until a reload.
  */
 function keepAttached(host: HTMLDivElement): void {
   const observer = new MutationObserver(() => {
@@ -184,7 +184,7 @@ function hideDuringFullscreen(host: HTMLDivElement): void {
 
 function boot(): void {
   mount().catch((error) => {
-    console.error('[Kickback] failed to start', error)
+    console.error('[Watchside] failed to start', error)
   })
 }
 

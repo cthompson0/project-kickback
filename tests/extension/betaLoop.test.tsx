@@ -44,7 +44,7 @@ const PREFERENCES: KickbackPreferences = INITIAL_STATE.preferences
 const CONNECTOR: EarnedBadge = {
   key: 'referrer_1',
   name: 'Connector',
-  description: 'Brought a friend to Kickback.',
+  description: 'Brought a friend to Watchside.',
   icon: '🔗',
   issuer: 'kickback',
   displayed: false,
@@ -53,7 +53,7 @@ const CONNECTOR: EarnedBadge = {
 const RECRUITER: EarnedBadge = {
   key: 'referrer_5',
   name: 'Recruiter',
-  description: 'Brought five friends to Kickback.',
+  description: 'Brought five friends to Watchside.',
   icon: '🌱',
   issuer: 'kickback',
   displayed: true,
@@ -117,7 +117,7 @@ describe('the landing page implementation package', () => {
   })
 
   it('says a friend invited them', () => {
-    expect(HTML).toContain('A friend invited you to Kickback')
+    expect(HTML).toContain('A friend invited you to Watchside')
   })
 
   /** A truncated or curious visit is not an error page. */
@@ -201,13 +201,13 @@ describe('the account card carries the shelf', () => {
   /** The account panel is where a person already goes to see who they are. */
   it('is where an earned badge waits', () => {
     const html = renderAccount(badgeClient([CONNECTOR]))
-    expect(html).toContain('Kickback v')
+    expect(html).toContain('Watchside v')
   })
 
   it('does not disturb the account card when nothing is earned', () => {
     const html = renderAccount(badgeClient([]))
     expect(html).not.toContain('kb-badges')
-    expect(html).toContain('Kickback v')
+    expect(html).toContain('Watchside v')
   })
 })
 
@@ -217,9 +217,9 @@ describe('the shelf contract', () => {
   const SOURCE = readFileSync('src/ui/components/BadgeShelf.tsx', 'utf8')
   const CSS = readFileSync('src/ui/kickback.css', 'utf8')
 
-  /** Kickback must never look like it granted somebody a Twitch badge. */
-  it('says these are Kickback badges', () => {
-    expect(SOURCE).toContain('Kickback badges')
+  /** Watchside must never look like it granted somebody a Twitch badge. */
+  it('says these are Watchside badges', () => {
+    expect(SOURCE).toContain('Watchside badges')
   })
 
   it('equips through the server, never locally', () => {
@@ -252,7 +252,7 @@ describe('the equipped badge reaches the panel state', () => {
     expect(INITIAL_STATE.displayedBadge).toBeNull()
   })
 
-  it('carries its issuer, so Kickback and Twitch stay distinguishable', () => {
+  it('carries its issuer, so Watchside and Twitch stay distinguishable', () => {
     expect(RECRUITER.issuer).toBe('kickback')
   })
 
@@ -307,8 +307,8 @@ describe('a friend sees the badge you equipped', () => {
   })
 
   /** The title says who issued it - never that Twitch did. */
-  it('says it is a Kickback badge', () => {
-    expect(draw(ALICE_BADGE)).toContain('Connector — Kickback badge')
+  it('says it is a Watchside badge', () => {
+    expect(draw(ALICE_BADGE)).toContain('Connector — Watchside badge')
   })
 
   /** Disabling display removes the projection, so the chip disappears. */

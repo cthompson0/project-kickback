@@ -107,7 +107,7 @@ const CONNECTION_STATES: Array<[string, Partial<KickbackState>]> = [
   ['loading', { status: 'loading' }],
   ['signed out', { status: 'signed_out' }],
   ['signed out with an error', { status: 'signed_out', error: 'Sign-in did not complete.' }],
-  ['error', { status: 'error', error: "Kickback can't reach its server right now." }],
+  ['error', { status: 'error', error: "Watchside can't reach its server right now." }],
   ['signed in', { status: 'signed_in', identity: IDENTITY }],
   ['signed in, friends failed', { status: 'signed_in', identity: IDENTITY, friendsError: 'nope' }],
   ['signed in, loading friends', { status: 'signed_in', identity: IDENTITY, friendsLoading: true }],

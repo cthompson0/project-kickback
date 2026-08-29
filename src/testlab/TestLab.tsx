@@ -11,7 +11,7 @@ import type { SimChannelMeta, SimUser, SimWorld } from './world'
 /**
  * The Test Lab surface.
  *
- * Left: the world. Right: the real Kickback panel, rendered from that world
+ * Left: the world. Right: the real Watchside panel, rendered from that world
  * through production code. Nothing on the left draws anything social - it only
  * describes people - so if the right-hand side is wrong, production is wrong.
  *
@@ -139,7 +139,7 @@ export function TestLab() {
     <div className="lab">
       <aside className="lab-controls">
         <header className="lab-head">
-          <h1>Kickback Test Lab</h1>
+          <h1>Watchside Test Lab</h1>
           <p className="lab-sub">
             Simulated people in. Real presence, clustering, ranking, privacy and UI out.
           </p>

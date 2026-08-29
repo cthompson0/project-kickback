@@ -108,13 +108,13 @@ npx supabase functions deploy twitch-metadata
 ```
 
 **Deploy WITHOUT `--no-verify-jwt`.** JWT verification is what restricts the
-endpoint to signed-in Kickback users, and it is on by default.
+endpoint to signed-in Watchside users, and it is on by default.
 
 > **New prerequisite, stated plainly.** Until now this project deliberately
 > avoided the Supabase CLI, because `supabase db push` needs the database
 > password. Deploying a function does **not** — it uses your Supabase login and
 > the project ref. The migration flow above is unchanged and still needs no CLI.
-> If the function is never deployed, Kickback works exactly as it does today:
+> If the function is never deployed, Watchside works exactly as it does today:
 > every metadata call fails, and every card is the plain card.
 
 ---
@@ -189,7 +189,7 @@ row the user actually saw.
 1. **Metadata** — Twitch's own `display_name` for the channel. The only source
    that can spell a channel this browser has never opened and nobody here is
    friends with.
-2. **People Kickback knows** — a copy of that record, taken when someone signed
+2. **People Watchside knows** — a copy of that record, taken when someone signed
    in.
 3. **Page titles** — a string parsed out of a `<title>`.
 
@@ -288,7 +288,7 @@ channel names, no user ids.
 
 ### 2. Ask the backend directly
 
-From the extension's service-worker console (**chrome://extensions → Kickback →
+From the extension's service-worker console (**chrome://extensions → Watchside →
 "service worker"**), in a development or beta build:
 
 ```js

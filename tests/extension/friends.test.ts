@@ -259,7 +259,7 @@ describe('loading friends and requests', () => {
 })
 
 describe('search', () => {
-  it('finds a Kickback user by Twitch username', async () => {
+  it('finds a Watchside user by Twitch username', async () => {
     backend.searchResults = [searchRow(NINA, 'none')]
     const found = await service().search('nina')
 
@@ -276,7 +276,7 @@ describe('search', () => {
     expect(found[0].matchedBy).toBe('friend_code')
   })
 
-  it('returns nothing for someone who has not joined Kickback', async () => {
+  it('returns nothing for someone who has not joined Watchside', async () => {
     backend.searchResults = []
     expect(await service().search('shroud')).toEqual([])
   })
@@ -439,7 +439,7 @@ describe('accepting by person (the Find Friends ACCEPT path)', () => {
   })
 
   it('finds a request that arrived after our last read', async () => {
-    // Exactly the reported scenario: B has Kickback open, A sends a request,
+    // Exactly the reported scenario: B has Watchside open, A sends a request,
     // B searches A. Search (fresh from the database) says request_received,
     // but B's cached inbox is empty.
     const friends = service()

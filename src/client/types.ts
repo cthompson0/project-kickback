@@ -1,5 +1,5 @@
 /**
- * The seam between Kickback's UI and whatever is supplying its data.
+ * The seam between Watchside's UI and whatever is supplying its data.
  *
  * The panel talks only to a KickbackClient. In production that is a thin proxy
  * to the extension's service worker, which owns the Supabase session; in demo
@@ -40,7 +40,7 @@ export type AuthStatus =
   | 'error'
 
 /**
- * Kickback's own identity. `userId` is the Kickback user id, deliberately not
+ * Watchside's own identity. `userId` is the Watchside user id, deliberately not
  * the Twitch user id: the Twitch account is a connected account hanging off it.
  */
 export interface KickbackIdentity {
@@ -55,7 +55,7 @@ export interface KickbackIdentity {
 export interface Friend {
   user: User
   /**
-   * null means "Kickback has no presence information for this person", which is
+   * null means "Watchside has no presence information for this person", which is
    * NOT the same as offline. Real presence arrives in Checkpoint 5; until then
    * every real friend carries null and the UI must stay silent about activity.
    */
@@ -519,7 +519,7 @@ export interface GroupSummary {
 export interface GroupMember {
   user: User
   role: 'owner' | 'member'
-  /** null when Kickback has no presence for them. */
+  /** null when Watchside has no presence for them. */
   presence: Presence | null
 }
 
@@ -536,7 +536,7 @@ export interface GroupInvite {
  * Somebody this viewer has blocked.
  *
  * Only ever the viewer's OWN blocks. "Who has blocked me" is not a question
- * Kickback answers, so there is no shape here that could carry the answer.
+ * Watchside answers, so there is no shape here that could carry the answer.
  */
 export interface BlockedUser {
   user: User
@@ -554,7 +554,7 @@ export interface BlockedUser {
 export type FeedbackCategory = 'bug' | 'confusing' | 'idea' | 'other'
 
 /**
- * Which Kickback surface somebody was looking at when they wrote it.
+ * Which Watchside surface somebody was looking at when they wrote it.
  *
  * The one piece of context the panel knows and the service worker does not.
  * Everything else in a feedback submission's diagnostics is assembled by the

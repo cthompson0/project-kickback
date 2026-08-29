@@ -50,7 +50,7 @@ beforeEach(async () => {
 // ---------------------------------------------------------------- bootstrap
 
 describe('identity bootstrap', () => {
-  it('creates a complete Kickback profile from a Twitch signup', async () => {
+  it('creates a complete Watchside profile from a Twitch signup', async () => {
     const [profile] = await db.as<{
       display_name: string
       twitch_login: string
@@ -161,7 +161,7 @@ describe('identity bootstrap', () => {
     expect(row).toEqual({ display: 'AnoterosTV', login: 'anoterostv' })
   })
 
-  it('never copies the Twitch email into Kickback data', async () => {
+  it('never copies the Twitch email into Watchside data', async () => {
     const [auth] = await db.root<{ email: string }>(
       'select email from auth.users where id = $1',
       [alice.id],
@@ -186,7 +186,7 @@ describe('identity bootstrap', () => {
       ghost,
       'select * from public.me()',
     )
-    expect(profile.display_name).toBe('Kickback user')
+    expect(profile.display_name).toBe('Watchside user')
     expect(profile.twitch_login).toBeNull()
   })
 
@@ -202,13 +202,13 @@ describe('identity bootstrap', () => {
 // --------------------------------------------------------- unauthenticated
 
 describe('unauthenticated access', () => {
-  it('cannot read any Kickback table', async () => {
+  it('cannot read any Watchside table', async () => {
     expect(await refusal(() => db.anon('select * from public.users'))).toMatch(/permission denied/i)
     expect(await refusal(() => db.anon('select * from public.presence'))).toMatch(/permission denied/i)
     expect(await refusal(() => db.anon('select * from public.friendships'))).toMatch(/permission denied/i)
   })
 
-  it('cannot call any Kickback RPC', async () => {
+  it('cannot call any Watchside RPC', async () => {
     expect(await refusal(() => db.anon('select public.search_users($1)', ['alice']))).toMatch(
       /permission denied/i,
     )
@@ -692,7 +692,7 @@ describe('friend removal', () => {
 // ------------------------------------------------------------------ search
 
 describe('user search', () => {
-  it('finds Kickback users by Twitch login prefix', async () => {
+  it('finds Watchside users by Twitch login prefix', async () => {
     const rows = await db.as<{ twitch_login: string; relationship: string; matched_by: string }>(
       alice,
       'select * from public.search_users($1)',
@@ -757,7 +757,7 @@ describe('user search', () => {
     expect(rows).toHaveLength(0)
   })
 
-  it('returns nothing for a Twitch name that has never joined Kickback', async () => {
+  it('returns nothing for a Twitch name that has never joined Watchside', async () => {
     const rows = await db.as(alice, 'select * from public.search_users($1)', ['shroud'])
     expect(rows).toHaveLength(0)
   })

@@ -12,7 +12,7 @@ import { EVENT_PROPERTIES, cleanProperties } from '../../src/core/analytics'
 /**
  * The one thing an error event must never do is carry the error.
  *
- * Kickback had no failure telemetry at all: every failure went to console.warn
+ * Watchside had no failure telemetry at all: every failure went to console.warn
  * and stopped there, which is why the first external bug report could not be
  * diagnosed. See docs/reports/friends-beta-investigation-2026-08-27.md §17.
  *

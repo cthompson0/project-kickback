@@ -111,7 +111,7 @@ import type { KickbackState } from '../client/types'
 import { INITIAL_STATE } from '../client/types'
 
 /**
- * Kickback's service worker: the one place that holds a session and talks to
+ * Watchside's service worker: the one place that holds a session and talks to
  * Supabase. Twitch tabs connect over a port and receive state; they never see a
  * token, and they never call the database themselves.
  *
@@ -136,7 +136,7 @@ const storage = createExtensionStorage({
 // the key is - never the key itself. A truncated key is otherwise invisible:
 // it fails much later, as "Invalid API key" from the code exchange.
 console.info(
-  '[Kickback] worker starting',
+  '[Watchside] worker starting',
   JSON.stringify({
     supabaseUrl: SUPABASE_URL,
     publishableKeyLength: SUPABASE_PUBLISHABLE_KEY?.length ?? 0,
@@ -146,7 +146,7 @@ console.info(
 
 if (!SUPABASE_URL || !SUPABASE_PUBLISHABLE_KEY) {
   console.error(
-    '[Kickback] missing Supabase configuration - copy .env.example to .env.local and rebuild',
+    '[Watchside] missing Supabase configuration - copy .env.example to .env.local and rebuild',
   )
 }
 
@@ -164,7 +164,7 @@ let reportFailure: ((context: string, error: unknown) => void) | null = null
 
 const logError = (context: string, error: unknown) => {
   // Never log the error object itself - Supabase errors can quote the request.
-  console.warn(`[Kickback] ${context} failed:`, error instanceof Error ? error.message : error)
+  console.warn(`[Watchside] ${context} failed:`, error instanceof Error ? error.message : error)
   /*
    * And now it leaves the machine, as a call site and a shape - never a
    * message. See core/failures.ts for why that distinction is the whole design.
@@ -194,7 +194,7 @@ function noteRealtime(surface: RealtimeSurface, status: 'connected' | 'error'): 
     status === 'connected' && previous === 'error' ? 'reconnected' : status
   if (previous === next) return
   realtimeStatus.set(surface, next)
-  console.info(`[Kickback] ${surface} realtime`, next)
+  console.info(`[Watchside] ${surface} realtime`, next)
   analytics.track('realtime_status_changed', { surface, status: next })
 }
 
@@ -378,7 +378,7 @@ function notePresenceWrite(call: PresenceWrite['call'], payload: string[] | null
   const entry: PresenceWrite = { at: new Date().toISOString(), call, payload }
   presenceWrites.push(entry)
   if (presenceWrites.length > PRESENCE_WRITE_LOG) presenceWrites.shift()
-  console.info('[Kickback] presence write', entry.at, call, payload ?? '')
+  console.info('[Watchside] presence write', entry.at, call, payload ?? '')
 }
 
 /**
@@ -1316,7 +1316,7 @@ function pushActivity(): void {
   emoteCatalog.setChannel(currentChannel())
 
   /*
-   * A tab reporting activity is the definition of the Kickback session being
+   * A tab reporting activity is the definition of the Watchside session being
    * alive, so this is where it is kept alive - before the signed-in check,
    * because a session that starts while auth is still resolving is still that
    * session. Events queue until there is an actor to attribute them to.
@@ -1663,7 +1663,7 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
      *
      * A user id, a login or a display name would each turn analytics into a
      * record of who dislikes whom - far more sensitive than anything else
-     * Kickback keeps, and it answers no question we have. Whether people need
+     * Watchside keeps, and it answers no question we have. Whether people need
      * this feature at all is answered by a bare count.
      */
     analytics.track('user_blocked')
@@ -1897,7 +1897,7 @@ async function handleRpc(port: chrome.runtime.Port, message: ClientMessage): Pro
       type: 'rpcResult',
       callId: message.callId,
       ok: false,
-      error: 'Your Kickback session ended. Sign in again.',
+      error: 'Your Watchside session ended. Sign in again.',
     })
     return
   }

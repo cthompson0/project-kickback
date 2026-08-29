@@ -1,4 +1,4 @@
-# Kickback backend (Supabase)
+# Watchside backend (Supabase)
 
 Postgres schema, row level security, and the RPC layer for Phase 1.
 
@@ -10,7 +10,7 @@ The files in `migrations/` are ordinary SQL and must run **in filename order**.
 0001_schema.sql          tables, constraints, indexes
 0002_policies.sql        privileges + row level security
 0003_rpcs.sql            every mutation, plus the read helpers
-0004_auth_bootstrap.sql  auth.users -> Kickback identity
+0004_auth_bootstrap.sql  auth.users -> Watchside identity
 0005_realtime.sql        realtime publication (Supabase only; no-op elsewhere)
 ```
 

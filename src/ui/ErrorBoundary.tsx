@@ -10,7 +10,7 @@ interface State {
 }
 
 /**
- * If Kickback breaks, it must get out of the way rather than take Twitch with
+ * If Watchside breaks, it must get out of the way rather than take Twitch with
  * it: render nothing and leave the page untouched.
  */
 export class ErrorBoundary extends Component<Props, State> {
@@ -21,7 +21,7 @@ export class ErrorBoundary extends Component<Props, State> {
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    console.error('[Kickback] panel crashed, hiding it', error, info)
+    console.error('[Watchside] panel crashed, hiding it', error, info)
   }
 
   render(): ReactNode {

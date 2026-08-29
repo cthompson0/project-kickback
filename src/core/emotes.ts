@@ -1,7 +1,7 @@
 /**
- * Kickback's unified emote model.
+ * Watchside's unified emote model.
  *
- * Three things can render as an emote: Kickback's own built-ins, and (once a
+ * Three things can render as an emote: Watchside's own built-ins, and (once a
  * provider is wired up) emotes from Twitch or 7TV. They are normalised to one
  * shape identified by `provider + id`, never by name - names collide across
  * providers, get renamed, and get removed from sets.
@@ -10,7 +10,7 @@
  *
  * Two token forms appear in message bodies:
  *
- *   :lol:                       a Kickback built-in, whose id is fixed forever
+ *   :lol:                       a Watchside built-in, whose id is fixed forever
  *   [[7tv|01FCY7...|OMEGALUL]]  an external emote, carrying its stable id
  *
  * The external form is written at SEND time, so a message records exactly which
@@ -32,7 +32,7 @@ export interface Emote {
   name: string
   animated: boolean
   /**
-   * Where to draw it from, or null for a Kickback built-in, which is drawn as
+   * Where to draw it from, or null for a Watchside built-in, which is drawn as
    * inline SVG rather than fetched.
    */
   url: string | null

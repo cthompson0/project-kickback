@@ -4,7 +4,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 /**
  * A minimal ZIP writer and entry reader.
  *
- * Kickback has no build-time dependencies beyond Vite and TypeScript, and one
+ * Watchside has no build-time dependencies beyond Vite and TypeScript, and one
  * release archive is not a reason to add one. This writes the small subset of
  * the format that every extractor understands: local headers, deflated or
  * stored data, and a central directory.

@@ -146,7 +146,7 @@ export interface PortNetwork {
  * Installs a fake `chrome.runtime` on globalThis and returns the network.
  *
  * Ports are plain objects because that is exactly what the worker keys tabs by
- * - the port itself - which is why Kickback needs no `tabs` permission.
+ * - the port itself - which is why Watchside needs no `tabs` permission.
  */
 export function installPortNetwork(): PortNetwork {
   let connected: FakePort[] = []

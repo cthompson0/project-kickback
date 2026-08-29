@@ -103,11 +103,11 @@ function renderAccount(): string {
 
 describe('the account panel shows which build this is', () => {
   it('renders the version, labelled so it can be read aloud', () => {
-    expect(renderAccount()).toContain(`Kickback v${__KICKBACK_VERSION__}`)
+    expect(renderAccount()).toContain(`Watchside v${__KICKBACK_VERSION__}`)
   })
 
   it('shows the same version the manifest ships', () => {
-    expect(renderAccount()).toContain(`Kickback v${MANIFEST.version}`)
+    expect(renderAccount()).toContain(`Watchside v${MANIFEST.version}`)
   })
 
   /**
@@ -116,7 +116,7 @@ describe('the account panel shows which build this is', () => {
    */
   it('puts it in the document text rather than in an attribute', () => {
     const html = renderAccount()
-    const marker = `Kickback v${MANIFEST.version}`
+    const marker = `Watchside v${MANIFEST.version}`
     expect(html).toContain(`>${marker}<`)
   })
 
@@ -129,7 +129,7 @@ describe('the account panel shows which build this is', () => {
   it('carries nothing but the version', () => {
     const html = renderAccount()
     const line = html.match(/kb-account-version[^>]*>([^<]*)</)?.[1] ?? ''
-    expect(line).toBe(`Kickback v${MANIFEST.version}`)
+    expect(line).toBe(`Watchside v${MANIFEST.version}`)
     for (const forbidden of ['me-uuid', 'KB-TEST', 'anoterostv', 'http', '@']) {
       expect(line).not.toContain(forbidden)
     }

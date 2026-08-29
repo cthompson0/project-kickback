@@ -29,7 +29,7 @@ export interface AuthBackend {
   startOAuth(redirectTo: string): Promise<BackendResult<string>>
   exchangeCode(code: string): Promise<BackendResult<SessionLike>>
   signOut(): Promise<void>
-  /** Reads the Kickback profile for the current session. */
+  /** Reads the Watchside profile for the current session. */
   fetchIdentity(): Promise<BackendResult<KickbackIdentity>>
 }
 
@@ -64,7 +64,7 @@ export function readCallback(redirectedTo: string): { code?: string; error?: str
   try {
     url = new URL(redirectedTo)
   } catch {
-    return { error: 'Sign-in returned an address Kickback could not read.' }
+    return { error: 'Sign-in returned an address Watchside could not read.' }
   }
 
   const params = url.searchParams
@@ -96,7 +96,7 @@ export interface AuthService {
   /** Refreshes if the token is close to expiry. Returns false if signed out. */
   ensureFreshSession(): Promise<boolean>
   /**
-   * Re-read the Kickback profile without touching the session. Used when
+   * Re-read the Watchside profile without touching the session. Used when
    * something the profile carries has changed server-side - the presence
    * visibility setting, for instance.
    */
@@ -124,13 +124,13 @@ export function createAuthService(deps: AuthDeps): AuthService {
   async function loadIdentity(): Promise<void> {
     const result = await deps.backend.fetchIdentity()
     if (result.error) {
-      fail('fetchIdentity', "Kickback can't reach its server right now.", result.error)
+      fail('fetchIdentity', "Watchside can't reach its server right now.", result.error)
       return
     }
     if (!result.value) {
       fail(
         'fetchIdentity',
-        'Your Kickback profile is missing. Try signing out and back in.',
+        'Your Watchside profile is missing. Try signing out and back in.',
       )
       return
     }
@@ -146,7 +146,7 @@ export function createAuthService(deps: AuthDeps): AuthService {
   async function ensureFreshSession(): Promise<boolean> {
     const current = await deps.backend.getSession()
     if (current.error) {
-      fail('getSession', "Kickback can't reach its server right now.", current.error)
+      fail('getSession', "Watchside can't reach its server right now.", current.error)
       return false
     }
     if (!current.value) return false
@@ -200,7 +200,7 @@ export function createAuthService(deps: AuthDeps): AuthService {
 
       const started = await deps.backend.startOAuth(deps.redirectUrl)
       if (started.error || !started.value) {
-        fail('startOAuth', 'Kickback could not start the Twitch sign-in.', started.error)
+        fail('startOAuth', 'Watchside could not start the Twitch sign-in.', started.error)
         return
       }
 
@@ -225,7 +225,7 @@ export function createAuthService(deps: AuthDeps): AuthService {
 
       const exchanged = await deps.backend.exchangeCode(callback.code)
       if (exchanged.error || !exchanged.value) {
-        fail('exchangeCode', 'Kickback could not finish signing you in.', exchanged.error)
+        fail('exchangeCode', 'Watchside could not finish signing you in.', exchanged.error)
         return
       }
 

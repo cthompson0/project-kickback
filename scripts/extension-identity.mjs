@@ -1,5 +1,5 @@
 /**
- * Who Kickback is, as far as Chrome is concerned.
+ * Who Watchside is, as far as Chrome is concerned.
  *
  * One constant, in one file, because this ID is about to move exactly once and
  * it must move everywhere at the same moment.
@@ -10,7 +10,7 @@
  * extension's ID from the first 128 bits of SHA-256 over that key, so every
  * machine that loads the same files gets the same ID.
  *
- * That key used to be one we generated ourselves, which was fine while Kickback
+ * That key used to be one we generated ourselves, which was fine while Watchside
  * was only ever sideloaded. It is not what the published extension is: the Web
  * Store mints its own keypair when an item is created, and the item ID follows
  * from that rather than from anything we ship.
@@ -30,7 +30,7 @@
  * `chrome.identity.getRedirectURL()` returns https://<id>.chromiumapp.org/, and
  * that exact string has to be in Supabase's redirect allow-list. Get it wrong
  * and sign-in fails at the very last hop, after Twitch has already said yes -
- * which reads to a tester as "Kickback is broken", not as "a URL is missing
+ * which reads to a tester as "Watchside is broken", not as "a URL is missing
  * from a dashboard".
  */
 import { createHash } from 'node:crypto'

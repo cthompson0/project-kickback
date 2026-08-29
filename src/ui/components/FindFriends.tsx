@@ -12,9 +12,9 @@ import { BackIcon } from './Icons'
 /**
  * Find Friends: one input, results you can act on immediately.
  *
- * Search only ever returns people who already have a Kickback account - it does
+ * Search only ever returns people who already have a Watchside account - it does
  * not and cannot look up arbitrary Twitch accounts, so an empty result says
- * "not on Kickback", never "no such Twitch user".
+ * "not on Watchside", never "no such Twitch user".
  */
 
 const SEARCH_DEBOUNCE_MS = 250
@@ -204,9 +204,9 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
 
       {results && results.length === 0 && !searching && (
         <div className="kb-quiet">
-          <div className="kb-quiet-title">No Kickback user found</div>
+          <div className="kb-quiet-title">No Watchside user found</div>
           <div className="kb-quiet-sub">
-            They may not have joined Kickback yet. Try their exact Twitch username, or swap friend
+            They may not have joined Watchside yet. Try their exact Twitch username, or swap friend
             codes.
           </div>
         </div>
@@ -233,7 +233,7 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
                 {result.twitchLogin ? (
                   <span className="kb-handle">@{result.twitchLogin}</span>
                 ) : (
-                  <span className="kb-handle">Kickback user</span>
+                  <span className="kb-handle">Watchside user</span>
                 )}
                 {result.matchedBy === 'friend_code' && (
                   <span className="kb-time">friend code</span>

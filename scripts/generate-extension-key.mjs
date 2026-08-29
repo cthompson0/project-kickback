@@ -1,5 +1,5 @@
 /**
- * Mints the keypair that pins Kickback's extension ID.
+ * Mints the keypair that pins Watchside's extension ID.
  *
  * An unpacked extension's ID is derived from its public key. Without a `key`
  * field in the manifest Chrome invents one per machine, so the OAuth redirect

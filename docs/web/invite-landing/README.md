@@ -16,14 +16,14 @@ Copy `index.html` from this directory into the Pages repository so it is served
 at:
 
 ```
-https://anoteroslabs.github.io/kickback/invite
+https://anoteros-labs.github.io/watchside/invite
 ```
 
 Either path works:
 
-- `kickback/invite/index.html` — preferred, gives the clean URL above;
-- `kickback/invite.html` — also fine; GitHub Pages serves it at
-  `…/kickback/invite.html`, in which case update `INVITE_LANDING_BASE` in
+- `watchside/invite/index.html` — preferred, gives the clean URL above;
+- `watchside/invite.html` — also fine; GitHub Pages serves it at
+  `…/watchside/invite.html`, in which case update `INVITE_LANDING_BASE` in
   `src/core/invites.ts` to match. **Do not guess — the two must agree.**
 
 The page is self-contained: one file, no build step, no dependencies, no
@@ -42,7 +42,7 @@ live listing URL includes a slug (`…/detail/kickback-beta/ngfop…`), use the 
 one from the Developer Dashboard.
 
 The privacy link is relative (`../privacy.html`) and assumes the existing
-Kickback privacy page sits one level up. Adjust if the Pages layout differs.
+Watchside privacy page sits one level up. Adjust if the Pages layout differs.
 
 ---
 
@@ -50,13 +50,13 @@ Kickback privacy page sits one level up. Adjust if the Pages layout differs.
 
 | Hop | URL | Who reads it |
 | --- | --- | --- |
-| 1 | `https://anoteroslabs.github.io/kickback/invite?c=CODE` | **this page** |
-| 2 | `https://www.twitch.tv/?kickback_invite=CODE` | Kickback's existing content script |
+| 1 | `https://anoteros-labs.github.io/watchside/invite?c=CODE` | **this page** |
+| 2 | `https://www.twitch.tv/?kickback_invite=CODE` | Watchside's existing content script |
 
 **Why two hops.** A content script on the landing page would require a new host
 permission — Chrome presents that to the user as *"read your data on that
 site"* — for the sake of one string. Sending people onward to Twitch instead
-means the code is read where Kickback already runs. No new permission, no
+means the code is read where Watchside already runs. No new permission, no
 clipboard instructions, and the recipient lands somewhere sensible at each step.
 
 `src/core/invites.ts` is the single source of truth for both parameter names,
@@ -79,8 +79,8 @@ become a different valid code. Regex:
 
 | Case | Behaviour |
 | --- | --- |
-| Valid code | Headline becomes **"A friend invited you to Kickback"**; Continue points at Twitch carrying the code. |
-| Missing or malformed code | **Not an error page.** Generic Kickback copy; Continue points at plain Twitch. They arrive unattributed, which costs them nothing. |
+| Valid code | Headline becomes **"A friend invited you to Watchside"**; Continue points at Twitch carrying the code. |
+| Missing or malformed code | **Not an error page.** Generic Watchside copy; Continue points at plain Twitch. They arrive unattributed, which costs them nothing. |
 | Already installed | Not detectable without a new permission, so the page does not try. The flow is identical either way: pressing Continue lands on Twitch and the content script picks the code up. |
 | Narrow screen | Single column, reduced padding under 420px. The card becomes the page. |
 | No JavaScript | The static copy and both buttons still render; Continue goes to plain Twitch. The invite is simply not attributed. |
@@ -108,7 +108,7 @@ become a different valid code. Regex:
 inviter presses Copy invite link          my_invite_code()  → durable code
         ↓  shares the link
 recipient opens the landing page          this page, ?c=CODE
-        ↓  Install Kickback
+        ↓  Install Watchside
 recipient installs from the Store         no code involved
         ↓  Continue with Twitch
 recipient lands on twitch.tv/?kickback_invite=CODE
@@ -132,11 +132,11 @@ picked up.
 
 ## Verifying it once published
 
-1. Open `https://anoteroslabs.github.io/kickback/invite?c=<a real code>` — the
-   headline should read **"A friend invited you to Kickback"**.
+1. Open `https://anoteros-labs.github.io/watchside/invite?c=<a real code>` — the
+   headline should read **"A friend invited you to Watchside"**.
 2. Press **Continue with Twitch** — the URL should become
    `https://www.twitch.tv/?kickback_invite=<code>`.
-3. With Kickback installed and signed in on that browser, the code is claimed
+3. With Watchside installed and signed in on that browser, the code is claimed
    silently. Nothing visible happens, which is correct.
 4. Open the same URL with `?c=nonsense` — generic copy, no error, Continue goes
    to plain Twitch.

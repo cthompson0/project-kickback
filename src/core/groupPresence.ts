@@ -5,7 +5,7 @@ import type { Activity, Presence } from './types'
  * What a group is doing, arranged so you can read it at a glance.
  *
  * A group is a persistent social circle, not a chat room with a roster
- * attached. The question it exists to answer is the same one Kickback has
+ * attached. The question it exists to answer is the same one Watchside has
  * always answered - *where are my people, and where can I join them* - so the
  * member list is organised by what people are doing rather than alphabetically.
  *

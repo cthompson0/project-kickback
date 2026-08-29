@@ -3,7 +3,7 @@
  *
  * BEST-EFFORT IS A CONTRACT, NOT AN ASPIRATION
  *
- * Nothing here may be able to break Kickback. `track` returns void, never
+ * Nothing here may be able to break Watchside. `track` returns void, never
  * throws, never awaits anything a caller is waiting on, and never blocks a
  * product action. If the backend is down, JOIN still joins and chat still
  * sends; the events queue, and if the queue fills, the OLDEST are dropped -

@@ -1,5 +1,5 @@
 /**
- * Kickback core domain types.
+ * Watchside core domain types.
  *
  * These are deliberately platform-agnostic: a friend is a `User` with a
  * `Presence`, and what they are doing is an `Activity`. Twitch is currently the
@@ -36,7 +36,7 @@ export interface BrowsingActivity {
 }
 
 /**
- * No activity at all. Distinct from browsing: idle means Kickback has nothing
+ * No activity at all. Distinct from browsing: idle means Watchside has nothing
  * to report, which is what "offline" is built from.
  */
 export interface IdleActivity {

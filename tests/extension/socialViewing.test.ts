@@ -19,7 +19,7 @@ import type { ChannelMetadata } from '../../src/core/twitchMetadata'
  *
  * TOO NARROW, THEN TOO BROAD
  *
- * Two accounts once sat on twitch.tv/lirik with no stream running and Kickback
+ * Two accounts once sat on twitch.tv/lirik with no stream running and Watchside
  * reported them watching together - a room, reactions, and an open shared-watch
  * interval that would eventually have claimed an hour of co-viewing nothing.
  * Requiring an authoritative LIVE status before any of it formed fixed that.

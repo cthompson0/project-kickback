@@ -5,7 +5,7 @@ import type { TestDb, TestUser } from './harness'
 /**
  * Feedback, against real Postgres.
  *
- * Feedback is the only table in Kickback that holds prose somebody typed, which
+ * Feedback is the only table in Watchside that holds prose somebody typed, which
  * makes it the only one where "who can read this" is a question about people
  * rather than about metadata. So most of what is asserted here is refusal: no
  * client may read any of it, edit it, delete it, or submit it as somebody else.

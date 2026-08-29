@@ -3,7 +3,7 @@ import { isKickbackEmote } from '../../core/emotes'
 import type { Emote, KickbackEmoteId } from '../../core/emotes'
 
 /**
- * Kickback's own emote artwork, drawn as inline SVG.
+ * Watchside's own emote artwork, drawn as inline SVG.
  *
  * Original shapes, not copies of anyone else's emotes, and inline rather than
  * fetched - a message can never point chat at a remote image, because there is

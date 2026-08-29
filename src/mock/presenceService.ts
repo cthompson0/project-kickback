@@ -3,7 +3,7 @@ import type { Activity, Presence } from '../core/types'
 import { isSameActivity, isWatching } from '../core/presence'
 
 /**
- * Phase 0 stand-in for the future Kickback presence service.
+ * Phase 0 stand-in for the future Watchside presence service.
  *
  * It holds presence for the mock users, lets the UI subscribe to changes, and
  * drifts a couple of people around on a timer so the prototype feels alive.

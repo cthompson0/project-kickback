@@ -48,12 +48,12 @@ import { verifyAnalyticsSchema } from './verify-analytics.mjs'
 const DIST = 'dist'
 const RELEASES = 'releases'
 /** The folder name a tester selects in Load unpacked. */
-const FOLDER = 'Kickback'
+const FOLDER = 'Watchside'
 
 /**
  * Two archives, because the two destinations disagree about shape.
  *
- *   sideload  every entry under Kickback/, so Load unpacked has one folder to
+ *   sideload  every entry under Watchside/, so Load unpacked has one folder to
  *             select and a tester cannot pick the wrong thing.
  *   store     manifest.json at the ROOT. The Chrome Web Store rejects a package
  *             whose manifest is nested, with an error about the manifest being
@@ -362,7 +362,7 @@ async function main() {
   mkdirSync(RELEASES, { recursive: true })
   const zipPath = join(
     RELEASES,
-    STORE ? `Kickback-Store-v${version}.zip` : `Kickback-Private-Beta-v${version}.zip`,
+    STORE ? `Watchside-Store-v${version}.zip` : `Watchside-Private-Beta-v${version}.zip`,
   )
   rmSync(zipPath, { force: true })
 
@@ -403,7 +403,7 @@ async function main() {
 
   if (problems.length > 0) return report()
 
-  console.log(`\nPackaged Kickback v${version}`)
+  console.log(`\nPackaged Watchside v${version}`)
   console.log(`  ${zipPath}`)
   // Printed so a report can quote the exact artifact, rather than "the zip".
   console.log(`  sha256 ${createHash('sha256').update(readFileSync(zipPath)).digest('hex')}`)
@@ -444,22 +444,22 @@ INSTALL
 3. Go to:  chrome://extensions
 4. Turn on "Developer mode" (top right).
 5. Click "Load unpacked".
-6. Select the extracted "Kickback" folder - the one holding this file.
+6. Select the extracted "Watchside" folder - the one holding this file.
 7. Open Twitch.
-8. Click "Continue with Twitch" in the Kickback panel.
+8. Click "Continue with Twitch" in the Watchside panel.
 
-That's it. Kickback appears on the right-hand side of Twitch.
+That's it. Watchside appears on the right-hand side of Twitch.
 
 
 USE
 ---
 
-- Add friends by Twitch username, or by Kickback friend code.
+- Add friends by Twitch username, or by Watchside friend code.
 - See what your friends are watching.
 - Click JOIN to go watch with them.
 - Friends on the stream you're already watching show up as HERE.
 - Create groups. Group members don't all have to be friends.
-- Group chat supports Kickback emotes and 7TV emotes.
+- Group chat supports Watchside emotes and 7TV emotes.
 - When people chant the same emote, it forms a combo.
 - Drag the panel by its header. Resize it from the bottom corners.
 - Minimise it with the button in the top right; the badge still counts.
@@ -474,7 +474,7 @@ When I send a new ZIP:
 1. Extract the new ZIP.
 2. Copy its files into the SAME folder you installed from,
    replacing the old ones. Keep the folder in the same place.
-3. Go to chrome://extensions and click the reload arrow on Kickback.
+3. Go to chrome://extensions and click the reload arrow on Watchside.
 4. Refresh your Twitch tab.
 
 Keeping the same folder path matters. Chrome treats a folder in a new
@@ -487,7 +487,7 @@ TROUBLESHOOTING
 
 Nothing appears on Twitch
   Refresh the Twitch tab. If it's still missing, go to chrome://extensions
-  and check Kickback is enabled.
+  and check Watchside is enabled.
 
 Sign-in doesn't finish
   Make sure you're not blocking pop-ups for Twitch, and try again.
@@ -499,7 +499,7 @@ Something looks broken
 VERSION
 -------
 
-v${version} - shown in the bottom-left of the Kickback panel.
+v${version} - shown in the bottom-left of the Watchside panel.
 Please include it if you report something.
 
 

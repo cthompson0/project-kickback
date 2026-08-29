@@ -44,7 +44,7 @@ export function EmotePicker({
   const fallback = useMemo<EmoteSection[]>(() => {
     const term = query.trim().toLowerCase()
     const matches = EMOTES.filter((emote) => !term || emote.name.includes(term))
-    return matches.length ? [{ title: 'Kickback', emotes: matches }] : []
+    return matches.length ? [{ title: 'Watchside', emotes: matches }] : []
   }, [query])
 
   useEffect(() => {

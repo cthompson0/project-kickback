@@ -17,7 +17,7 @@ export type JoinSource = AnalyticsSurface
 
 /**
  * Jump to a channel. Twitch's router is not reachable from a content script, so
- * we do a real navigation - reliable, and Kickback re-mounts with its panel
+ * we do a real navigation - reliable, and Watchside re-mounts with its panel
  * state restored, which keeps the join feeling continuous.
  *
  * Returns whether it navigated. That answer is load-bearing: a JOIN to the

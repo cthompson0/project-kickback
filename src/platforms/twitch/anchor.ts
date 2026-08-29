@@ -1,5 +1,5 @@
 /**
- * Works out where the Kickback panel should sit.
+ * Works out where the Watchside panel should sit.
  *
  * Twitch's top navigation is not always at the top of the viewport - a consent
  * or promo banner can push it down - so a hardcoded offset would cover Twitch

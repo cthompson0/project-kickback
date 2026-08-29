@@ -14,7 +14,7 @@ import { resolveArm } from '../core/experiment'
 import { FindFriends } from './components/FindFriends'
 import { IncomingRequests } from './components/IncomingRequests'
 import { GroupsTab } from './components/GroupsTab'
-import { KickbackMark, MinimizeIcon } from './components/Icons'
+import { WatchsideMark, MinimizeIcon } from './components/Icons'
 import { usePanelLayout } from './layout/usePanelLayout'
 import { useLayoutHint } from './layout/useLayoutHint'
 import { useStorageSync } from './useStorageSync'
@@ -543,17 +543,17 @@ export function KickbackPanel({
         type="button"
         className="kb-launcher"
         style={position}
-        title="Open Kickback"
+        title="Open Watchside"
         onPointerDown={beginLauncherDrag}
         // A click always follows a press, so without this every drag would also
-        // open the panel - and moving Kickback out of the way would be the one
+        // open the panel - and moving Watchside out of the way would be the one
         // gesture that puts it back in the way.
         onClick={() => {
           if (wasDragged()) return
           setCollapsed(false)
         }}
       >
-        <KickbackMark size={22} />
+        <WatchsideMark size={22} />
         {/* Unseen, actionable things only. A friend changing channel is not
             news; a friend request or a gathering forming is. */}
         {view.unread.length > 0 && (
@@ -586,8 +586,8 @@ export function KickbackPanel({
       style={position}
     >
       <div className="kb-header" onPointerDown={beginDrag}>
-        <KickbackMark />
-        <span className="kb-wordmark">kickback</span>
+        <WatchsideMark />
+        <span className="kb-wordmark">watchside</span>
         {IS_DEMO && view.demo && <span className="kb-demo-badge">DEMO</span>}
         <span className="kb-header-spacer" />
 
@@ -618,7 +618,7 @@ export function KickbackPanel({
         <button
           type="button"
           className="kb-icon-btn"
-          title="Minimize Kickback"
+          title="Minimize Watchside"
           onClick={() => setCollapsed(true)}
         >
           <MinimizeIcon />
@@ -910,9 +910,9 @@ export function KickbackPanel({
         </div>
       ) : (
         <div className="kb-footer">
-          <span>Kickback</span>
+          <span>Watchside</span>
           <span className="kb-footer-dot" />
-          <span title="Kickback version">
+          <span title="Watchside version">
             {IS_DEMO && view.demo ? 'demo mode — mock data' : `v${__KICKBACK_VERSION__}`}
           </span>
         </div>

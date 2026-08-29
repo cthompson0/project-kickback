@@ -1,4 +1,4 @@
-# Kickback Test Lab
+# Watchside Test Lab
 
 A development-only surface for simulating multi-user social state, so that
 testing three, five or ten friends does not mean owning three, five or ten
@@ -8,7 +8,7 @@ Twitch accounts.
 npm run dev:lab      # starts the lab and opens it at http://localhost:5199
 ```
 
-Left: the world. Right: the **real** Kickback panel, rendered from that world
+Left: the world. Right: the **real** Watchside panel, rendered from that world
 by production code.
 
 ---

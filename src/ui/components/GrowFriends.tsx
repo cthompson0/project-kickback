@@ -182,7 +182,7 @@ export function InviteFriends({
     <div className="kb-invite">
       <div className="kb-section-label">Invite a friend</div>
       <div className="kb-quiet-sub">
-        Kickback is better with the people you already watch with. Send them your link.
+        Watchside is better with the people you already watch with. Send them your link.
       </div>
 
       {error && <div className="kb-inline-note">{error}</div>}

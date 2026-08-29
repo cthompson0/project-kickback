@@ -73,7 +73,7 @@ const chat = (id: number, userId: string, displayName: string, body: string): Ch
  * It used to double as a wrapping fixture - a 56-character run of Ws, a raw
  * VOD URL, and two notes to myself about avatars and line breaks. Those earned
  * their place while chat layout was being built and they are the wrong thing
- * for a demo now: anybody looking at this is trying to understand what Kickback
+ * for a demo now: anybody looking at this is trying to understand what Watchside
  * is for, and reading somebody's bug notes does not help them.
  *
  * Chat wrapping still has a gate of its own - scripts/verify-chat-wrapping.mjs

@@ -10,7 +10,7 @@ import type { KickbackClient } from '../../src/client/types'
 import type { Presence, User } from '../../src/core/types'
 
 /**
- * The shell around Kickback: the surfaces it paints, and the ways out of them.
+ * The shell around Watchside: the surfaces it paints, and the ways out of them.
  *
  * All three of these came out of somebody actually using the thing rather than
  * out of a design. A card that let the page show through its own text. A
@@ -191,7 +191,7 @@ describe('the user card is a surface, not a filter', () => {
       'utf8',
     )
     expect(source).toContain("card.style.position = 'fixed'")
-    // Clamped to the panel, so escaping the body never means escaping Kickback.
+    // Clamped to the panel, so escaping the body never means escaping Watchside.
     expect(source).toContain(".closest('.kb-panel')")
     expect(source).toContain('ResizeObserver')
   })

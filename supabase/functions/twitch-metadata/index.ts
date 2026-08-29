@@ -1,5 +1,5 @@
 /**
- * Kickback's Twitch metadata endpoint.
+ * Watchside's Twitch metadata endpoint.
  *
  * POST { "logins": ["lirik", "xqc"] }  ->  { "channels": [ ... ] }
  *
@@ -20,7 +20,7 @@
  *
  * WHO MAY CALL IT
  *
- * Signed-in Kickback users. Supabase verifies the JWT before this code runs
+ * Signed-in Watchside users. Supabase verifies the JWT before this code runs
  * (the function is deployed WITHOUT --no-verify-jwt), and the caller's id is
  * read from it rather than from the body, so there is nothing to forge. It is
  * also rate limited per caller.

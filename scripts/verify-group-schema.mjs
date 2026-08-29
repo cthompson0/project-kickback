@@ -11,7 +11,7 @@
  *
  *   42501     permission denied      -> the object EXISTS. Anonymous callers
  *                                       have no rights on it, which is exactly
- *                                       Kickback's design: tables are reached
+ *                                       Watchside's design: tables are reached
  *                                       only through SECURITY DEFINER RPCs.
  *   PGRST205  table not in schema    -> the table is genuinely absent.
  *   PGRST202  no such function       -> no function of that NAME AND SHAPE.

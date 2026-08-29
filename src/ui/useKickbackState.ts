@@ -9,7 +9,7 @@ import type { Friend, KickbackClient, KickbackState } from '../client/types'
 
 /**
  * Joins two independent sources: what the local user is watching (read from the
- * Twitch page, always available) and who Kickback knows about (from the client,
+ * Twitch page, always available) and who Watchside knows about (from the client,
  * which needs a session). The first works signed out - the panel can still say
  * "You're watching LIRIK" before you have an account.
  */

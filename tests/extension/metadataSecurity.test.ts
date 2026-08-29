@@ -44,7 +44,7 @@ describe('the extension holds no Twitch credential', () => {
 
   it('never calls Helix itself', () => {
     /*
-     * The content script and the worker ask Kickback's own endpoint. If either
+     * The content script and the worker ask Watchside's own endpoint. If either
      * ever called api.twitch.tv directly it would need a credential to do it
      * with, and the only credential a browser can hold is one an attacker can
      * read.

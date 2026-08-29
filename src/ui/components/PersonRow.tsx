@@ -33,7 +33,7 @@ export function PersonRow({
   const channelName = useChannelName()
 
   /**
-   * No presence at all is not the same as offline, and Kickback must not say
+   * No presence at all is not the same as offline, and Watchside must not say
    * otherwise: it shows the person's handle and makes no claim about activity.
    * Real presence arrives in Checkpoint 5.
    */

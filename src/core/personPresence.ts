@@ -28,7 +28,7 @@ import type { Activity, Presence } from './types'
  * Someone who hides their activity arrives as online with no channel - which
  * is exactly what someone merely browsing Twitch looks like. That is
  * deliberate: a client that could tell them apart would be leaking the fact
- * that somebody chose to hide. Both read as `around`, and Kickback says the
+ * that somebody chose to hide. Both read as `around`, and Watchside says the
  * same thing about both.
  */
 
@@ -101,7 +101,7 @@ export function describePresence(
  * describe *other* people, so reading your own row out of one reports
  * "offline" about somebody demonstrably sitting at their computer - and could
  * offer a JOIN to yourself. Your own activity is already known locally and
- * authoritatively, because it is the very thing Kickback reports on your
+ * authoritatively, because it is the very thing Watchside reports on your
  * behalf, so this reads that and asks nothing else.
  *
  * Never joinable: there is nowhere to go, and never offline: you are here.

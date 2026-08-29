@@ -15,7 +15,7 @@ import type { Emote } from './emotes'
  *     same emote within the message are fine). Mixed text, or two different
  *     emotes, do not.
  *   - "Same emote" means same provider AND same stable id. Two emotes that
- *     merely share a name - Kickback's :lol: and a 7TV one called lol, say -
+ *     merely share a name - Watchside's :lol: and a 7TV one called lol, say -
  *     are different emotes and do not extend one another's combo.
  *
  * WHO CAN EXTEND IT

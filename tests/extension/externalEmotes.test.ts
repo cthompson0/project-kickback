@@ -113,7 +113,7 @@ describe('external tokens in message bodies', () => {
     const hostile = [
       // Provider we do not know.
       `[[bttv|${OMEGALUL}|WutFace]]`,
-      // Kickback is not a valid external provider - built-ins use :tokens:.
+      // Watchside is not a valid external provider - built-ins use :tokens:.
       `[[kickback|lol|lol]]`,
       // Id that is not an id.
       '[[7tv|../../../etc/passwd|X]]',
@@ -521,7 +521,7 @@ describe('emote catalogue', () => {
 
     // Built-ins are local, so chat keeps its emotes regardless.
     const sections = catalog.search('')
-    expect(sections.map((section) => section.title)).toEqual(['Kickback'])
+    expect(sections.map((section) => section.title)).toEqual(['Watchside'])
     expect(sections[0].emotes.length).toBe(EMOTES.length)
   })
 
@@ -543,7 +543,7 @@ describe('picker search', () => {
     await settle()
 
     const titles = catalog.search('').map((section) => section.title)
-    expect(titles).toEqual(['Kickback', '7TV · lirik', '7TV global'])
+    expect(titles).toEqual(['Watchside', '7TV · lirik', '7TV global'])
   })
 
   it('matches on name, case-insensitively, anywhere in the name', async () => {
@@ -574,7 +574,7 @@ describe('picker search', () => {
     await settle()
 
     const sections = catalog.search('lol')
-    expect(sections.map((section) => section.title)).toEqual(['Kickback', '7TV · lirik'])
+    expect(sections.map((section) => section.title)).toEqual(['Watchside', '7TV · lirik'])
   })
 
   it('caps each section so a huge channel cannot flood the picker', async () => {

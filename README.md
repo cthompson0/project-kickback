@@ -1,14 +1,14 @@
-# Kickback — Twitch social presence
+# Watchside — Twitch social presence
 
-Kickback is a Chrome extension that brings ambient social presence back to the
+Watchside is a Chrome extension that brings ambient social presence back to the
 internet: **see who's around, see what they're doing, and effortlessly join them.**
 
-Kickback injects a panel directly into Twitch, detects which channel you're
+Watchside injects a panel directly into Twitch, detects which channel you're
 watching, and shows which of your friends are around.
 
 **Phase 0** proved the interaction model with mock data. **Phase 1** is making it
 real: Checkpoint 3 (authentication) is done — you sign in with Twitch and
-Kickback knows who you are. Real friends and real presence come next.
+Watchside knows who you are. Real friends and real presence come next.
 
 ---
 
@@ -42,7 +42,7 @@ This type-checks (`tsc -b`) and then produces the production bundle.
 ## 4. Where the built extension is
 
 ```
-c:\Users\sk8bo\Projects\Kickback\dist
+c:\Users\sk8bo\Projects\Watchside\dist
 ```
 
 `dist/` contains everything Chrome needs:
@@ -72,7 +72,7 @@ Click **Load unpacked**.
 Select the `dist` folder:
 
 ```
-c:\Users\sk8bo\Projects\Kickback\dist
+c:\Users\sk8bo\Projects\Watchside\dist
 ```
 
 Select `dist` itself — not the repository root, and not `dist/icons`.
@@ -81,9 +81,9 @@ Select `dist` itself — not the repository root, and not `dist/icons`.
 
 Go to <https://www.twitch.tv/lirik> (or any channel).
 
-## 10. Test Kickback
+## 10. Test Watchside
 
-The Kickback panel appears at the top-right, just below Twitch's navigation bar.
+The Watchside panel appears at the top-right, just below Twitch's navigation bar.
 See the manual test checklist below.
 
 ## 11. Make changes
@@ -97,7 +97,7 @@ There is no hot reload for content scripts — Chrome caches the injected script
 per page load. After a rebuild:
 
 1. Go to `chrome://extensions`.
-2. Click the **reload** (↻) button on the Kickback card.
+2. Click the **reload** (↻) button on the Watchside card.
 3. Refresh the Twitch tab.
 
 Steps 1–2 are only needed when the bundle changes; a plain tab refresh is enough
@@ -176,8 +176,8 @@ falls back to mock data when the backend is unreachable. It shows an error.
 npm run package:beta
 ```
 
-Produces `releases/Kickback-Private-Beta-v<version>.zip`, containing a single
-`Kickback/` folder a tester selects in **Load unpacked**. `releases/` is
+Produces `releases/Watchside-Private-Beta-v<version>.zip`, containing a single
+`Watchside/` folder a tester selects in **Load unpacked**. `releases/` is
 gitignored: a release is reproducible from a commit plus this script, so the
 archive itself is not worth committing.
 
@@ -229,7 +229,7 @@ because it was only obvious while signed out. `MIN_HEIGHT` is measured rather
 than chosen - it is the point below which the composer would be pushed out
 through the bottom of the panel.
 
-Kickback still never modifies Twitch. It appends one host element to `<body>`
+Watchside still never modifies Twitch. It appends one host element to `<body>`
 and renders inside its shadow root; the host covers the viewport but ignores
 pointer events, so every click that is not on the panel reaches the page.
 
@@ -238,7 +238,7 @@ pointer events, so every click that is not on the panel reaches the page.
 **Capitalisation is data, not a formatting rule.** Twitch gives every account a
 canonical lowercase login (`anoterostv`) and a display name its owner chose
 (`AnoterosTV`). The login is identity - URLs, comparisons, lookups, storage.
-The display name is presentation. Kickback used to derive the second from the
+The display name is presentation. Watchside used to derive the second from the
 first by upper-casing a letter, which produced `Anoterostv`: a name nobody
 chose. It now only ever *looks names up*, from two sources that cost nothing:
 people it already knows (a Twitch channel is a Twitch user, so a friend's name
@@ -274,7 +274,7 @@ are a different question and still show everybody.
 
 **Capitalisation, for real this time.** Supabase's Twitch provider maps
 `name` and `full_name` to the *login* and `nickname` and `slug` to the
-*display name* - the opposite of what the names suggest. Kickback read
+*display name* - the opposite of what the names suggest. Watchside read
 `name` first, so every stored display name was the lowercase login. Migration
 0011 reads the claims that actually carry each value and backfills existing
 profiles from metadata the database already holds.
@@ -323,7 +323,7 @@ state to drift.
 
 Group chat draws on three sources, in the order a typed name resolves:
 
-1. **Kickback built-ins** — inline SVG, fixed ids, always available.
+1. **Watchside built-ins** — inline SVG, fixed ids, always available.
 2. **7TV channel set** — for the Twitch channel *you* are currently watching.
 3. **7TV global set** — always available once fetched.
 
@@ -337,7 +337,7 @@ A few decisions worth knowing about:
   meant. A message stays drawable after the emote leaves the channel, and two
   emotes that share a name are never confused for one another.
 - **Precedence on a name collision: channel beats global beats nothing.**
-  Kickback built-ins are unaffected — they use `:tokens:` and cannot collide.
+  Watchside built-ins are unaffected — they use `:tokens:` and cannot collide.
 - **The composer offers *your* channel's emotes, not a union of the group's.**
   A union would be unbounded, surprising, and would leak what other members are
   watching. Once sent it makes no difference: the recipient renders from the id.
@@ -362,7 +362,7 @@ would involve.
 1. Open `twitch.tv/lirik` — the panel shows **You're watching LIRIK** and
    **Continue with Twitch**. No friends, no groups, nothing invented.
 2. Click **Continue with Twitch**, authorise, and land back on Twitch. The
-   header shows your Twitch avatar and the panel says *Your Kickback is quiet.*
+   header shows your Twitch avatar and the panel says *Your Watchside is quiet.*
 3. Click your avatar — display name, `@twitchlogin`, friend code, Sign out.
 4. **Groups** tab shows *Groups are coming.*
 5. Reload Twitch, and navigate between channels — you stay signed in, and the
@@ -408,14 +408,14 @@ public/                     copied verbatim into dist/
   `{ type: 'watching', platform: 'twitch', channel: 'lirik' }`. Nothing in
   `core/` knows what Twitch is. There are no speculative abstractions for other
   platforms — just no decisions that would block one.
-- **Twitch is never mutated.** Kickback appends one host element to `<body>`
+- **Twitch is never mutated.** Watchside appends one host element to `<body>`
   with its own shadow root and renders entirely inside it. No Twitch node is
-  moved, wrapped, or removed, and no Kickback CSS can leak into the page.
+  moved, wrapped, or removed, and no Watchside CSS can leak into the page.
 - **SPA navigation.** A content script can't patch the page's `history` object,
   so channel detection polls `location.pathname` (400 ms) and also listens for
   `popstate`, `hashchange`, and `<title>` mutations.
 - **Failure is silent.** An error boundary hides the panel rather than letting a
-  Kickback bug affect Twitch.
+  Watchside bug affect Twitch.
 
 ### Mock data
 

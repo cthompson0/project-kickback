@@ -7,7 +7,7 @@ import type { SevenTvClient } from './sevenTv'
  *
  * Composed of three layers, in the order a typed name resolves:
  *
- *   1. Kickback built-ins   - always present, fixed ids
+ *   1. Watchside built-ins   - always present, fixed ids
  *   2. 7TV channel set      - for the Twitch channel THIS user is watching
  *   3. 7TV global set       - always present once fetched
  *
@@ -155,7 +155,7 @@ export function createEmoteCatalog(deps: EmoteCatalogDeps): EmoteCatalog {
         .slice(0, SEARCH_LIMIT)
 
       const sections: EmoteSection[] = []
-      if (kickback.length) sections.push({ title: 'Kickback', emotes: kickback })
+      if (kickback.length) sections.push({ title: 'Watchside', emotes: kickback })
       if (channelEmotes.length) {
         sections.push({ title: channel ? `7TV · ${channel}` : '7TV channel', emotes: channelEmotes })
       }

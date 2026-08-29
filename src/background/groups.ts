@@ -18,7 +18,7 @@ import type {
  *     cannot inflate a badge, because replaying the same messages produces the
  *     same answer.
  *   - Realtime messages are applied directly to the buffer rather than
- *     triggering a re-read. Chat is the highest-frequency thing in Kickback;
+ *     triggering a re-read. Chat is the highest-frequency thing in Watchside;
  *     re-reading a group's history on every message would be pathological.
  */
 
@@ -115,7 +115,7 @@ function friendlyError(context: string): string {
     case 'respond':
       return 'Could not answer that invitation.'
     default:
-      return "Kickback can't reach its server right now."
+      return "Watchside can't reach its server right now."
   }
 }
 

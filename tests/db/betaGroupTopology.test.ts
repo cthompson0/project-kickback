@@ -79,7 +79,7 @@ beforeEach(async () => {
 /** Builds the group and returns its id, with both testers accepted in. */
 async function betaGroup(): Promise<string> {
   const [row] = await db.as<{ create_group: string }>(owner, 'select public.create_group($1)', [
-    'Kickback Beta',
+    'Watchside Beta',
   ])
   await invite(row.create_group, testerA)
   await invite(row.create_group, testerB)

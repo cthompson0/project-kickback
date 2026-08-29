@@ -15,13 +15,13 @@ const source = readFileSync('docs/PRIVACY.md', 'utf8')
 /*
  * Where the page sits, and therefore where "back" goes.
  *
- * The policy has lived at /privacy/ and now lives at /kickback/privacy/, and a
+ * The policy has lived at /privacy/ and now lives at /watchside/privacy/, and a
  * relative link that was right in one place is a 404 in the other. Passed in
  * rather than guessed, so moving the page is a flag rather than a bug nobody
  * notices until a reviewer clicks it.
  */
 const backHref = process.argv[3] ?? '../'
-const backLabel = process.argv[4] ?? 'Kickback'
+const backLabel = process.argv[4] ?? 'Watchside'
 
 const escape = (text) =>
   text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -178,8 +178,8 @@ const page = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Privacy Policy — Kickback</title>
-    <meta name="description" content="How the Kickback browser extension handles your data." />
+    <title>Privacy Policy — Watchside</title>
+    <meta name="description" content="How the Watchside browser extension handles your data." />
     <!--
       No analytics, no tracking, no external scripts, no external fonts.
       Everything this page needs is in this file.

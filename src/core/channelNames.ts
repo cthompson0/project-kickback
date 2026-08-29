@@ -6,7 +6,7 @@
  * is the identity - URLs, comparisons, lookups and storage all use it. The
  * display name is presentation, and it is the one a person recognises.
  *
- * Kickback used to derive the second from the first by upper-casing the first
+ * Watchside used to derive the second from the first by upper-casing the first
  * letter, which produced `Anoterostv`: not the login, and not the name anyone
  * chose. Capitalisation is data, not a formatting rule - `xQc`, `iiTzTimmy`
  * and `LIRIK` are unguessable - so this module only ever *looks names up*, and
@@ -18,7 +18,7 @@
  *      channel itself, fetched with an app token. Nothing can beat it, and it
  *      is the only source that can spell a channel this browser has never
  *      opened and nobody here is friends with.
- *   2. People Kickback already knows. A Twitch channel is a Twitch user, so if
+ *   2. People Watchside already knows. A Twitch channel is a Twitch user, so if
  *      a friend or group member's login matches the channel, their stored
  *      Twitch display name IS the channel's display name.
  *   3. Channels this browser has actually opened. The content script reads the

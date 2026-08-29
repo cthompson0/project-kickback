@@ -1,7 +1,7 @@
 /**
  * How much room Twitch's chat rail is taking on the right, if any.
  *
- * This is a *hint for the default position only*. Kickback never attaches to,
+ * This is a *hint for the default position only*. Watchside never attaches to,
  * measures against, or depends on Twitch's chat for anything else, and a wrong
  * answer costs at most a slightly worse first placement - the user can drag it.
  * That is deliberate: Twitch's markup is not a contract.

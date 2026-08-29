@@ -187,7 +187,7 @@ describe('friend management stays reachable', () => {
 
   it('routes removal through the user card, as it already did', () => {
     /*
-     * PersonRow only ever offered an inline remove for friends Kickback has NO
+     * PersonRow only ever offered an inline remove for friends Watchside has NO
      * presence for; anyone online was removed from their card. That predates
      * Gravity and is unchanged - worth pinning so a later refactor does not
      * assume the inline control was there and quietly drop the card path.

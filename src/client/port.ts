@@ -104,7 +104,7 @@ export function createPortClient(): KickbackClient {
 
     port.onDisconnect.addListener(() => {
       port = null
-      failPending('Kickback lost its connection. Try again.')
+      failPending('Watchside lost its connection. Try again.')
       scheduleReconnect()
     })
 
@@ -144,7 +144,7 @@ export function createPortClient(): KickbackClient {
       if (!port) {
         connect()
         if (!port) {
-          reject(new Error('Kickback is not connected. Try again.'))
+          reject(new Error('Watchside is not connected. Try again.'))
           return
         }
       }
@@ -161,7 +161,7 @@ export function createPortClient(): KickbackClient {
         pending.delete(callId)
         port = null
         scheduleReconnect()
-        reject(new Error('Kickback is not connected. Try again.'))
+        reject(new Error('Watchside is not connected. Try again.'))
       }
     })
   }
@@ -178,7 +178,7 @@ export function createPortClient(): KickbackClient {
         listeners.delete(listener)
         if (listeners.size === 0) {
           disposed = true
-          failPending('Kickback panel closed.')
+          failPending('Watchside panel closed.')
           port?.disconnect()
           port = null
         }

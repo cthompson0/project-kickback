@@ -117,7 +117,7 @@ describe('a live destination', () => {
 
   it('shows the creator avatar from Twitch', () => {
     // The slot is always there; with a picture it holds the picture. It reuses
-    // the .kb-avatar box every other avatar in Kickback uses, so the image and
+    // the .kb-avatar box every other avatar in Watchside uses, so the image and
     // the monogram fallback occupy exactly the same geometry.
     expect(html).toContain('kb-gravity-avatar')
     expect(html).toMatch(/<img[^>]*class="kb-avatar-img"[^>]*src="https:\/\/static-cdn\.jtvnw\.net/)

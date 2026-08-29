@@ -4,7 +4,7 @@ import { measureChatRail } from '../../src/platforms/twitch/chatRail'
 /**
  * The Twitch chat rail hint.
  *
- * This is the one piece of Kickback that looks at Twitch's own markup, so it
+ * This is the one piece of Watchside that looks at Twitch's own markup, so it
  * is also the one piece most likely to be wrong one day. What is tested here
  * is not that it finds the rail - Twitch decides that - but that it is honest
  * when it cannot, because a confidently wrong measurement moves the panel

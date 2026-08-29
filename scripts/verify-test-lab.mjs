@@ -175,7 +175,7 @@ function readPanel() {
 /**
  * Makes a simulated person react, through the lab's own controls.
  *
- * The lab's buttons carry the reaction id in their title, because a Kickback
+ * The lab's buttons carry the reaction id in their title, because a Watchside
  * emote renders as inline SVG and has no text to match on.
  */
 function labReact(index, reaction) {
@@ -497,7 +497,7 @@ function pressEscape() {
 /** Collapses the panel to the launcher, through its own control. */
 function minimize() {
   const button = [...document.querySelectorAll('.kb-icon-btn')].find(
-    (element) => element.title === 'Minimize Kickback',
+    (element) => element.title === 'Minimize Watchside',
   )
   button?.click()
   return Boolean(button)
@@ -563,7 +563,7 @@ async function main() {
     await page.goto(URL, { waitMs: 1_500 })
 
     const initial = await page.evaluate(readPanel)
-    check(initial.mounted, 'the Kickback panel did not mount in the Test Lab')
+    check(initial.mounted, 'the Watchside panel did not mount in the Test Lab')
     check(!initial.error, `the lab page threw on load: ${initial.error}`)
 
     // --- Gravity acceptance, through the real UI -------------------------
@@ -1430,13 +1430,13 @@ async function main() {
     )
     check(Boolean(dragged.stored), 'the dragged position was not persisted')
 
-    // And an ordinary click, with no movement, still opens Kickback.
+    // And an ordinary click, with no movement, still opens Watchside.
     await page.mouse('mousePressed', drop.x, drop.y)
     await page.mouse('mouseReleased', drop.x, drop.y)
     await settle(page, 300)
 
     const reopened = await page.evaluate(readShell)
-    check(reopened.panelOpen, 'clicking the launcher no longer opens Kickback')
+    check(reopened.panelOpen, 'clicking the launcher no longer opens Watchside')
 
     await page.evaluate(resetShell)
 

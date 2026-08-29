@@ -7,7 +7,7 @@ import type { Emote } from '../../src/core/emotes'
 /**
  * The contributor rule, introduced in 2C.1.
  *
- * A Kickback combo is a claim about *people*, not about message count: it says
+ * A Watchside combo is a claim about *people*, not about message count: it says
  * several of your friends are chanting the same thing. That only holds if one
  * person cannot produce one on their own, which is what every test here is
  * really checking.
@@ -326,7 +326,7 @@ describe('7TV combos follow the same rules', () => {
   })
 
   it('does not combo two emotes that merely share a name', () => {
-    // Kickback's :lol: and a 7TV emote called lol are different emotes, so
+    // Watchside's :lol: and a 7TV emote called lol are different emotes, so
     // different people chanting them is not one combo.
     const theirs = externalToken(sevenTv(SEVENTV_LOL, 'lol'))
     const messages = [say('A', ':lol:'), say('B', theirs), say('C', ':lol:')]

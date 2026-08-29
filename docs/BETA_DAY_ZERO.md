@@ -1,7 +1,7 @@
 # Private Beta — Day 0 sanitization
 
 Getting the hosted database to a clean measurement baseline before the first
-real tester installs Kickback.
+real tester installs Watchside.
 
 **This has been done.** The document is now a record of what was run and what it
 produced, not a plan. Part 1 remains reusable — it is a read-only audit, safe to

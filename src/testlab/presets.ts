@@ -437,7 +437,7 @@ export const PRESETS: Preset[] = [
   // ------------------------------------------- rooms need a live stream
   //
   // The bug this checkpoint began with: two accounts on twitch.tv/lirik with
-  // no stream running, and Kickback saying HERE · OFFLINE · 1 friend watching
+  // no stream running, and Watchside saying HERE · OFFLINE · 1 friend watching
   // with you - with a room, reactions and an open watching-together interval
   // behind it. These three presets are the same world with three different
   // answers from Twitch, so the difference is visible in one click.

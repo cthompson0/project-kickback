@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>You're invited to Kickback</title>
+    <title>You're invited to Watchside</title>
     <meta
       name="description"
       content="See where your friends are watching on Twitch, and join them."
@@ -23,12 +23,14 @@
        */
       :root {
         color-scheme: dark;
-        --bg: #12100f;
-        --panel: #1b1817;
-        --line: #2e2926;
-        --text: #f3efec;
-        --dim: #a49a92;
-        --accent: #ff8452;
+        --bg: #0F172A;
+        --panel: #16203a;
+        --line: #27334d;
+        --text: #f8fafc;
+        --dim: #94a3b8;
+        --accent: #FF8A00;
+        --accent-2: #6366F1;
+        --on-accent: #1a0d00;
       }
 
       * {
@@ -56,6 +58,11 @@
         border-radius: 14px;
         background: var(--panel);
         text-align: center;
+      }
+
+      .mark {
+        display: block;
+        margin: 0 auto 12px;
       }
 
       .wordmark {
@@ -91,7 +98,7 @@
 
       .primary {
         background: var(--accent);
-        color: #1a0d06;
+        color: var(--on-accent);
       }
 
       .secondary {
@@ -138,25 +145,41 @@
   </head>
   <body>
     <main>
-      <p class="wordmark">Kickback</p>
+      <!--
+        The mark, inline. Same geometry as assets/brand/watchside-mark.svg in
+        the extension repository, drawn here rather than linked so the page
+        stays a single file that fetches nothing.
+      -->
+      <svg class="mark" viewBox="0 0 128 128" width="52" height="52" role="img" aria-label="Watchside">
+        <rect width="128" height="128" rx="28" fill="#0F172A" />
+        <g fill="none" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M27 44 L45 92" stroke="#FF8A00" />
+          <path d="M45 92 L64 56 L83 92" stroke="#FFFFFF" />
+          <path d="M83 92 L101 44" stroke="#6366F1" />
+        </g>
+        <circle cx="27" cy="26" r="11" fill="#FF8A00" />
+        <circle cx="101" cy="26" r="11" fill="#6366F1" />
+      </svg>
+
+      <p class="wordmark">Watchside</p>
 
       <!-- Replaced by script when a valid code is present. -->
-      <h1 id="headline">Kickback</h1>
+      <h1 id="headline">Watchside</h1>
       <p id="blurb">See where your friends are watching on Twitch, and join them.</p>
 
-      <a class="button primary" id="install" href="#" rel="noopener">Install Kickback</a>
+      <a class="button primary" id="install" href="#" rel="noopener">Install Watchside</a>
       <a class="button secondary" id="continue" href="https://www.twitch.tv/" rel="noopener">
         Continue with Twitch
       </a>
 
       <ol class="steps" id="steps">
-        <li>1 — Install Kickback from the Chrome Web Store.</li>
+        <li>1 — Install Watchside from the Chrome Web Store.</li>
         <li>2 — Come back and press Continue with Twitch.</li>
-        <li>3 — Sign in from the Kickback panel on Twitch.</li>
+        <li>3 — Sign in from the Watchside panel on Twitch.</li>
       </ol>
 
       <p class="footer">
-        Kickback is a Chrome extension by Anoteros Labs.
+        Watchside is a Chrome extension by Anoteros Labs.
         <a href="../privacy/">Privacy</a>
       </p>
     </main>
@@ -187,16 +210,16 @@
            * An invalid or missing code is not an error page.
            *
            * Somebody may have shared a truncated link, or landed here by
-           * curiosity. Kickback still works - they simply arrive unattributed,
+           * curiosity. Watchside still works - they simply arrive unattributed,
            * which costs them nothing and costs the inviter one credit.
            */
-          document.getElementById('headline').textContent = 'Kickback'
+          document.getElementById('headline').textContent = 'Watchside'
           document.getElementById('blurb').textContent =
             'See where your friends are watching on Twitch, and join them.'
           return
         }
 
-        document.getElementById('headline').textContent = 'A friend invited you to Kickback'
+        document.getElementById('headline').textContent = 'A friend invited you to Watchside'
         document
           .getElementById('continue')
           .setAttribute('href', 'https://www.twitch.tv/?kickback_invite=' + encodeURIComponent(code))

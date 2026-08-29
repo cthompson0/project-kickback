@@ -19,20 +19,20 @@ import type { ComboMessage } from './combos'
  * 0020) and never stored, which is why merging and splitting need no
  * ceremony: they are what recomputation looks like.
  *
- * Kickback has persistent private spaces already - Groups, with intentional
+ * Watchside has persistent private spaces already - Groups, with intentional
  * membership and a conversation that is still there tomorrow. These share
  * transport, identity, combo semantics and UI primitives with that, and no
  * product semantics at all.
  *
  * WHY REACTIONS ARE KICKBACK EMOTES
  *
- * Because Kickback already has a combo engine, and it speaks emotes.
+ * Because Watchside already has a combo engine, and it speaks emotes.
  *
  * The first version of this file invented a second one - a parallel palette of
  * unicode emoji with its own burst aggregator - and it rendered every burst
  * side by side instead of counting one in place, which is the emoji-stacking
  * that was reported. Rather than fix a duplicate, the duplicate is gone: a
- * reaction IS one of Kickback's own emotes, so `scanCombos` counts it,
+ * reaction IS one of Watchside's own emotes, so `scanCombos` counts it,
  * `ComboBadge` draws the ×N, and `EmoteImage` draws the artwork. One engine,
  * one currency, two surfaces.
  */
@@ -40,7 +40,7 @@ import type { ComboMessage } from './combos'
 /**
  * The reactions a person may send.
  *
- * Five of Kickback's own emotes rather than free entry. A closed set cannot
+ * Five of Watchside's own emotes rather than free entry. A closed set cannot
  * carry a payload, so nothing arbitrary reaches another person's screen; and
  * combos only mean anything when people can collide on the same symbol, which
  * unlimited choice makes almost impossible.

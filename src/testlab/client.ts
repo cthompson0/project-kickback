@@ -675,7 +675,7 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
        */
       const term = query.trim().toLowerCase()
       const emotes = EMOTES.filter((emote) => !term || emote.name.includes(term))
-      return emotes.length ? [{ title: 'Kickback', emotes }] : []
+      return emotes.length ? [{ title: 'Watchside', emotes }] : []
     },
 
     track: (name, properties, options) => analytics.track(name, properties, options),

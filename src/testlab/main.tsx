@@ -16,11 +16,11 @@ import './testlab.css'
 assertTestLabBuild(import.meta.env.VITE_KICKBACK_MODE)
 
 sealNetwork((attempt) => {
-  console.error(`Kickback Test Lab blocked ${attempt.api} to ${attempt.target}`)
+  console.error(`Watchside Test Lab blocked ${attempt.api} to ${attempt.target}`)
 })
 
 const root = document.getElementById('lab-root')
-if (!root) throw new Error('Kickback Test Lab: no #lab-root in the page')
+if (!root) throw new Error('Watchside Test Lab: no #lab-root in the page')
 
 createRoot(root).render(
   <StrictMode>

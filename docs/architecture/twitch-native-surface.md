@@ -5,8 +5,8 @@
 **Scope:** feasibility only. No right-rail mode, no mode setting, no dock/pop-out
 control, no duplicated UI, no change to Twitch injection.
 
-The hypothesis under test is **one Kickback, multiple presentations** — not
-"replace floating Kickback with native Kickback". See *Beta feedback*.
+The hypothesis under test is **one Watchside, multiple presentations** — not
+"replace floating Watchside with native Watchside". See *Beta feedback*.
 
 ---
 
@@ -32,7 +32,7 @@ Five properties of this that matter to everything below:
    leaks either way. Twitch's CSS cannot reach us and ours cannot reach Twitch.
 3. **The layer is inert.** `pointer-events: none` on both the host and
    `.kb-root`; only `.kb-panel` and `.kb-launcher` set `pointer-events: auto`.
-   Twitch behaves exactly as if Kickback were not present.
+   Twitch behaves exactly as if Watchside were not present.
 4. **Twitch is measured, never depended on.** `measureTopOffset()` reads the
    bottom of the top-level `<nav>`; `measureChatRail()` reads the rail's width.
    Both feed the **default placement only** — once the user has moved the panel,
@@ -49,7 +49,7 @@ the background worker and mirrored into React. The panel is a *view*. This is
 the single most important finding in this document — see *Shared application
 state*.
 
-**Presentation is already isolated.** Everything about where Kickback sits is in
+**Presentation is already isolated.** Everything about where Watchside sits is in
 `src/ui/layout/` (`layout.ts` — pure geometry; `usePanelLayout.ts` — pointers,
 storage, viewport) plus two CSS rules, `.kb-panel` and `.kb-launcher`. Nothing
 else in the component tree knows the panel floats.
@@ -57,13 +57,13 @@ else in the component tree knows the panel floats.
 ## Why investigate native mounting
 
 The floating overlay is discoverable and movable, but it is unmistakably *an
-overlay*. On a stream page the eye already has a right-hand column; a Kickback
+overlay*. On a stream page the eye already has a right-hand column; a Watchside
 that lived there would be where people are looking, would not need to be
 positioned, and would not cover anything they chose to keep.
 
 ## Beta feedback
 
-**A tester specifically valued positioning Kickback over and around real Twitch
+**A tester specifically valued positioning Watchside over and around real Twitch
 chat.** That is a use, not a workaround.
 
 So floating mode is **not** a temporary scaffold and must not be treated as one.
@@ -130,7 +130,7 @@ The options, worst to best:
 | --- | --- | --- |
 | Replace the rail's children | destroyed and recreated: reconnect, lost scroll, lost draft | **no** |
 | Reparent Twitch chat into our tree | React loses its container; unpredictable | **no** |
-| `display: none` on Twitch chat while Kickback is shown | tree survives and the socket survives, but `display:none` drops layout and **scroll position is reset on restore** | risky |
+| `display: none` on Twitch chat while Watchside is shown | tree survives and the socket survives, but `display:none` drops layout and **scroll position is reset on restore** | risky |
 | `visibility: hidden` / offscreen transform | keeps scroll, but restyles a Twitch node — a class Twitch may re-apply at any render | risky |
 | **Absolutely-positioned overlay inside the rail** | Twitch chat is never touched at all: still laid out, still scrolled where it was, still connected, draft intact | **recommended** |
 
@@ -140,11 +140,11 @@ Everything that could break chat is therefore off the table by construction:
 no reconnect, no lost scroll, no destroyed DOM, no lost draft, no duplicate chat
 instance, because chat is never involved.
 
-The cost is honest and should be stated plainly: while Kickback is shown, chat
+The cost is honest and should be stated plainly: while Watchside is shown, chat
 is rendered underneath it and continues to consume layout and paint. That is a
 small amount of wasted work in exchange for a guarantee.
 
-**The `Stream Chat | Kickback` switch should live in our overlay, not in
+**The `Stream Chat | Watchside` switch should live in our overlay, not in
 Twitch's header.** Injecting a tab into Twitch's own header row means matching
 their markup, their styles and their state — the brittlest thing we could
 possibly do — and it is the part most likely to break on a Twitch redesign. A
@@ -194,7 +194,7 @@ keeping floating.
   (which tab, which card is open, which group is open).
 - `createClient()` is called **once** per content script and the single client
   is passed in. Two shells rendered from that one client would share one logical
-  Kickback with no synchronisation code at all — and one port, one realtime
+  Watchside with no synchronisation code at all — and one port, one realtime
   subscription, one presence heartbeat.
 
 The only thing genuinely coupled to floating is `src/ui/layout/` plus the
@@ -211,7 +211,7 @@ KickbackClient (service worker state, one instance)
    ┌────────────┴────────────┐
 FloatingShell            TwitchRailShell
  usePanelLayout           rail anchor + overlay
- drag / resize / collapse  Stream Chat | Kickback switch
+ drag / resize / collapse  Stream Chat | Watchside switch
  .kb-panel / .kb-launcher  fills the rail; no geometry
 ```
 
@@ -232,7 +232,7 @@ Architecturally straightforward, given the above. What would need to persist:
 | chosen mode (`floating` \| `rail`) | `localStorage`, beside `kickback:layout` | must be readable synchronously on the first frame, exactly like the layout, or the shell flickers |
 | floating geometry | `kickback:layout` — **already exists** | switching to the rail and back must return the panel where it was |
 | collapsed | `kickback:collapsed` — **already exists** | |
-| rail selection (chat vs Kickback) | session-scoped, not persisted | a per-visit choice, not a setting |
+| rail selection (chat vs Watchside) | session-scoped, not persisted | a per-visit choice, not a setting |
 
 Nothing else. Tab, open card and open group are view state and can be discarded
 across a mode switch, or preserved trivially by lifting them if it turns out to
@@ -246,7 +246,7 @@ and whether pop-out (a real window) is a third mode.
 **Practical, and strictly weaker than the primary requirement.** Floating mode
 needs *no* Twitch DOM at all — the host attaches to `<body>` and every Twitch
 measurement is already optional with a defined zero. So "the rail anchor is
-missing" is not an error state that needs inventing; it is the state Kickback
+missing" is not an error state that needs inventing; it is the state Watchside
 runs in today on every non-channel page.
 
 The rule should be: **the rail is an enhancement over floating, never a
@@ -259,7 +259,7 @@ replacement for it.**
   return to floating rather than disappearing
 - anchor reappears → return to the rail if that is the chosen mode
 
-This means a Twitch redesign that breaks every selector degrades Kickback to
+This means a Twitch redesign that breaks every selector degrades Watchside to
 what it is today, which is a working product. That is the property worth
 protecting above all others in this area.
 
@@ -287,7 +287,7 @@ Answered from the manifest and the injection code, not speculated:
   own shadow root by a content script in the isolated world — identical
   mechanism, different parent node. Avatar images already load from Twitch and
   7TV CDNs in the current mount, which is proof rather than inference.
-- **No iframes.** Kickback does not use one and rail mode would not introduce
+- **No iframes.** Watchside does not use one and rail mode would not introduce
   one. Twitch chat is not an iframe on the channel page.
 - **Event isolation is unchanged.** Content scripts run in an isolated world;
   page scripts cannot see our listeners and we cannot see theirs. The shadow
@@ -295,14 +295,14 @@ Answered from the manifest and the injection code, not speculated:
 - **No secrets move.** The panel never holds a provider token; auth lives in the
   service worker. Rail mode does not touch that boundary.
 
-**The one genuine change:** today Kickback writes into `document.body` only.
+**The one genuine change:** today Watchside writes into `document.body` only.
 Rail mode writes one `appendChild` into a Twitch-controlled subtree. That is not
 a policy or security concern, but it is the first time we would be a guest in
 somebody else's node, and it is why the fallback is non-negotiable.
 
 ## Recommended architecture
 
-1. **One client, one state.** Never two Kickback instances. The service worker
+1. **One client, one state.** Never two Watchside instances. The service worker
    is already the single source of truth; nothing needs to change to keep it
    that way.
 2. **Extract the body from the shell** — one mechanical refactor, landed on its
@@ -350,7 +350,7 @@ Not because it is a bad idea — the audit found no blocker, the state
 architecture already supports it cleanly, and the overlay strategy makes chat
 preservation a non-problem rather than a hard problem. Defer because:
 
-- **The immediate goal is testers, quickly.** Kickback works today. A rail mode
+- **The immediate goal is testers, quickly.** Watchside works today. A rail mode
   is at least five phases, one of which (Phase 3, navigation and fallback) is
   the kind of work that is only ever finished by meeting the real page.
 - **Phase 0 has not been done.** We would be building against one selector list

@@ -420,7 +420,7 @@ describe('what a client cannot do', () => {
   it('cannot read a block it did not create', async () => {
     await block(alice, bob)
     // Not even the person it is about: "who has blocked me" is not a question
-    // Kickback answers.
+    // Watchside answers.
     expect(await db.as(bob, `select blocker_id from public.blocks`)).toEqual([])
     expect(await db.as(carol, `select blocker_id from public.blocks`)).toEqual([])
     expect(await db.as(alice, `select blocker_id from public.blocks`)).toHaveLength(1)

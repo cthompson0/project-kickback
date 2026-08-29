@@ -300,7 +300,7 @@ describe('an emote chosen from the picker', () => {
     /*
      * THE THIRD BUG, and it was one missing call.
      *
-     * The picker inserts a Kickback emote as its token but an EXTERNAL emote
+     * The picker inserts a Watchside emote as its token but an EXTERNAL emote
      * as its bare name, so the composer reads the way Twitch chat does. Group
      * chat rewrites that to a stable token on the way out; the room did not,
      * so it stored the word. The word rendered as text, soleEmote() did not

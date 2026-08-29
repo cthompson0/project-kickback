@@ -36,7 +36,7 @@ import { createStreamRoom } from '../../src/background/streamRoom'
  *   2. Recipients are decided at WRITE time, so every row has exactly one
  *      interested subscriber. That is the one-way reaction fix, and it is a
  *      shape rather than a patch.
- *   3. There is ONE combo engine. Reactions are Kickback emotes, so scanCombos
+ *   3. There is ONE combo engine. Reactions are Watchside emotes, so scanCombos
  *      counts them and the count grows in place.
  */
 
@@ -58,7 +58,7 @@ const reaction = (over: Partial<TogetherReaction> = {}): TogetherReaction => ({
 
 // ------------------------------------------------------- one combo engine
 
-describe('reactions are Kickback emotes, so the combo engine counts them', () => {
+describe('reactions are Watchside emotes, so the combo engine counts them', () => {
   const names = (id: string) => id.toUpperCase()
 
   it('draws every reaction from the existing artwork', () => {

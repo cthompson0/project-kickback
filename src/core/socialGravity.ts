@@ -1,7 +1,7 @@
 /**
  * Where everyone is, arranged so the answer is the first thing you see.
  *
- * Kickback's whole thesis is Presence -> Social Gravity -> JOIN -> Together,
+ * Watchside's whole thesis is Presence -> Social Gravity -> JOIN -> Together,
  * and this is the middle step. A flat friends list makes you read four rows
  * and notice that three of them say the same channel. Social Gravity does that
  * reading for you: the destination becomes the thing on screen, and the people

@@ -1,5 +1,5 @@
 /**
- * The minimum jsdom needs before a Kickback component will mount.
+ * The minimum jsdom needs before a Watchside component will mount.
  *
  * Deliberately tiny. Anything that grows here is a signal that a test belongs
  * in the node project instead - this environment exists for effects, not for

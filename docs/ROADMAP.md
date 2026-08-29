@@ -1,4 +1,4 @@
-# Kickback roadmap
+# Watchside roadmap
 
 Where things stand, and — more usefully — what has already been decided so it
 does not get re-decided by accident.
@@ -15,7 +15,7 @@ Presence  →  Social Gravity  →  JOIN  →  Together
 
 Everything below is judged against that, and against two filters:
 
-**A — User experience value.** Does this make Kickback meaningfully better for
+**A — User experience value.** Does this make Watchside meaningfully better for
 the person using it?
 
 **B — Incremental platform value.** Does this plausibly create viewing or
@@ -215,11 +215,11 @@ stranger can find their way in — that has not been tested and will not be.
 ### Invites — **DEFER**
 
 During the hand-distributed cohort, distribution *is* the invitation. An invite
-affordance means "send your friend a way to get Kickback", and there is no such
+affordance means "send your friend a way to get Watchside", and there is no such
 way while installation is a ZIP.
 
 **Revisit before organic or public distribution.** It becomes P0 the day
-Kickback is listed.
+Watchside is listed.
 
 ### Suggested Friends — **DEFER**
 
@@ -256,8 +256,8 @@ a change to what Social Gravity draws, and it is not implemented now.
 Substantial investment does not entitle a feature to succeed. The beta may
 validly conclude:
 
-- Gravity strong, sessions weak → Kickback is a **discovery** product
-- sessions strong, Gravity weak → Kickback is a **communication** product
+- Gravity strong, sessions weak → Watchside is a **discovery** product
+- sessions strong, Gravity weak → Watchside is a **communication** product
 - both, or neither
 
 All four are real answers. **Discovery value and communication value are kept
@@ -270,7 +270,7 @@ See [twitch-native-surface.md](architecture/twitch-native-surface.md). Feasible;
 no blocker found; the overlay strategy makes chat preservation a non-problem.
 
 **Floating remains first-class permanently** — a tester specifically valued
-positioning Kickback over Twitch chat. Observe feedback before implementing.
+positioning Watchside over Twitch chat. Observe feedback before implementing.
 
 ### Browser support — **Chromium-first**
 
@@ -301,7 +301,7 @@ identify the seams for:
 **Do not prematurely rewrite existing Twitch code.** Then prototype exactly one
 additional platform before generalising.
 
-The strategic purpose is not feature count. It is to test whether Kickback can
+The strategic purpose is not feature count. It is to test whether Watchside can
 become a cross-platform social layer, and whether that creates strategic
 interest among platforms.
 
@@ -311,7 +311,7 @@ Optional Ko-fi/Patreon-style support may eventually exist. Recorded explicitly:
 
 > **DONATIONS ARE NOT THE MONETISATION THESIS.**
 
-Future monetisation must be evaluated against demonstrated Kickback value, not
+Future monetisation must be evaluated against demonstrated Watchside value, not
 assumed. Open questions, none of them answered: consumer willingness to pay,
 creator value, platform value, B2B, cross-platform strategic value.
 

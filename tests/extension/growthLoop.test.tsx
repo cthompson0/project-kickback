@@ -240,7 +240,7 @@ describe('the panel carries the growth state without showing it', () => {
       displayedBadge: {
         key: 'referrer_1',
         name: 'Connector',
-        description: 'Brought a friend to Kickback.',
+        description: 'Brought a friend to Watchside.',
         icon: '🔗',
         issuer: 'kickback',
         displayed: true,

@@ -1,23 +1,23 @@
-# Kickback — Privacy Policy
+# Watchside — Privacy Policy
 
 **Last updated:** 25 August 2026
 
-**Applies to:** Kickback browser extension, private beta (v0.4.x)
+**Applies to:** Watchside browser extension, private beta (v0.4.x)
 
-Kickback shows you which of your friends are watching Twitch, and lets you join
+Watchside shows you which of your friends are watching Twitch, and lets you join
 them. This policy describes exactly what it handles, where that goes, and what
 it never touches. It describes the software as it is actually built, not as a
 category of software generally behaves.
 
-**Kickback does not sell your data, share it with third parties, or use it for
-advertising of any kind.** There is no advertising in Kickback and no
+**Watchside does not sell your data, share it with third parties, or use it for
+advertising of any kind.** There is no advertising in Watchside and no
 advertising or analytics SDK in it.
 
 ---
 
 ## Who runs it
 
-Kickback is an independent project, currently in a small private beta. Contact:
+Watchside is an independent project, currently in a small private beta. Contact:
 **anoteros.dev@gmail.com** — the same address for privacy questions,
 support, and data deletion requests.
 
@@ -26,20 +26,20 @@ support, and data deletion requests.
 Two places, and nowhere else:
 
 1. **Your own browser**, using Chrome's `storage` permission (`chrome.storage.local`).
-2. **Kickback's backend**, hosted on Supabase (`*.supabase.co`).
+2. **Watchside's backend**, hosted on Supabase (`*.supabase.co`).
 
-Kickback also reads **public emote metadata** from 7TV (`7tv.io`) and displays
+Watchside also reads **public emote metadata** from 7TV (`7tv.io`) and displays
 emote images from `cdn.7tv.app`, so that chat shows the emotes you already see
 on Twitch. These requests ask for a channel's public emote set. **No information
 about you is sent to 7TV** — not your identity, not who your friends are, not
 what you type.
 
-## What Kickback handles
+## What Watchside handles
 
 | What | Stored on your device | Sent to our backend | Visible to other users | Used for analytics | Retention |
 | --- | --- | --- | --- | --- | --- |
 | **Twitch identity** (your Twitch user id, login, display name, avatar URL) | session only | yes | your display name, avatar and Twitch username are visible to your friends and to people in your groups | no | until you ask us to delete your account |
-| **Kickback account** (user id, friend code) | session only | yes | friend code only if you share it | no (ids are never event properties) | same |
+| **Watchside account** (user id, friend code) | session only | yes | friend code only if you share it | no (ids are never event properties) | same |
 | **Sign-in session** (Supabase access/refresh tokens) | **yes** | — | never | never | until sign-out or expiry |
 | **Friendships, friend requests** | no | yes | to the people involved | counts only | until removed, or account deleted |
 | **Groups and membership** | no | yes | to group members | counts only | until you leave, or the group is deleted |
@@ -75,7 +75,7 @@ activity, the channel is never stored, so there is nothing for anyone to read.
 
 ## Analytics, specifically
 
-Kickback records how the product is used so we can tell whether it works. It is
+Watchside records how the product is used so we can tell whether it works. It is
 built so that it *cannot* carry personal content:
 
 - Every property is a small fact — a count, a bucket, a true/false, or a short
@@ -88,8 +88,8 @@ built so that it *cannot* carry personal content:
   history, or any Twitch or Supabase token.
 - **Twitch channel names are recorded** for social events — a friend's activity
   being shown to you, a JOIN, a shared watch. This is how we can tell whether
-  Kickback actually sends people anywhere. It is a channel, not a URL, and only
-  for channels Kickback itself surfaced or you acted on. **Kickback does not
+  Watchside actually sends people anywhere. It is a channel, not a URL, and only
+  for channels Watchside itself surfaced or you acted on. **Watchside does not
   record your browsing generally, on Twitch or anywhere else.**
 - Events are labelled with the build they came from, so beta data can be
   deleted separately from anything else.
@@ -97,8 +97,8 @@ built so that it *cannot* carry personal content:
 ## Feedback, specifically
 
 If you send feedback from the account panel, we receive **what you wrote**, plus
-a small set of diagnostics assembled by the extension: the Kickback version, the
-build, your browser name and major version (e.g. "Chrome 141"), which Kickback
+a small set of diagnostics assembled by the extension: the Watchside version, the
+build, your browser name and major version (e.g. "Chrome 141"), which Watchside
 tab was open, the Twitch channel you were on, how many friends you have, whether
 a stream session existed, and whether the realtime connection was healthy.
 
@@ -107,25 +107,25 @@ field by field and discards anything else. **Feedback never carries tokens,
 cookies, message contents, what you were typing, or the identities of your
 friends.** We can see who sent it, so that we can follow up.
 
-## What Kickback never does
+## What Watchside never does
 
 - **No advertising, ever**, and no use or transfer of your data for
   personalised, retargeted or interest-based advertising.
 - **No selling or sharing** of personal data with third parties.
-- **No reading of web pages.** Kickback runs on `twitch.tv` only, and only to
+- **No reading of web pages.** Watchside runs on `twitch.tv` only, and only to
   place its own panel and read which channel the page is showing. It does not
   read Twitch chat, scrape the page, or touch any other site.
 - **No credential handling.** Sign-in goes through Twitch's own OAuth page via
-  Chrome's `identity` API. Kickback never sees your Twitch password, and the
+  Chrome's `identity` API. Watchside never sees your Twitch password, and the
   extension contains no client secret.
 - **No Twitch access token in the page.** Provider tokens stay in the extension's
   background service worker and are never given to the content script — the part
   that runs alongside Twitch's own code.
-- **No remote code.** Everything Kickback executes ships inside the extension
+- **No remote code.** Everything Watchside executes ships inside the extension
   package. Nothing is downloaded and run.
 - **No use or transfer of your data to determine creditworthiness, or for
   lending purposes.**
-- **No use or transfer of your data for any purpose unrelated to Kickback's
+- **No use or transfer of your data for any purpose unrelated to Watchside's
   single purpose** — showing you which friends are watching Twitch, and letting
   you join them.
 
@@ -139,31 +139,31 @@ friends.** We can see who sent it, so that we can follow up.
   schedule that.
 - **`notifications`** — for the optional desktop alert when several friends
   gather on one channel. You can turn it off in the account panel.
-- **`https://*.supabase.co/*`** — Kickback's own backend.
+- **`https://*.supabase.co/*`** — Watchside's own backend.
 - **`https://7tv.io/*`, `https://cdn.7tv.app/*`** — public emote metadata and
   images. Nothing about you is sent.
 
-Kickback requests **no access to sites other than Twitch**, and cannot read any
+Watchside requests **no access to sites other than Twitch**, and cannot read any
 other page you visit.
 
 ## Your choices
 
 - **Hide your activity or go invisible** — account panel, at any time.
 - **Mute somebody** — local to your device; nothing is sent.
-- **Block somebody** — removes the friendship, stops all Kickback contact
+- **Block somebody** — removes the friendship, stops all Watchside contact
   between you, and is never disclosed to them.
 - **Sign out** — clears the session from your device.
 - **Delete your account** — email **anoteros.dev@gmail.com**. Deleting your
   account removes your profile, friendships, requests, group memberships,
   presence, blocks and feedback. Analytics events are not tied to your name and
   are removed with your actor record.
-- **Uninstall** — removes everything Kickback stored on your device. Data on the
+- **Uninstall** — removes everything Watchside stored on your device. Data on the
   backend is removed on request as above.
 
 ## Children
 
-Kickback is not directed at children and follows Twitch's own minimum age
-requirements. Do not use Kickback if you are not permitted to use Twitch.
+Watchside is not directed at children and follows Twitch's own minimum age
+requirements. Do not use Watchside if you are not permitted to use Twitch.
 
 ## Changes
 
@@ -173,5 +173,5 @@ beta testers directly.
 
 ---
 
-*Kickback is not affiliated with, endorsed by, or sponsored by Twitch
+*Watchside is not affiliated with, endorsed by, or sponsored by Twitch
 Interactive, Inc. or 7TV. "Twitch" is a trademark of Twitch Interactive, Inc.*

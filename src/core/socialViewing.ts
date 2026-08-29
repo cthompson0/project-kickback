@@ -6,7 +6,7 @@ import type { ChannelMetadata, LiveState } from './twitchMetadata'
  *
  * WHY THEY WERE EVER THE SAME
  *
- * Two accounts once sat on twitch.tv/lirik with no stream running and Kickback
+ * Two accounts once sat on twitch.tv/lirik with no stream running and Watchside
  * reported them watching together - a room, reactions, and an open shared-watch
  * interval that would eventually have claimed an hour of co-viewing of nothing.
  * The fix was to require an authoritative LIVE status before any of it formed,

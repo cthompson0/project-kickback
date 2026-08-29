@@ -22,7 +22,7 @@ import type { Presence } from '../../src/core/types'
  * Attention mechanics: when a gathering is worth interrupting someone for,
  * what counts as unread, and what a desktop notification is allowed to say.
  *
- * The point of nearly every test here is restraint - proving Kickback stays
+ * The point of nearly every test here is restraint - proving Watchside stays
  * quiet in all the situations where a naive implementation would not.
  */
 

@@ -1,7 +1,7 @@
 /**
  * A very small Chrome DevTools Protocol driver.
  *
- * Kickback lives inside a real page, so some questions can only be answered by
+ * Watchside lives inside a real page, so some questions can only be answered by
  * a real browser: where Twitch actually puts its chat rail, whether a drag
  * really moves the panel, whether a saved position really survives a reload.
  * This is the harness for those questions.

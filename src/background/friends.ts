@@ -163,7 +163,7 @@ function friendlyError(context: string): string {
     case 'feedback':
       return 'Could not send that. Your text is still here - try again.'
     default:
-      return "Kickback can't reach its server right now."
+      return "Watchside can't reach its server right now."
   }
 }
 

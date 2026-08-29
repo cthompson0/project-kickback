@@ -495,7 +495,7 @@ describe('telling a launcher drag from a launcher click', () => {
   /*
    * The collapsed launcher is a button AND a handle, so something has to decide
    * which one a given press was. A click always follows a press, so without this
-   * distinction every drag would also open the panel - and moving Kickback out
+   * distinction every drag would also open the panel - and moving Watchside out
    * of the way would be the one gesture that puts it back in the way.
    */
   it('treats a still press as a click', () => {

@@ -112,7 +112,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
    * .kb-panel rather than the viewport - the panel's backdrop-filter makes it a
    * containing block - so the card is clipped by the PANEL, which is the right
    * boundary: it may cover the body, the footer and the tabs, and it may not
-   * escape Kickback. Placement is then measured to match what the stylesheet
+   * escape Watchside. Placement is then measured to match what the stylesheet
    * used to do, and clamped so a card near the bottom rides up instead of being
    * cut off.
    *
@@ -162,7 +162,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
        * The panel's backdrop-filter makes it the containing block for a fixed
        * descendant, so top/left are resolved from its padding box - which is
        * exactly what lets the card escape the scrolling body while still being
-       * clipped by Kickback's own edge. Measuring in viewport coordinates and
+       * clipped by Watchside's own edge. Measuring in viewport coordinates and
        * writing them straight out lands the card at twice the panel's offset.
        */
       const originX = bounds.left + panel.clientLeft
@@ -186,7 +186,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
     body?.addEventListener('scroll', place, { passive: true })
 
     /*
-     * The panel changing shape moves the card's boundary, and resizing Kickback
+     * The panel changing shape moves the card's boundary, and resizing Watchside
      * is not a window resize - so watching the window alone leaves the card
      * hanging outside a panel the user just made smaller.
      */
@@ -407,7 +407,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
       {confirmBlock && !isSelf && (
         <div className="kb-usercard-confirm" role="group" aria-label="Confirm block">
           <div className="kb-usercard-confirm-text">
-            Block {user.displayName}? You won't see each other's Kickback activity or be
+            Block {user.displayName}? You won't see each other's Watchside activity or be
             put in stream sessions together. This also removes them as a friend.
           </div>
           <div className="kb-usercard-actions">
