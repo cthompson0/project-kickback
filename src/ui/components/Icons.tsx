@@ -1,22 +1,30 @@
-/** Small inline icon set. Kickback's own mark - no Twitch assets are used. */
+/** Small inline icon set. Watchside's own mark - no Twitch assets are used. */
 
-export function KickbackMark({ size = 18 }: { size?: number }) {
+/**
+ * The Watchside mark: two people leaning together to form a W.
+ *
+ * The geometry is the same as assets/brand/watchside-mark.svg, which is what
+ * the toolbar icons are rasterised from - one shape, two renderers, so the
+ * panel header and the browser toolbar can never drift apart. Keep them in
+ * step by hand; there is deliberately no build step generating this from the
+ * SVG, because a component that cannot be read is worse than one that must be
+ * remembered.
+ *
+ * The orange and purple strokes are each half a person; the white centre is
+ * what completes the letter. Neither side is a W on its own, which is the
+ * whole idea.
+ */
+export function WatchsideMark({ size = 18 }: { size?: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <defs>
-        <linearGradient id="kb-mark-gradient" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#ff8452" />
-          <stop offset="100%" stopColor="#ff4f8b" />
-        </linearGradient>
-      </defs>
-      <rect x="1" y="1" width="22" height="22" rx="7" fill="url(#kb-mark-gradient)" />
-      <path
-        d="M8.8 6.4v11.2M8.8 12.2l5.6-5.6M9.6 11.4l5.2 6.2"
-        stroke="#1a0d06"
-        strokeWidth="2.1"
-        strokeLinecap="round"
-        fill="none"
-      />
+    <svg width={size} height={size} viewBox="0 0 128 128" aria-hidden="true">
+      <rect width="128" height="128" rx="28" fill="#0F172A" />
+      <g fill="none" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M27 44 L45 92" stroke="#FF8A00" />
+        <path d="M45 92 L64 56 L83 92" stroke="#FFFFFF" />
+        <path d="M83 92 L101 44" stroke="#6366F1" />
+      </g>
+      <circle cx="27" cy="26" r="11" fill="#FF8A00" />
+      <circle cx="101" cy="26" r="11" fill="#6366F1" />
     </svg>
   )
 }

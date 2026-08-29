@@ -1,5 +1,5 @@
 /*
- * Kickback panel styles.
+ * Watchside panel styles.
  *
  * This sheet is injected into a shadow root, so nothing here can leak into
  * Twitch. Every selector is still namespaced under .kb-root and prefixed `kb-`
@@ -9,7 +9,7 @@
 .kb-root {
   --kb-bg: rgba(21, 21, 25, 0.97);
   /*
-   * For surfaces that float over Kickback's OWN content, not over Twitch.
+   * For surfaces that float over Watchside's OWN content, not over Twitch.
    *
    * --kb-bg is 97% opaque and is paired with a backdrop blur on .kb-panel, which
    * is the right recipe against a video page: a little of Twitch shows through,
@@ -26,10 +26,16 @@
   --kb-text: #efeff1;
   --kb-dim: #a6a6b0;
   --kb-faint: #74747f;
-  --kb-accent: #ff8452;
+  /*
+   * The brand accents, shared with the mark in components/Icons.tsx and with
+   * assets/brand/watchside-mark.svg: orange on one side, indigo on the other.
+   * Every gradient in this file runs between exactly these two, so the panel
+   * and the icon in the toolbar are recognisably the same product.
+   */
+  --kb-accent: #FF8A00;
   /* A live broadcast, and nothing else. See .kb-live-dot. */
   --kb-live: #e91916;
-  --kb-accent-2: #ff4f8b;
+  --kb-accent-2: #6366F1;
   --kb-here: #2ee6a8;
   --kb-online: #6fd18c;
   --kb-offline: #5c5c66;
@@ -308,7 +314,7 @@
 /*
  * LIVE is RED, and only LIVE is red.
  *
- * Kickback now has three signals that could all reach for a coloured dot, and
+ * Watchside now has three signals that could all reach for a coloured dot, and
  * they mean different things, so the palette is split by MEANING rather than
  * by what looked good next to what:
  *
@@ -832,7 +838,7 @@
  * A sub-view of the account panel, borrowing its box.
  *
  * Deliberately built from controls that already exist - the detail header, the
- * presence-option pills, the ghost buttons - so it reads as part of Kickback
+ * presence-option pills, the ghost buttons - so it reads as part of Watchside
  * rather than as a form somebody bolted on.
  */
 .kb-feedback {
@@ -2275,7 +2281,7 @@ a.kb-ghost-btn {
  * in the same place in all four states, so a plain card is a card rather than
  * a rich card with a hole in it, and metadata landing does not shove the
  * header sideways. Without a picture the box holds a tinted monogram, which is
- * the same thing every other avatar in Kickback does.
+ * the same thing every other avatar in Watchside does.
  */
 .kb-gravity-avatar {
   flex: none;
@@ -2484,7 +2490,7 @@ a.kb-ghost-btn {
 }
 
 /*
- * Somebody Kickback has no identity for.
+ * Somebody Watchside has no identity for.
  *
  * A room reaches two hops, and presence for a person you are not friends with
  * never arrives - so the list names them from the room membership and draws a
@@ -3124,7 +3130,7 @@ a.kb-ghost-btn {
  *
  * A row of small chips rather than a screen. A badge is something you notice
  * once and then forget you have, so it should be waiting where you already go
- * to see who you are in Kickback - not somewhere you open twice.
+ * to see who you are in Watchside - not somewhere you open twice.
  */
 .kb-badges {
   margin-top: 14px;
@@ -3160,7 +3166,7 @@ a.kb-ghost-btn {
   border-color: rgba(255, 132, 82, 0.35);
 }
 
-/* The one being shown. Same accent every other Kickback signal uses. */
+/* The one being shown. Same accent every other Watchside signal uses. */
 .kb-badge-on {
   border-color: rgba(255, 132, 82, 0.55);
   background: rgba(255, 132, 82, 0.14);
@@ -3179,7 +3185,7 @@ a.kb-ghost-btn {
 /*
  * A sender's chosen badge, beside their name in chat.
  *
- * Chat is where a person's Kickback identity is read most often, so it is
+ * Chat is where a person's Watchside identity is read most often, so it is
  * where an equipped badge belongs. One badge, a chip, nothing else: no hover
  * card, no rarity, no animation. Outside the name control on purpose, so it
  * neither copies with the name nor widens the click target.

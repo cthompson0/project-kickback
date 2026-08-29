@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Watchside">
+  <title>Watchside</title>
+  <!--
+    THE CANONICAL WATCHSIDE MARK.
+
+    Every production icon is rasterised from this file. It is deliberate
+    geometry on a 128 grid rather than a trace of concept art, so it can be
+    re-rendered at any size without loss and reasoned about by anyone editing
+    it later.
+
+    HOW THE W IS BUILT
+
+    Three strokes, read left to right:
+
+      orange  \      the left person
+      white    /\    the centre, shared between them
+      purple     /   the right person
+
+    Together they spell a W. The white middle is what completes the letter, so
+    the two coloured strokes are never a whole shape on their own - which is
+    the point of the mark.
+
+    Two small circles sit above the outer strokes as heads, turning the W into
+    two people leaning toward each other.
+
+    WHY THESE PROPORTIONS
+
+    The mark has to survive 16px, where it is roughly eleven device pixels of
+    actual artwork. So: a stroke width of 15/128 (about 1.9px at 16), round
+    caps and joins so nothing shears into a point, heads at r=11 rather than
+    the smaller circles the concept showed, and a wide 74-unit stance so the
+    two outer diagonals stay distinguishable. Detail was traded for silhouette
+    everywhere the two disagreed.
+
+    NOT Twitch's logo. NOT a play triangle. NOT a letter K.
+  -->
+
+  <!-- Navy ground. Radius 28/128 matches Chrome's own icon masking closely
+       enough that the corners never look clipped in the toolbar. -->
+  <rect width="128" height="128" rx="28" fill="#0F172A" />
+
+  <g fill="none" stroke-width="15" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Left person: the opening downstroke. -->
+    <path d="M27 44 L45 92" stroke="#FF8A00" />
+    <!-- The centre, shared. This is the geometry that makes it a W rather
+         than two unrelated diagonals. -->
+    <path d="M45 92 L64 56 L83 92" stroke="#FFFFFF" />
+    <!-- Right person: the closing upstroke. -->
+    <path d="M83 92 L101 44" stroke="#6366F1" />
+  </g>
+
+  <!-- Heads, above the outer strokes. Same colour as the body they belong to,
+       so each person reads as one object. -->
+  <circle cx="27" cy="26" r="11" fill="#FF8A00" />
+  <circle cx="101" cy="26" r="11" fill="#6366F1" />
+</svg>
