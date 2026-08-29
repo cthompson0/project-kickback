@@ -31,7 +31,8 @@
     "screenshots:store": "node scripts/store-screenshots.mjs",
     "package:firefox": "node scripts/package-firefox.mjs",
     "package:firefox-beta": "node scripts/package-firefox.mjs --beta",
-    "verify:firefox": "node scripts/verify-firefox.mjs"
+    "verify:firefox": "node scripts/verify-firefox.mjs",
+    "verify:firefox:e2e": "node scripts/firefox-e2e/run.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",
