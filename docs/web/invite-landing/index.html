@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>You're invited to Kickback</title>
+    <meta
+      name="description"
+      content="See where your friends are watching on Twitch, and join them."
+    />
+    <!--
+      No referrer to Twitch or the Store, so an invite code never travels in a
+      Referer header to a third party.
+    -->
+    <meta name="referrer" content="no-referrer" />
+    <link rel="icon" href="data:," />
+    <style>
+      /*
+       * One file, no build, no dependencies, no fonts fetched.
+       *
+       * This page exists so an invite link does not 404. It is not a marketing
+       * site and should not grow into one.
+       */
+      :root {
+        color-scheme: dark;
+        --bg: #12100f;
+        --panel: #1b1817;
+        --line: #2e2926;
+        --text: #f3efec;
+        --dim: #a49a92;
+        --accent: #ff8452;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        line-height: 1.5;
+      }
+
+      main {
+        width: 100%;
+        max-width: 420px;
+        padding: 28px 24px 24px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--panel);
+        text-align: center;
+      }
+
+      .wordmark {
+        margin: 0 0 18px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+
+      h1 {
+        margin: 0 0 10px;
+        font-size: 22px;
+        line-height: 1.25;
+      }
+
+      p {
+        margin: 0 0 20px;
+        color: var(--dim);
+        font-size: 14px;
+      }
+
+      a.button {
+        display: block;
+        margin-top: 10px;
+        padding: 12px 16px;
+        border-radius: 9px;
+        font-size: 14px;
+        font-weight: 600;
+        text-decoration: none;
+      }
+
+      .primary {
+        background: var(--accent);
+        color: #1a0d06;
+      }
+
+      .secondary {
+        border: 1px solid var(--line);
+        color: var(--text);
+      }
+
+      .steps {
+        margin: 22px 0 0;
+        padding: 0;
+        list-style: none;
+        text-align: left;
+        font-size: 12px;
+        color: var(--dim);
+      }
+
+      .steps li {
+        margin-top: 6px;
+      }
+
+      .footer {
+        margin: 20px 0 0;
+        font-size: 11px;
+        color: var(--dim);
+      }
+
+      .footer a {
+        color: var(--dim);
+      }
+
+      /* Narrow screens: the card becomes the page. */
+      @media (max-width: 420px) {
+        body {
+          padding: 12px;
+        }
+        main {
+          padding: 22px 18px 18px;
+        }
+        h1 {
+          font-size: 20px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="wordmark">Kickback</p>
+
+      <!-- Replaced by script when a valid code is present. -->
+      <h1 id="headline">Kickback</h1>
+      <p id="blurb">See where your friends are watching on Twitch, and join them.</p>
+
+      <a class="button primary" id="install" href="#" rel="noopener">Install Kickback</a>
+      <a class="button secondary" id="continue" href="https://www.twitch.tv/" rel="noopener">
+        Continue with Twitch
+      </a>
+
+      <ol class="steps" id="steps">
+        <li>1 — Install Kickback from the Chrome Web Store.</li>
+        <li>2 — Come back and press Continue with Twitch.</li>
+        <li>3 — Sign in from the Kickback panel on Twitch.</li>
+      </ol>
+
+      <p class="footer">
+        Kickback is a Chrome extension by Anoteros Labs.
+        <a href="../privacy.html">Privacy</a>
+      </p>
+    </main>
+
+    <script>
+      /*
+       * The whole of the page's logic: read the code, and carry it to Twitch.
+       *
+       * The extension's content script already runs on twitch.tv, so it picks
+       * the code up from there. That is the entire reason for this hop - a
+       * content script on THIS page would mean a new host permission, which
+       * Chrome shows the user as "read your data on that site", for one string.
+       *
+       * Nothing is stored, nothing is sent anywhere, and no analytics run here.
+       * The code is not a credential: possession grants nothing server-side.
+       */
+      (function () {
+        var STORE_URL = 'https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip'
+        var CODE_PATTERN = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{22}$/
+
+        document.getElementById('install').setAttribute('href', STORE_URL)
+
+        var raw = new URLSearchParams(window.location.search).get('c') || ''
+        var code = raw.trim().toUpperCase()
+
+        if (!CODE_PATTERN.test(code)) {
+          /*
+           * An invalid or missing code is not an error page.
+           *
+           * Somebody may have shared a truncated link, or landed here by
+           * curiosity. Kickback still works - they simply arrive unattributed,
+           * which costs them nothing and costs the inviter one credit.
+           */
+          document.getElementById('headline').textContent = 'Kickback'
+          document.getElementById('blurb').textContent =
+            'See where your friends are watching on Twitch, and join them.'
+          return
+        }
+
+        document.getElementById('headline').textContent = 'A friend invited you to Kickback'
+        document
+          .getElementById('continue')
+          .setAttribute('href', 'https://www.twitch.tv/?kickback_invite=' + encodeURIComponent(code))
+      })()
+    </script>
+  </body>
+</html>

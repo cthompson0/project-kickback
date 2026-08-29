@@ -661,6 +661,7 @@ export function KickbackPanel({
 
       {signedIn && identity && accountOpen && !feedbackOpen && (
         <AccountCard
+          client={client}
           onFeedback={() => setFeedbackOpen(true)}
           identity={identity}
           onSignOut={() => {

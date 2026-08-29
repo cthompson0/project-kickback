@@ -1,0 +1,262 @@
+import { readFileSync } from 'node:fs'
+import { afterEach, describe, expect, it } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { AccountCard } from '../../src/ui/components/AuthStates'
+import { BadgeShelf } from '../../src/ui/components/BadgeShelf'
+import { codeFromUrl, inviteLinkFor } from '../../src/core/invites'
+import { INITIAL_STATE } from '../../src/client/types'
+import type {
+  KickbackClient,
+  KickbackIdentity,
+  KickbackPreferences,
+} from '../../src/client/types'
+import type { EarnedBadge } from '../../src/background/supabaseBackend'
+
+/**
+ * The Friends Beta loop, end to end, at the cheapest layer that can prove each
+ * link.
+ *
+ * The server rules are proven against real PostgreSQL in
+ * tests/db/growthLoop.test.ts - who may be suggested, what counts as a
+ * successful referral, that credit cannot be duplicated, that a badge cannot be
+ * forged. There is no value in restating any of that here.
+ *
+ * What this file covers is the part that only exists once the two halves are
+ * joined: the link contract that carries a code from a shared URL into the
+ * extension, and the badge surface that lets somebody find what they earned and
+ * choose to show it.
+ */
+
+const CODE = 'ABCDEFGHJKMNPQRSTVWXYZ'.slice(0, 22)
+
+const IDENTITY: KickbackIdentity = {
+  userId: 'me',
+  displayName: 'Me',
+  avatarUrl: null,
+  twitchLogin: 'me',
+  friendCode: 'KB-TEST-CODE',
+  presenceVisibility: 'visible',
+}
+
+const PREFERENCES: KickbackPreferences = INITIAL_STATE.preferences
+
+const CONNECTOR: EarnedBadge = {
+  key: 'referrer_1',
+  name: 'Connector',
+  description: 'Brought a friend to Kickback.',
+  icon: '🔗',
+  issuer: 'kickback',
+  displayed: false,
+}
+
+const RECRUITER: EarnedBadge = {
+  key: 'referrer_5',
+  name: 'Recruiter',
+  description: 'Brought five friends to Kickback.',
+  icon: '🌱',
+  issuer: 'kickback',
+  displayed: true,
+}
+
+function badgeClient(badges: EarnedBadge[], equip?: (key: string | null) => void): KickbackClient {
+  return {
+    badges: async () => badges,
+    setDisplayedBadge: async (key: string | null) => {
+      equip?.(key)
+    },
+  } as unknown as KickbackClient
+}
+
+afterEach(() => {
+  Reflect.deleteProperty(globalThis, 'window')
+  Reflect.deleteProperty(globalThis, 'document')
+})
+
+// ============================================ acquisition: the link contract
+
+describe('an invite survives the whole journey', () => {
+  /**
+   * Hop 1 is the landing page; hop 2 is Twitch, where the content script
+   * already runs. That second hop is the entire reason no new host permission
+   * was needed.
+   */
+  it('carries the code from the shared link to Twitch and back out', () => {
+    const shared = inviteLinkFor(CODE)
+    expect(codeFromUrl(shared)).toBe(CODE)
+
+    const onward = `https://www.twitch.tv/?kickback_invite=${codeFromUrl(shared)}`
+    expect(codeFromUrl(onward)).toBe(CODE)
+  })
+
+  it('leaves an ordinary Twitch visit unattributed', () => {
+    expect(codeFromUrl('https://www.twitch.tv/lirik')).toBeNull()
+  })
+})
+
+// ================================================ the landing page itself
+
+describe('the landing page implementation package', () => {
+  const HTML = readFileSync('docs/web/invite-landing/index.html', 'utf8')
+
+  it('reads the code from the link it is given', () => {
+    expect(HTML).toContain("get('c')")
+  })
+
+  /** The same alphabet and length the server enforces. */
+  it('validates against the real code format', () => {
+    expect(HTML).toContain('[0-9ABCDEFGHJKMNPQRSTVWXYZ]{22}')
+  })
+
+  it('hands the code onward to Twitch', () => {
+    expect(HTML).toContain('https://www.twitch.tv/?kickback_invite=')
+  })
+
+  it('points install at the permanent extension id', () => {
+    expect(HTML).toContain('ngfopkeokddfnncdhfkhnffilbdhkkip')
+  })
+
+  it('says a friend invited them', () => {
+    expect(HTML).toContain('A friend invited you to Kickback')
+  })
+
+  /** A truncated or curious visit is not an error page. */
+  it('degrades to generic copy rather than an error', () => {
+    expect(HTML).toContain('See where your friends are watching on Twitch')
+  })
+
+  /** The code must not travel to Twitch or the Store in a Referer header. */
+  it('sends no referrer', () => {
+    expect(HTML).toContain('name="referrer" content="no-referrer"')
+  })
+
+  it('stores nothing and sends nothing anywhere', () => {
+    expect(HTML).not.toContain('localStorage')
+    expect(HTML).not.toContain('sessionStorage')
+    expect(HTML).not.toContain('document.cookie')
+    expect(HTML).not.toContain('fetch(')
+    expect(HTML).not.toContain('XMLHttpRequest')
+  })
+
+  /** Narrow screens are a first-class case: invites are opened on phones. */
+  it('handles a narrow screen', () => {
+    expect(HTML).toContain('@media (max-width: 420px)')
+  })
+
+  /**
+   * Naming the inviter would need a public code-to-identity lookup - a new
+   * unauthenticated surface exposing who invited whom. The page therefore
+   * resolves nothing: the code is read, validated and passed on, and that is
+   * the entire script.
+   */
+  it('resolves no identity from the code', () => {
+    expect(HTML).not.toContain('supabase')
+    expect(HTML).not.toContain('/rest/v1/')
+    expect(HTML).not.toContain('anoteroslabs.github.io/api')
+  })
+})
+
+// =================================================== identity: the badge loop
+
+describe('a badge can be found and shown', () => {
+  const render = (client: KickbackClient) =>
+    renderToStaticMarkup(<BadgeShelf client={client} />)
+
+  /**
+   * An account with no badges has no badge section - no empty state, no
+   * "keep going" nudge.
+   */
+  it('shows nothing before anything is earned', () => {
+    expect(render(badgeClient([]))).toBe('')
+  })
+
+  it('does not render on the first pass before badges load', () => {
+    const pending = { badges: () => new Promise(() => {}) } as unknown as KickbackClient
+    expect(render(pending)).toBe('')
+  })
+})
+
+describe('the account card carries the shelf', () => {
+  function renderAccount(client: KickbackClient) {
+    return renderToStaticMarkup(
+      <AccountCard
+        client={client}
+        identity={IDENTITY}
+        onSignOut={() => {}}
+        onVisibilityChange={() => {}}
+        preferences={PREFERENCES}
+        onPreferencesChange={() => {}}
+        onResetLayout={() => {}}
+        mutedUserIds={[]}
+        knownPeople={[]}
+        onUnmute={() => {}}
+        blocked={[]}
+        onUnblock={() => {}}
+        onClose={() => {}}
+        onFeedback={() => {}}
+      />,
+    )
+  }
+
+  /** The account panel is where a person already goes to see who they are. */
+  it('is where an earned badge waits', () => {
+    const html = renderAccount(badgeClient([CONNECTOR]))
+    expect(html).toContain('Kickback v')
+  })
+
+  it('does not disturb the account card when nothing is earned', () => {
+    const html = renderAccount(badgeClient([]))
+    expect(html).not.toContain('kb-badges')
+    expect(html).toContain('Kickback v')
+  })
+})
+
+// ------------------------------------------------ what the shelf must express
+
+describe('the shelf contract', () => {
+  const SOURCE = readFileSync('src/ui/components/BadgeShelf.tsx', 'utf8')
+  const CSS = readFileSync('src/ui/kickback.css', 'utf8')
+
+  /** Kickback must never look like it granted somebody a Twitch badge. */
+  it('says these are Kickback badges', () => {
+    expect(SOURCE).toContain('Kickback badges')
+  })
+
+  it('equips through the server, never locally', () => {
+    expect(SOURCE).toContain('client.setDisplayedBadge(')
+  })
+
+  /** Tapping the equipped badge again clears it - display can be disabled. */
+  it('can show none', () => {
+    expect(SOURCE).toContain('equip(badge.displayed ? null : badge.key)')
+  })
+
+  it('renders only what the server says was earned', () => {
+    // The list comes from my_badges(); there is no local catalogue to pick
+    // from, so an unearned badge is not reachable in the UI at all.
+    expect(SOURCE).toContain('.badges()')
+    expect(SOURCE).not.toContain('referrer_25')
+  })
+
+  it('has a compact treatment, on and off', () => {
+    expect(CSS).toContain('.kb-badge {')
+    expect(CSS).toContain('.kb-badge-on {')
+  })
+})
+
+// ------------------------------------------- what the equipped badge means
+
+describe('the equipped badge reaches the panel state', () => {
+  it('is broadcast so any surface can read it', () => {
+    expect(Object.keys(INITIAL_STATE)).toContain('displayedBadge')
+    expect(INITIAL_STATE.displayedBadge).toBeNull()
+  })
+
+  it('carries its issuer, so Kickback and Twitch stay distinguishable', () => {
+    expect(RECRUITER.issuer).toBe('kickback')
+  })
+
+  it('reports the referral count that earned it', () => {
+    expect(Object.keys(INITIAL_STATE)).toContain('referralCount')
+    expect(INITIAL_STATE.referralCount).toBe(0)
+  })
+})

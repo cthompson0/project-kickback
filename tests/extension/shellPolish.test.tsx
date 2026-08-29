@@ -115,6 +115,8 @@ function account(
   installWindow()
   return renderToStaticMarkup(
     <AccountCard
+      // The badge shelf reads through the client; an empty one renders nothing.
+      client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => calls.push('signOut')}
       onVisibilityChange={() => calls.push('visibility')}

@@ -3116,3 +3116,62 @@ a.kb-ghost-btn {
 .kb-invite-count {
   margin-top: 6px;
 }
+
+/* ------------------------------------------------------------ badge shelf */
+
+/*
+ * Earned badges, in the account panel.
+ *
+ * A row of small chips rather than a screen. A badge is something you notice
+ * once and then forget you have, so it should be waiting where you already go
+ * to see who you are in Kickback - not somewhere you open twice.
+ */
+.kb-badges {
+  margin-top: 14px;
+}
+
+.kb-badge-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}
+
+/*
+ * Off by default, and visibly so.
+ *
+ * A badge you have earned but are not showing should look available rather
+ * than disabled - dimmed, not greyed out, because tapping it is the point.
+ */
+.kb-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid var(--kb-line);
+  border-radius: 999px;
+  background: var(--kb-sunken);
+  color: var(--kb-dim);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.kb-badge:hover {
+  border-color: rgba(255, 132, 82, 0.35);
+}
+
+/* The one being shown. Same accent every other Kickback signal uses. */
+.kb-badge-on {
+  border-color: rgba(255, 132, 82, 0.55);
+  background: rgba(255, 132, 82, 0.14);
+  color: var(--kb-text);
+}
+
+.kb-badge-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.kb-badge-name {
+  white-space: nowrap;
+}

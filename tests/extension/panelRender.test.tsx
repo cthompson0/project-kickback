@@ -154,6 +154,8 @@ describe('resetting the layout', () => {
     installWindow()
     const html = renderToStaticMarkup(
       <AccountCard
+        // The badge shelf reads through the client; an empty one renders nothing.
+        client={{ badges: async () => [] } as unknown as KickbackClient}
         identity={signedIn.identity!}
         onSignOut={() => {}}
         onVisibilityChange={() => {}}

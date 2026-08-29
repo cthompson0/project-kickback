@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import type {
+  KickbackClient,
   FeedbackCategory,
   KickbackIdentity,
   KickbackPreferences,
   PresenceVisibility,
 } from '../../client/types'
+import { BadgeShelf } from './BadgeShelf'
 import { BackIcon, KickbackMark } from './Icons'
 
 /**
@@ -321,6 +323,7 @@ export function AccountCard({
   onUnblock,
   onClose,
   onFeedback,
+  client,
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
@@ -343,6 +346,8 @@ export function AccountCard({
    * view should be the one action in it that cannot cost you anything.
    */
   onClose: () => void
+  /** For the badge shelf, which reads and equips through the worker. */
+  client: KickbackClient
   /** Opens the feedback form. Secondary action, so it lives here. */
   onFeedback: () => void
 }) {
@@ -491,6 +496,15 @@ export function AccountCard({
         * diagnostics. Those belong in Feedback, which assembles them in the
         * service worker and sends them deliberately.
         */}
+      {/*
+        * Earned badges, above the version line.
+        *
+        * The account panel is where a person already goes to see who they are
+        * in Kickback, so it is where a badge they earned should be waiting -
+        * rather than a new screen nobody opens twice.
+        */}
+      <BadgeShelf client={client} />
+
       <div className="kb-account-version">Kickback v{__KICKBACK_VERSION__}</div>
     </div>
   )

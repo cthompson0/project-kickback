@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import type { KickbackClient } from '../../src/client/types'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AccountCard, FeedbackForm, FEEDBACK_MAX_LENGTH } from '../../src/ui/components/AuthStates'
 import { EVENT_PROPERTIES } from '../../src/core/analytics'
@@ -61,6 +62,8 @@ function account(calls: string[] = []) {
   installWindow()
   return renderToStaticMarkup(
     <AccountCard
+      // The badge shelf reads through the client; an empty one renders nothing.
+      client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => calls.push('signOut')}
       onVisibilityChange={() => calls.push('visibility')}

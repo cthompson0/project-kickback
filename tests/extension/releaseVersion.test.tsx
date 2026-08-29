@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AccountCard } from '../../src/ui/components/AuthStates'
-import type { KickbackIdentity, KickbackPreferences } from '../../src/client/types'
+import type { KickbackClient, KickbackIdentity, KickbackPreferences } from '../../src/client/types'
 
 /**
  * One version, in one place, all the way to the screen.
@@ -82,6 +82,8 @@ const PREFERENCES: KickbackPreferences = {
 function renderAccount(): string {
   return renderToStaticMarkup(
     <AccountCard
+      // The badge shelf reads through the client; an empty one renders nothing.
+      client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => {}}
       onVisibilityChange={() => {}}
