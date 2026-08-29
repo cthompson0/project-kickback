@@ -787,3 +787,154 @@ export function createSupabaseAnalyticsBackend(supabase: SupabaseClient): Analyt
     },
   }
 }
+
+// ============================================================= growth loop
+
+/** One person the caller might know, through people they already know. */
+export interface FriendSuggestion {
+  userId: string
+  displayName: string
+  avatarUrl: string | null
+  twitchLogin: string | null
+  /** How many friends they have in common. Never WHO - see 0026. */
+  mutualCount: number
+}
+
+/**
+ * Mutual-friend suggestions.
+ *
+ * Seeded at the caller server-side; there is no user parameter to pass and no
+ * way to ask on somebody else's behalf. Rows are parsed rather than trusted,
+ * like everything else that crosses the wire.
+ */
+export async function suggestFriends(
+  supabase: SupabaseClient,
+  limit = 12,
+): Promise<{ value: FriendSuggestion[] | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('suggest_friends', { p_limit: limit })
+    if (error) return { value: null, error: describe(error) }
+
+    const rows: FriendSuggestion[] = []
+    for (const row of Array.isArray(data) ? data : []) {
+      const entry = row as Record<string, unknown>
+      if (typeof entry.user_id !== 'string' || typeof entry.display_name !== 'string') continue
+      rows.push({
+        userId: entry.user_id,
+        displayName: entry.display_name,
+        avatarUrl: typeof entry.avatar_url === 'string' ? entry.avatar_url : null,
+        twitchLogin: typeof entry.twitch_login === 'string' ? entry.twitch_login : null,
+        mutualCount: Number(entry.mutual_count) || 0,
+      })
+    }
+    return { value: rows }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}
+
+/** The caller's own durable invite code, created on first use. */
+export async function myInviteCode(
+  supabase: SupabaseClient,
+): Promise<{ value: string | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('my_invite_code')
+    if (error) return { value: null, error: describe(error) }
+    return { value: typeof data === 'string' ? data : null }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}
+
+/**
+ * Claim somebody's invite code.
+ *
+ * Returns the server's outcome verbatim. Every one of them is an ordinary
+ * thing rather than an error: `already` means this account was referred once
+ * before, which is the rule, not a failure.
+ */
+export async function claimInvite(
+  supabase: SupabaseClient,
+  code: string,
+): Promise<{ value: string | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('claim_invite', { p_code: code })
+    if (error) return { value: null, error: describe(error) }
+    return { value: typeof data === 'string' ? data : null }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}
+
+/** How many referrals the caller has landed, and how many are still open. */
+export async function myReferralSummary(
+  supabase: SupabaseClient,
+): Promise<{ value: { successful: number; pending: number } | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('my_referral_summary')
+    if (error) return { value: null, error: describe(error) }
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | undefined
+    return {
+      value: {
+        successful: Number(row?.successful) || 0,
+        pending: Number(row?.pending) || 0,
+      },
+    }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}
+
+/** One badge this account has earned. */
+export interface EarnedBadge {
+  key: string
+  name: string
+  description: string
+  /** A short symbol, not a URL - nothing is fetched to render a badge. */
+  icon: string
+  issuer: 'kickback' | 'twitch'
+  displayed: boolean
+}
+
+export async function myBadges(
+  supabase: SupabaseClient,
+): Promise<{ value: EarnedBadge[] | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('my_badges')
+    if (error) return { value: null, error: describe(error) }
+
+    const rows: EarnedBadge[] = []
+    for (const row of Array.isArray(data) ? data : []) {
+      const entry = row as Record<string, unknown>
+      if (typeof entry.badge_key !== 'string' || typeof entry.name !== 'string') continue
+      rows.push({
+        key: entry.badge_key,
+        name: entry.name,
+        description: typeof entry.description === 'string' ? entry.description : '',
+        icon: typeof entry.icon === 'string' ? entry.icon : '•',
+        // Never invent an issuer: an unknown value is Kickback's own, because
+        // claiming Twitch issued something it did not is the one mistake here
+        // that would actually matter.
+        issuer: entry.issuer === 'twitch' ? 'twitch' : 'kickback',
+        displayed: entry.displayed === true,
+      })
+    }
+    return { value: rows }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}
+
+/** Choose which earned badge to show. Null shows none. */
+export async function setDisplayedBadge(
+  supabase: SupabaseClient,
+  key: string | null,
+): Promise<{ value: string | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('set_displayed_badge', { p_key: key })
+    if (error) return { value: null, error: describe(error) }
+    return { value: typeof data === 'string' ? data : null }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}

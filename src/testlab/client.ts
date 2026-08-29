@@ -508,6 +508,15 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
   }
 
   const client: KickbackClient = {
+    // The growth loop needs a live backend; the lab has none, so these resolve
+    // empty rather than pretending to a social graph the lab does not model.
+    reportInvite: () => {},
+    suggestFriends: async () => [],
+    inviteCode: async () => '0123456789ABCDEFGHJKMN',
+    claimInvite: async () => 'unknown',
+    referralSummary: async () => ({ successful: 0, pending: 0 }),
+    badges: async () => [],
+    setDisplayedBadge: async () => {},
     getState: () => state,
     subscribe(listener) {
       listeners.add(listener)

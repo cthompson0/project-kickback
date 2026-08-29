@@ -304,6 +304,24 @@ export interface AnalyticsEventMap {
    * here and never will be.
    */
   group_message_send_failed: { code: FailureCode }
+
+  /*
+   * THE GROWTH LOOP.
+   *
+   * Acquisition, network formation and the invite cycle. Every one of these is
+   * a count, a bucket or a fixed vocabulary - no user ids, no codes, no names.
+   * An invite code is a credential-shaped thing and never appears here.
+   */
+  /** Suggestions were shown. One event per batch, not per row. */
+  friend_suggestion_impression: { suggestion_count: number; top_mutual_bucket: MutualBucket }
+  friend_suggestion_add_clicked: { mutual_bucket: MutualBucket; position: number }
+  friend_suggestion_request_created: { mutual_bucket: MutualBucket; outcome: string }
+  invite_link_created: Record<string, never>
+  invite_link_shared: { method: InviteShareMethod }
+  invite_claimed: { outcome: InviteClaimOutcome }
+  referral_succeeded: Record<string, never>
+  badge_awarded: { badge_key: string }
+  badge_displayed: { badge_key: string }
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap
@@ -348,6 +366,28 @@ export type LengthBucket = 'short' | 'medium' | 'long'
  * too few" - is readable straight off a group-by.
  */
 export type DestinationCountBucket = 'none' | 'one' | 'two' | 'three'
+
+/**
+ * How much social proof a suggestion carried.
+ *
+ * Bucketed rather than raw, for the same reason every other count here is:
+ * the question is 'does more overlap convert better', which a handful of
+ * buckets answers and a long tail of exact numbers does not.
+ */
+export type MutualBucket = 'one' | 'two_to_three' | 'four_plus'
+
+/** How an invite link left the panel. */
+export type InviteShareMethod = 'copy' | 'share_sheet'
+
+/** What the server said about a claim. Mirrors claim_invite's return. */
+export type InviteClaimOutcome = 'attributed' | 'already' | 'self' | 'blocked' | 'unknown'
+
+/** Bucket the number of mutual friends behind a suggestion. */
+export function mutualBucket(count: number): MutualBucket {
+  if (count <= 1) return 'one'
+  if (count <= 3) return 'two_to_three'
+  return 'four_plus'
+}
 
 /** Why a Stream Room surface stopped being available. */
 export type RoomEndReason = 'destination_closed' | 'retention_expired' | 'signed_out'
@@ -436,6 +476,16 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   automatic_room_left: ['reason', 'had_messages'],
   realtime_status_changed: ['surface', 'status'],
   group_message_send_failed: ['code'],
+
+  friend_suggestion_impression: ['suggestion_count', 'top_mutual_bucket'],
+  friend_suggestion_add_clicked: ['mutual_bucket', 'position'],
+  friend_suggestion_request_created: ['mutual_bucket', 'outcome'],
+  invite_link_created: [],
+  invite_link_shared: ['method'],
+  invite_claimed: ['outcome'],
+  referral_succeeded: [],
+  badge_awarded: ['badge_key'],
+  badge_displayed: ['badge_key'],
 }
 
 export const ANALYTICS_EVENT_NAMES = Object.keys(EVENT_PROPERTIES) as AnalyticsEventName[]

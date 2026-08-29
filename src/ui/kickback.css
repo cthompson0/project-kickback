@@ -3026,3 +3026,93 @@ a.kb-ghost-btn {
     animation: none;
   }
 }
+
+/*
+ * A gathering earns a left edge.
+ *
+ * The tint already separates a gathering from a single friend, but a tint is
+ * easy to miss in a column of cards. An accent edge reads at a glance and
+ * costs no width, which matters at 320px where the header is already carrying
+ * an avatar, a channel, a count and JOIN.
+ *
+ * Emphasis only - a one-friend destination is still a destination, still
+ * joinable, and still shows who is there. See socialGravity.ts.
+ */
+.kb-gravity-card-strong {
+  border-left: 2px solid rgba(255, 132, 82, 0.55);
+}
+
+/*
+ * "3 friends" rather than "3", past the threshold.
+ *
+ * Wider than the numeral it replaces, so the channel name beside it truncates
+ * a little sooner on a narrow panel. That is the right trade: which streamer
+ * it is stays legible from the avatar and the first characters, while how many
+ * friends are there is what decides whether to go.
+ */
+.kb-gravity-count-strong {
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+/* ---------------------------------------------------------- growth surfaces */
+
+/*
+ * People you may know, and the invite link.
+ *
+ * Both sit under Find friends, below the search box, and neither competes with
+ * it: they are what you want when searching a name has not worked.
+ */
+.kb-suggestions,
+.kb-invite {
+  margin-top: 12px;
+}
+
+/* The social proof, quiet enough not to outshout the name above it. */
+.kb-mutuals {
+  color: var(--kb-dim);
+  font-size: 11px;
+}
+
+/* "Requested" / "Friends" where the ADD button was. */
+.kb-row-note {
+  color: var(--kb-dim);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/*
+ * Readonly rather than a div: selectable and copyable by hand, which is the
+ * fallback when the clipboard API is refused inside a content script.
+ */
+.kb-invite-link {
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--kb-line);
+  border-radius: 6px;
+  background: var(--kb-sunken);
+  color: var(--kb-dim);
+  font-size: 11px;
+}
+
+.kb-invite-copy {
+  width: 100%;
+  margin-top: 6px;
+  padding: 7px 10px;
+  border: 1px solid rgba(255, 132, 82, 0.35);
+  border-radius: 6px;
+  background: rgba(255, 132, 82, 0.12);
+  color: var(--kb-text);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.kb-invite-copy:hover {
+  background: rgba(255, 132, 82, 0.2);
+}
+
+.kb-invite-count {
+  margin-top: 6px;
+}

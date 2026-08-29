@@ -321,11 +321,20 @@ function DestinationCard({
           {channelName(section.channel ?? '')}
         </span>
 
+        {/*
+          * A gathering says how many; one friend just shows the tally.
+          *
+          * The whole distinction this surface has to carry is SOMEBODY IS HERE
+          * versus YOUR FRIENDS ARE GATHERING HERE, and a bare numeral makes
+          * both look identical at a glance. Spelling it out only past the
+          * threshold keeps the single-friend card quiet without hiding it -
+          * emphasis, not existence.
+          */}
         <span
-          className="kb-gravity-count"
+          className={`kb-gravity-count${heavy ? ' kb-gravity-count-strong' : ''}`}
           title={section.count === 1 ? '1 friend' : `${section.count} friends`}
         >
-          {section.count}
+          {heavy ? `${section.count} friends` : section.count}
         </span>
 
         {/*

@@ -833,6 +833,7 @@ export function KickbackPanel({
               <FindFriends
                 client={client}
                 outgoingRequests={view.outgoingRequests}
+                referralCount={view.referralCount}
                 onBack={() => setFinding(false)}
               />
             ) : tab === 'groups' ? (

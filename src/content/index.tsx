@@ -8,6 +8,7 @@ import { measureChatRail } from '../platforms/twitch/chatRail'
 import { watchChannel, watchTitle } from '../platforms/twitch/navigation'
 import { getCurrentChannel } from '../platforms/twitch/channels'
 import { channelNameFromTitle } from '../core/channelNames'
+import { codeFromUrl } from '../core/invites'
 import panelStyles from '../ui/kickback.css?inline'
 
 /**
@@ -91,8 +92,24 @@ async function mount(): Promise<void> {
   })
 
   reportActivity(client)
+  reportInvite(client)
   keepAttached(host)
   hideDuringFullscreen(host)
+}
+
+/**
+ * An invite code, if this page was reached from a Kickback invite link.
+ *
+ * The landing page's continue button sends people to Twitch carrying the code,
+ * because the content script already runs here - which means attribution needs
+ * no new host permission and no clipboard instructions. See core/invites.ts.
+ *
+ * Read once per mount. A code in a URL is not a secret: possession grants
+ * nothing at all server-side.
+ */
+function reportInvite(client: KickbackClient): void {
+  const code = codeFromUrl(window.location.href)
+  if (code) client.reportInvite(code)
 }
 
 /**

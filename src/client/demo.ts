@@ -244,5 +244,15 @@ export function createDemoClient(): KickbackClient {
     setGroupMuted: () => Promise.resolve(),
     searchEmotes: () => Promise.resolve([]),
     setPresenceVisibility: () => Promise.reject(new Error(DEMO_UNAVAILABLE)),
+
+  // The growth loop is a live-backend feature; the demo and the lab render the
+  // panel without one, so these resolve empty rather than pretending.
+  reportInvite: () => {},
+  suggestFriends: async () => [],
+  inviteCode: async () => '0123456789ABCDEFGHJKMN',
+  claimInvite: async () => 'unknown',
+  referralSummary: async () => ({ successful: 0, pending: 0 }),
+  badges: async () => [],
+  setDisplayedBadge: async () => {},
   }
 }

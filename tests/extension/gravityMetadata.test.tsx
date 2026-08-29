@@ -128,7 +128,7 @@ describe('a live destination', () => {
 
   it('still leads with the friends', () => {
     expect(html).toContain('LIRIK')
-    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(html).toMatch(/kb-gravity-count[^>]*>3\b/)
     for (const name of ['Jake', 'Matt', 'Chris']) expect(html).toContain(name)
     expect(html).toContain('kb-join')
     expect(html).toContain('🔥')
@@ -149,7 +149,7 @@ describe('a destination whose stream has ended', () => {
      * vanished because Twitch said the stream ended would be a worse lie than
      * one marked OFFLINE - the friends really are there.
      */
-    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(html).toMatch(/kb-gravity-count[^>]*>3\b/)
     expect(html).toContain('Jake')
     expect(html).toContain('kb-join')
   })
@@ -193,7 +193,7 @@ describe('when nothing told us', () => {
     // But the structure is whole: same avatar slot, same header, same count,
     // same JOIN, same people.
     expect(plain).toContain('kb-gravity-avatar')
-    expect(plain).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(plain).toMatch(/kb-gravity-count[^>]*>3\b/)
     expect(plain).toContain('kb-join')
     expect(plain).toContain('Jake')
   })
@@ -240,7 +240,7 @@ describe('when nothing told us', () => {
     })
     expect(stale).not.toContain('LIVE')
     expect(stale).not.toContain('OFFLINE')
-    expect(stale).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(stale).toMatch(/kb-gravity-count[^>]*>3\b/)
   })
 })
 
@@ -428,7 +428,7 @@ describe('the card survives what a creator can put in it', () => {
     expect(html).toMatch(/kb-gravity-avatar[^>]*>L</)
 
     expect(html).toContain('LIRIK')
-    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(html).toMatch(/kb-gravity-count[^>]*>3\b/)
   })
 
   it('tints the destination from the channel, never from a friend', () => {

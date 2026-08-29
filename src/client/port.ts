@@ -7,6 +7,7 @@ import type {
   SendRequestOutcome,
 } from './types'
 import { PORT_NAME, isWorkerMessage } from './messages'
+import type { EarnedBadge, FriendSuggestion } from '../background/supabaseBackend'
 import type { ClientMessage, RpcMethod } from './messages'
 
 /**
@@ -218,6 +219,7 @@ export function createPortClient(): KickbackClient {
       lastActivity = { type: 'activity', channel, visible, channelName: channelName ?? null }
       send(lastActivity)
     },
+    reportInvite: (code) => send({ type: 'invite', code }),
     sendReaction: (reaction, channel) => send({ type: 'reaction', reaction, channel }),
     sendRoomMessage: (body, channel) => send({ type: 'roomMessage', body, channel }),
     selectSession: (channel) => send({ type: 'selectSession', channel }),
@@ -271,6 +273,15 @@ export function createPortClient(): KickbackClient {
       await rpc('setGroupMuted', groupId, muted)
     },
     searchEmotes: (query) => rpc<EmoteSection[]>('searchEmotes', query),
+
+    suggestFriends: () => rpc<FriendSuggestion[]>('suggestFriends'),
+    inviteCode: () => rpc<string>('inviteCode'),
+    claimInvite: (code) => rpc<string>('claimInvite', code),
+    referralSummary: () => rpc<{ successful: number; pending: number }>('referralSummary'),
+    badges: () => rpc<EarnedBadge[]>('badges'),
+    setDisplayedBadge: async (key) => {
+      await rpc('setDisplayedBadge', key)
+    },
     setPresenceVisibility: async (mode) => {
       await rpc('setPresenceVisibility', mode)
     },

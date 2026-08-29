@@ -69,7 +69,7 @@ describe('the lab reaches every metadata state', () => {
     expect(html).toContain('18K')
     expect(html).toContain('kb-gravity-avatar')
     // And still leads with the friends.
-    expect(html).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(html).toMatch(/kb-gravity-count[^>]*>3\b/)
   })
 
   it('marks an ended stream and sinks it below a live one', () => {
@@ -123,7 +123,7 @@ describe('the lab reaches every metadata state', () => {
     // that neither breaks the head.
     expect(html).toContain('LIRIK')
     expect(html).toContain('xQc')
-    expect(html).toMatch(/kb-gravity-count[^>]*>2</)
+    expect(html).toMatch(/kb-gravity-count[^>]*>2\b/)
   })
 
   it('tells the viewer the stream they are on has ended', () => {

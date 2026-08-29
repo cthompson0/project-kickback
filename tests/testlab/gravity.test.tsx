@@ -68,8 +68,13 @@ function render(world: SimWorld): string {
 }
 
 const cards = (html: string) => (html.match(/class="kb-gravity-card/g) ?? []).length
+/**
+ * A gathering renders "3 friends" and a single friend renders "1", so the
+ * number is read off the front of the content either way. The fact asserted is
+ * the same one it always was: how many people this card says are there.
+ */
 const counts = (html: string) =>
-  [...html.matchAll(/kb-gravity-count[^>]*>(\d+)</g)].map((match) => Number(match[1]))
+  [...html.matchAll(/kb-gravity-count[^>]*>(\d+)/g)].map((match) => Number(match[1]))
 
 describe('Gravity acceptance: one destination, N friends', () => {
   const sizes = [1, 2, 3, 5, 10]

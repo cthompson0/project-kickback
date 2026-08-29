@@ -42,6 +42,14 @@ export type RpcMethod =
   | 'cancelGroupInvite'
   | 'setGroupIcon'
   | 'searchEmotes'
+  // The growth loop. Reads are RPCs rather than broadcast state because they
+  // are asked for when a surface opens, not held for every tab.
+  | 'suggestFriends'
+  | 'inviteCode'
+  | 'claimInvite'
+  | 'referralSummary'
+  | 'badges'
+  | 'setDisplayedBadge'
 
 /** Tab -> worker. */
 export type ClientMessage =
@@ -150,6 +158,13 @@ export type ClientMessage =
       live?: LiveState
     }>
     }
+  /**
+   * An invite code seen in a Twitch URL.
+   *
+   * One-way and fire-and-forget: the worker keeps it until there is an account
+   * to attribute it to, which may be after a sign-in that has not happened yet.
+   */
+  | { type: 'invite'; code: string }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 
 /** Worker -> tab. */

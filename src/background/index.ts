@@ -24,6 +24,9 @@ import {
   unreadByChannel,
 } from './sessionState'
 import { needsRefresh } from '../core/twitchMetadata'
+import { mutualBucket } from '../core/analytics'
+import { normalizeInviteCode } from '../core/invites'
+import type { EarnedBadge } from './supabaseBackend'
 // The same selector and the same expansion the panel renders from, so the
 // diagnostic below cannot report a map the UI does not draw.
 import {
@@ -92,6 +95,12 @@ import {
   createSupabaseGroupsBackend,
   createSupabasePresenceBackend,
   listFriendDestinations,
+  claimInvite,
+  myBadges,
+  myInviteCode,
+  myReferralSummary,
+  setDisplayedBadge,
+  suggestFriends,
   setPresenceVisibility,
 } from './supabaseBackend'
 import { createExtensionStorage } from './storage'
@@ -760,6 +769,86 @@ const friendDestinationsStore = createFriendDestinations({
 })
 
 /** The set itself, for everything that only needs to read it. */
+/**
+ * The invite code this browser saw before it had an account to attribute it to.
+ *
+ * A recipient clicks a link, installs, and only then signs in - so the code
+ * arrives from a Twitch URL long before there is an actor. It is held here and
+ * claimed the moment authentication completes. Kept in session memory only: an
+ * unclaimed code is worth nothing, and persisting it would mean storing
+ * somebody else's identifier for no benefit.
+ */
+let pendingInviteCode: string | null = null
+let inviteLinkAnnounced = false
+let displayedBadge: EarnedBadge | null = null
+let referralCount = 0
+
+/**
+ * Claim a code, and record what the server said.
+ *
+ * Every outcome is ordinary -  is the anti-duplicate-credit rule
+ * working, not a failure - so none of them raises. The code is normalised
+ * first, because people paste whole links and lower case.
+ */
+async function claimPendingInvite(raw: string): Promise<string> {
+  const code = normalizeInviteCode(raw)
+  if (!code) {
+    analytics.track('invite_claimed', { outcome: 'unknown' })
+    return 'unknown'
+  }
+  if (authState.status !== 'signed_in') {
+    // Nothing to attribute to yet. Hold it for the sign-in.
+    pendingInviteCode = code
+    return 'pending'
+  }
+
+  const result = await claimInvite(supabase, code)
+  if (result.error) {
+    logError('invite.claim', result.error)
+    return 'unknown'
+  }
+  const outcome = result.value ?? 'unknown'
+  analytics.track('invite_claimed', {
+    outcome: outcome as 'attributed' | 'already' | 'self' | 'blocked' | 'unknown',
+  })
+  if (outcome === 'attributed') pendingInviteCode = null
+  void refreshBadges()
+  return outcome
+}
+
+/** Whatever was waiting for an account, now that there is one. */
+function claimInviteAfterSignIn(): void {
+  if (!pendingInviteCode) return
+  const code = pendingInviteCode
+  pendingInviteCode = null
+  void claimPendingInvite(code)
+}
+
+/**
+ * The badge the user chose to show, and how many referrals have landed.
+ *
+ * Read rather than pushed: both change rarely, and a broadcast carrying stale
+ * values is worse than one carrying none. Refreshed on sign-in, after a claim,
+ * and whenever the user changes their selection.
+ */
+async function refreshBadges(): Promise<void> {
+  if (authState.status !== 'signed_in') return
+
+  const [badgeResult, summary] = await Promise.all([
+    myBadges(supabase),
+    myReferralSummary(supabase),
+  ])
+
+  const badges = badgeResult.value ?? []
+  const nextBadge = badges.find((badge) => badge.displayed) ?? null
+  const nextCount = summary.value?.successful ?? 0
+
+  if (nextBadge?.key === displayedBadge?.key && nextCount === referralCount) return
+  displayedBadge = nextBadge
+  referralCount = nextCount
+  broadcast()
+}
+
 function friendDestinationsSnapshot(): DestinationsByUser {
   return friendDestinationsStore.snapshot()
 }
@@ -1353,6 +1442,8 @@ function currentState(): KickbackState {
     mutedUserIds: sessionTab.muted(),
     blockedUsers: friendsState.blocked,
     friendDestinations: { ...friendDestinationsSnapshot() },
+    displayedBadge,
+    referralCount,
   }
 }
 
@@ -1397,6 +1488,16 @@ auth.subscribe((next) => {
      */
     together.setUser(next.identity.userId)
     roomChat.setUser(next.identity.userId)
+    /*
+     * Whatever an invite link left here before there was an account.
+     *
+     * The recipient clicks a link, installs, and only THEN signs in, so the
+     * code always arrives before the actor does. This is the moment it can be
+     * attributed - and it is idempotent server-side, so a repeated auth update
+     * costs one no-op call.
+     */
+    claimInviteAfterSignIn()
+    void refreshBadges()
   } else {
     socialSync.stop()
     presenceSync.stop()
@@ -1406,6 +1507,9 @@ auth.subscribe((next) => {
     groupSync.stop()
     attention.clear()
     gatheringWatcher.reset()
+    displayedBadge = null
+    referralCount = 0
+    inviteLinkAnnounced = false
     together.reset()
     roomChat.reset()
     room.reset()
@@ -1670,6 +1774,66 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
     )
   },
   searchEmotes: ([query]) => Promise.resolve(emoteCatalog.search(String(query ?? ''))),
+
+  // ------------------------------------------------------------ growth loop
+
+  suggestFriends: async () => {
+    const result = await suggestFriends(supabase)
+    if (result.error) {
+      logError('friends.suggest', result.error)
+      return []
+    }
+    const rows = result.value ?? []
+    // One event per batch, not per row: the question is whether the surface
+    // produced anything worth acting on, not how many pixels were painted.
+    analytics.track('friend_suggestion_impression', {
+      suggestion_count: rows.length,
+      top_mutual_bucket: mutualBucket(rows[0]?.mutualCount ?? 0),
+    })
+    return rows
+  },
+
+  inviteCode: async () => {
+    const result = await myInviteCode(supabase)
+    if (result.error || !result.value) {
+      logError('invite.code', result.error ?? 'no code')
+      throw new Error('Could not create an invite link. Try again.')
+    }
+    if (!inviteLinkAnnounced) {
+      inviteLinkAnnounced = true
+      analytics.track('invite_link_created', {})
+    }
+    return result.value
+  },
+
+  claimInvite: async ([code]) => {
+    const outcome = await claimPendingInvite(String(code ?? ''))
+    return outcome
+  },
+
+  referralSummary: async () => {
+    const result = await myReferralSummary(supabase)
+    if (result.error) logError('invite.summary', result.error)
+    return result.value ?? { successful: 0, pending: 0 }
+  },
+
+  badges: async () => {
+    const result = await myBadges(supabase)
+    if (result.error) logError('badges.list', result.error)
+    return result.value ?? []
+  },
+
+  setDisplayedBadge: async ([key]) => {
+    const next = key === null || key === undefined ? null : String(key)
+    const result = await setDisplayedBadge(supabase, next)
+    if (result.error) {
+      logError('badges.display', result.error)
+      throw new Error('Could not update your badge.')
+    }
+    if (next) analytics.track('badge_displayed', { badge_key: next })
+    await refreshBadges()
+    return result.value
+  },
   setGroupMuted: ([groupId, muted]) => groups.setMuted(String(groupId), muted === true),
   setPreferences: async ([patch]) =>
     preferences.set((patch ?? {}) as Parameters<typeof preferences.set>[0]),
@@ -1764,6 +1928,17 @@ chrome.runtime.onConnect.addListener((port) => {
         pushActivity()
       }
         break
+      case 'invite': {
+        /*
+         * A code seen in a Twitch URL, from the landing page's continue link.
+         *
+         * One-way and unauthenticated by design: it may arrive long before
+         * sign-in, and holding it is the only sensible thing to do with it.
+         * Possession grants nothing - see src/core/invites.ts.
+         */
+        if (typeof raw.code === 'string') void claimPendingInvite(raw.code)
+        break
+      }
       case 'reaction':
         /*
          * Validated here as well as in SQL.

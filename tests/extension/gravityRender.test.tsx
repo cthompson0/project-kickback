@@ -113,7 +113,7 @@ describe('a gathering', () => {
   })
 
   it('says how many people are there', () => {
-    expect(render(gathering)).toMatch(/kb-gravity-count[^>]*>3</)
+    expect(render(gathering)).toMatch(/kb-gravity-count[^>]*>3\b/)
   })
 })
 
@@ -330,7 +330,7 @@ describe('the casing a destination is drawn in', () => {
 
     // One card for LVNDMARK and lvndmark together, counted as two people.
     expect(html.match(/class="kb-gravity-card/g) ?? []).toHaveLength(2)
-    expect(html).toMatch(/kb-gravity-count[^>]*>2</)
+    expect(html).toMatch(/kb-gravity-count[^>]*>2\b/)
   })
 
   it('shows the display casing on the JOIN without handing it the JOIN', () => {

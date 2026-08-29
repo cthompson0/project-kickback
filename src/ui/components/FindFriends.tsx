@@ -6,6 +6,7 @@ import type {
   SearchResult,
 } from '../../client/types'
 import { Avatar } from './Avatar'
+import { FriendSuggestions, InviteFriends } from './GrowFriends'
 import { BackIcon } from './Icons'
 
 /**
@@ -22,6 +23,8 @@ const MIN_QUERY_LENGTH = 2
 interface FindFriendsProps {
   client: KickbackClient
   outgoingRequests: FriendRequest[]
+  /** Successful referrals, for the invite section copy. */
+  referralCount: number
   onBack: () => void
 }
 
@@ -41,7 +44,7 @@ function actionFor(relationship: Relationship): { label: string; actionable: boo
   }
 }
 
-export function FindFriends({ client, outgoingRequests, onBack }: FindFriendsProps) {
+export function FindFriends({ client, outgoingRequests, referralCount, onBack }: FindFriendsProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -182,6 +185,18 @@ export function FindFriends({ client, outgoingRequests, onBack }: FindFriendsPro
       />
 
       {error && <div className="kb-inline-note">{error}</div>}
+
+      {/*
+        * Discovery and invitation, under the search box rather than replacing
+        * it. They are what you want when searching a name has not worked -
+        * which is exactly when the box above is empty.
+        */}
+      {trimmed.length < MIN_QUERY_LENGTH && (
+        <>
+          <FriendSuggestions client={client} />
+          <InviteFriends client={client} referralCount={referralCount} />
+        </>
+      )}
 
       {trimmed.length >= MIN_QUERY_LENGTH && searching && (
         <div className="kb-quiet-sub kb-search-status">Searching…</div>

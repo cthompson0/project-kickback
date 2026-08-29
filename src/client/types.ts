@@ -13,6 +13,7 @@ import type { Reaction, TogetherReaction } from '../core/together'
 import type { RoomMember } from '../core/streamRoom'
 import type { RoomMessage } from '../core/roomMessages'
 import type { DestinationsByUser } from '../core/socialGravity'
+import type { EarnedBadge, FriendSuggestion } from '../background/supabaseBackend'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -121,6 +122,15 @@ export interface KickbackState {
    * nothing is ever held back.
    */
   channelMetadataPending: readonly string[]
+  /**
+   * The badge this account has chosen to show, if any.
+   *
+   * Broadcast rather than fetched per surface because it is one small value
+   * that several places want, and because it changes rarely.
+   */
+  displayedBadge: EarnedBadge | null
+  /** How many referrals have been credited. Drives the invite surface copy. */
+  referralCount: number
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
   friendsLoading: boolean
@@ -268,6 +278,8 @@ export const INITIAL_STATE: KickbackState = {
   friends: [],
   friendDestinations: {},
   channelMetadataPending: [],
+  displayedBadge: null,
+  referralCount: 0,
   incomingRequests: [],
   outgoingRequests: [],
   friendsLoading: false,
@@ -357,6 +369,8 @@ export interface KickbackClient {
 
   /** Report what this Twitch tab is showing. Fire-and-forget. */
   reportActivity(channel: string | null, visible: boolean, channelName?: string | null): void
+  /** An invite code seen in this tab's URL. One-way; may precede sign-in. */
+  reportInvite(code: string): void
 
   /**
    * React on the channel the viewer is watching. Fire-and-forget.
@@ -416,6 +430,15 @@ export interface KickbackClient {
    * never holds - or renders - a whole 1,000-emote channel set.
    */
   searchEmotes(query: string): Promise<EmoteSection[]>
+  /** Mutual-friend suggestions, asked for when the Find surface opens. */
+  suggestFriends(): Promise<FriendSuggestion[]>
+  /** This account's durable invite link code, created on first use. */
+  inviteCode(): Promise<string>
+  /** Claim a code somebody pasted. Returns the server's outcome. */
+  claimInvite(code: string): Promise<string>
+  referralSummary(): Promise<{ successful: number; pending: number }>
+  badges(): Promise<EarnedBadge[]>
+  setDisplayedBadge(key: string | null): Promise<void>
 
   // --- analytics -----------------------------------------------------------
   //
