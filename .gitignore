@@ -42,6 +42,7 @@ supabase/.temp
 
 # Demo build output
 dist-demo
+dist-firefox
 
 # Test Lab build output. The lab is normally RUN, not built - see docs/TEST_LAB.md.
 dist-testlab

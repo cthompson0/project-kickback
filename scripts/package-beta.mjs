@@ -25,24 +25,23 @@
  * Nothing is copied wholesale: the file list is an allow-list, so a stray file
  * appearing in dist/ cannot silently end up in a tester's hands.
  */
-import { execFileSync } from 'node:child_process'
 import {
   cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
-  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, relative } from 'node:path'
+import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listZip, writeZip } from './zip.mjs'
 import { verifyGroupSchema } from './verify-group-schema.mjs'
 import { EXPECTED_EXTENSION_ID, extensionIdFromKey } from './extension-identity.mjs'
+import { RUNTIME_FILES, createScanner, run, step, walk } from './package-shared.mjs'
 import { verifyAnalyticsSchema } from './verify-analytics.mjs'
 
 const DIST = 'dist'
@@ -82,161 +81,21 @@ const FOLDER = 'Watchside'
 const STORE = process.argv.includes('--store')
 
 /**
- * Exactly what a tester needs at runtime, and nothing else.
- *
- * An allow-list rather than "copy dist/ and delete the bad bits": the failure
- * mode of a deny-list is shipping something nobody thought to exclude.
+ * Problems are collected rather than thrown, so one run reports everything
+ * wrong with a package instead of the first thing.
  */
-const RUNTIME_FILES = [
-  'manifest.json',
-  'kickback-content.js',
-  'kickback-background.js',
-  'popup.html',
-  'icons/icon-16.png',
-  'icons/icon-32.png',
-  'icons/icon-48.png',
-  'icons/icon-128.png',
-]
-
-/**
- * Things that must never appear in the package, by name.
- *
- * Matched against the archive path, case-insensitively.
- */
-const FORBIDDEN_PATHS = [
-  '.env',
-  '.keys',
-  '.pem',
-  '.git',
-  'node_modules',
-  'dist-demo',
-  'src/',
-  'tests/',
-  'scripts/',
-  'supabase/',
-  '.map',
-  'cookies',
-  'local storage',
-  'session storage',
-  'default/',
-  '.crx',
-  '.zip',
-]
-
-/**
- * Secrets, matched against file contents.
- *
- * Patterns rather than bare words, because the difference between a secret and
- * a mention of one matters. `@supabase/supabase-js` ships a function that
- * asks whether a key starts with "sb_secret_", so the bare prefix appears in
- * the bundle with no key attached; rejecting on that would be a false alarm
- * that teaches us to ignore the scanner. What must never appear is an actual
- * key, so the pattern requires the value.
- *
- * The publishable key is deliberately absent from this list: it is public
- * client config and belongs in the bundle. It cannot be confused with
- * `sb_secret_`, which is a different prefix.
- */
-const FORBIDDEN_CONTENT = [
-  // A real secret key, not the SDK's prefix check.
-  { label: 'a Supabase secret key', pattern: /sb_secret_[A-Za-z0-9_-]{10,}/ },
-  { label: 'the service-role role', pattern: /service_role/ },
-  { label: 'an OAuth client secret', pattern: /client_secret/ },
-  { label: 'a private key block', pattern: /BEGIN (RSA |ENCRYPTED )?PRIVATE KEY/ },
-  { label: 'a Postgres connection string', pattern: /postgres(ql)?:\/\// },
-  { label: 'a superuser role', pattern: /supabase_admin/ },
-  { label: 'an env file line', pattern: /VITE_SUPABASE_PUBLISHABLE_KEY\s*=/ },
-]
-
-/**
- * Rules that apply to one file only.
- *
- * `provider_token` lives in supabase-js's session parser, so the service
- * worker legitimately contains the string. The rule that matters is that it
- * never reaches the Twitch page, where page scripts could see it.
- */
-const FILE_SCOPED_CONTENT = {
-  'kickback-content.js': [
-    { label: 'Twitch provider token handling', pattern: /provider_(refresh_)?token/ },
-    { label: 'a direct Twitch API call', pattern: /api\.twitch\.tv/ },
-  ],
-}
-
-/**
- * Demo-mode fingerprints. None of this may reach a tester.
- *
- * The demo client, the mock presence service and the scripted people are all
- * behind a build-time constant, so a production build drops them entirely -
- * including the wording. If any of this survives, the artifact was built in
- * the wrong mode.
- */
-const DEMO_MARKERS = [
-  'createDemoClient',
-  'mockPresenceService',
-  'DEMO_UNAVAILABLE',
-  'demo mode',
-  'The Boys',
-  'jakethesnake',
-  'Late Night Crew',
-  'DEMO_FOLLOWER',
-]
-
-/** A JWT-shaped literal. A service-role key is one; a publishable key is not. */
-const JWT_LITERAL = /eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\./
-
 const problems = []
 const fail = (message) => problems.push(message)
 
-function step(label) {
-  console.log(`\n== ${label}`)
-}
-
-function run(command, args, env) {
-  execFileSync(command, args, {
-    stdio: 'inherit',
-    shell: process.platform === 'win32',
-    env: env ? { ...process.env, ...env } : process.env,
-  })
-}
-
-function walk(dir, base = dir) {
-  const out = []
-  for (const entry of readdirSync(dir)) {
-    const full = join(dir, entry)
-    if (statSync(full).isDirectory()) out.push(...walk(full, base))
-    else out.push(relative(base, full).split('\\').join('/'))
-  }
-  return out
-}
-
-function scanContents(root, files, where) {
-  for (const file of files) {
-    const full = join(root, file)
-    const isText = /\.(js|json|html|txt|css|map)$/i.test(file)
-    if (!isText) continue
-
-    const text = readFileSync(full, 'utf8')
-    for (const { label, pattern } of FORBIDDEN_CONTENT) {
-      if (pattern.test(text)) fail(`${where}: ${file} contains ${label}`)
-    }
-    for (const { label, pattern } of FILE_SCOPED_CONTENT[file] ?? []) {
-      if (pattern.test(text)) fail(`${where}: ${file} contains ${label}`)
-    }
-    for (const marker of DEMO_MARKERS) {
-      if (text.includes(marker)) fail(`${where}: ${file} contains demo marker "${marker}"`)
-    }
-    if (JWT_LITERAL.test(text)) fail(`${where}: ${file} contains a JWT-shaped literal`)
-  }
-}
-
-function checkPaths(paths, where) {
-  for (const path of paths) {
-    const lower = path.toLowerCase()
-    for (const forbidden of FORBIDDEN_PATHS) {
-      if (lower.includes(forbidden)) fail(`${where}: forbidden path "${path}" (matched ${forbidden})`)
-    }
-  }
-}
+/*
+ * The allow-list, the forbidden paths, the secret patterns and the demo
+ * markers now live in ./package-shared.mjs, because Watchside packages for two
+ * engines and a second copy of that safety net would eventually disagree with
+ * this one - and the copy that fell behind would be the one that let something
+ * through. The scanners take the `fail` below, so the two packagers share the
+ * rules without sharing state.
+ */
+const { scanContents, checkPaths } = createScanner(fail)
 
 async function main() {
   // ---------------------------------------------------------- preflight
