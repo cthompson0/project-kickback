@@ -1,7 +1,7 @@
 # Watchside — Kickback → Watchside brand migration
 
 **Date:** 2026-08-28
-**Branch:** `watchside-migration` (2 commits, not merged, not pushed)
+**Branch:** `watchside-migration` (4 commits, not merged, not pushed)
 **Version:** 0.6.0 — unchanged, see *Version* below
 **Extension ID:** `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged and verified
 
@@ -132,8 +132,14 @@ resolving.
 
 ## Phase 6 — Migration 0028 (`0028_watchside_copy.sql`)
 
-**NOT APPLIED TO HOSTED.** Changes no table, column, policy, grant or function
-signature.
+**NOT APPLIED TO HOSTED. Expects 27, advances 27 → 28.** Changes no table,
+column, policy, grant or function signature.
+
+Why the rename needs a migration at all: two pieces of copy a person reads
+live in the database and cannot be reached from the extension — the fallback
+display name a *friend* sees when Twitch sent no metadata, and the badge
+descriptions the shelf renders into a tooltip. Everything else in this
+migration is refusal to touch things (see the PRESERVE table).
 
 1. `sync_kickback_identity()` replaced in full — byte-for-byte 0011's body
    with `'Kickback user'` → `'Watchside user'`. Restated in full because
@@ -173,9 +179,9 @@ of scope here — flagged as separate debt.
 **Packages:**
 
 - `releases/Watchside-Private-Beta-v0.6.0.zip`
-  `sha256 fe921819499c6fd326bf9f07527df60e5ddc7792ac10dd83896d61925d03dca4`
+  `sha256 c1217ff5093ed2cb65a918eea21d14df4f66cbf48283487cae12c81e6067203e`
 - `releases/Watchside-Store-v0.6.0.zip`
-  `sha256 e3b2ef48c32a7c685bae519f3d47dfd65ea2947c7759ce232071ac5c792200c2`
+  `sha256 150e3c5b9319d3ccccba5ca0d07ba5a6ea38ccde1a9f426b8ffb280b7a818d3d`
 
 Beta keeps the manifest `key`; the Store package omits it and still resolves
 to `ngfopkeokddfnncdhfkhnffilbdhkkip`.
@@ -203,12 +209,49 @@ available. A rename alone is not a reason to bump.
 
 ## Owner actions
 
-1. **Hosted database is two migrations behind.** It reports **26**; local
-   expects **28**. Run `npm run db:bundle`, paste
-   `supabase/.generated/apply_all.sql` into the SQL Editor, then confirm
-   `select public.analytics_schema_version();` returns **28**. This applies
-   0027 (the badge projection, outstanding from the previous checkpoint) and
-   0028 together.
+1. **Hosted database is one migration behind: apply 0028, alone.**
+
+   > **Corrected 2026-08-28.** An earlier draft of this report said hosted was
+   > at **26** and told you to paste the whole bundle. Both were wrong. The
+   > owner ran `select public.analytics_schema_version();` in the hosted SQL
+   > Editor and it returned **27** — 0027 is already applied. That reading is
+   > authoritative and this section now follows it. **Do not run the bundle**:
+   > it contains 0027 and there is no reason to replay it.
+
+   Paste the contents of `supabase/migrations/0028_watchside_copy.sql` — that
+   one file, nothing else — into the hosted SQL Editor and run it. It opens
+   with `begin;` and ends with `commit;`, so it is one transaction: it either
+   lands whole or not at all.
+
+   Then confirm:
+
+   ```sql
+   select public.analytics_schema_version();   -- expect 28
+   ```
+
+   **0028 does not depend on 0027.** Its highest dependency is 0026
+   (`badge_definitions`); it also touches `sync_kickback_identity()`,
+   `users` and `connected_accounts`, all of which predate 0027. It neither
+   reads nor alters `list_displayed_badges()`.
+
+   This path is proven, not assumed. Migrations 0001–0027 were applied to real
+   PostgreSQL, the marker read **27**, then 0028 alone was applied:
+
+   ```
+   marker before 0028               : 27
+   fallback display name before     : "Kickback user"
+   referrer_1 description before    : "Brought a friend to Kickback."
+   marker after 0028                : 28
+   existing row backfilled to       : "Watchside user"
+   referrer_1 description after     : "Brought a friend to Watchside."
+   a NEW signup after 0028 is named : "Watchside user"
+   marker after applying 0028 twice : 28
+   0027 list_displayed_badges intact: true
+   badge rows still saying Kickback : 0
+   ```
+
+   Applying it twice leaves the marker at 28 and the copy unchanged, so a
+   double-paste is harmless.
 2. **Push the Pages repo.** `c:/Users/sk8bo/Projects/anoteros-pages`, commit
    `f2881a4`, committed locally but **not pushed** — publishing to a public
    site is your call. Until it is pushed, `/watchside/invite/` 404s. Nothing
@@ -225,9 +268,12 @@ available. A rename alone is not a reason to bump.
 
 ## Flagged, not fixed
 
-- **`public/popup.html`** still says *"Phase 1 — sign in with Twitch. Friends
-  and presence are still being built."* That is stale for 0.6.0 and untrue.
-  Unrelated to branding, so I left it rather than widen scope.
+- ~~**`public/popup.html`** still says *"Phase 1 — sign in with Twitch.
+  Friends and presence are still being built."*~~ **Fixed 2026-08-28** at the
+  owner's instruction. That line was stale and untrue at 0.6.0; it now reads
+  *"Private beta — see who's around, what they're watching, and join them."*
+  Copy only — the popup was not redesigned. Both packages were rebuilt
+  afterwards, so the hashes below are the ones that include it.
 - **`verify:lab`'s 11 failures**, above.
 - **CRLF**: `core.autocrlf` rewrites line endings on checkout, and three
   source-pin tests match on `\n`. Pre-existing, recorded earlier as debt; a
