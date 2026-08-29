@@ -313,8 +313,18 @@ describe('the worker wires the whole chain', () => {
   it('re-asks when somebody arrives on or leaves the channel', () => {
     expect(WORKER).toContain('function coPresenceKey(')
     expect(WORKER).toContain('room.invalidate()')
-    const index = WORKER.slice(WORKER.indexOf('function indexPresence('))
-    expect(index.slice(0, 1_600)).toContain(// Every open destination, not one. A viewer with two streams keeps two
+    /*
+     * Looked for in setPresenceIndex rather than indexPresence, since WS-F5-01.
+     *
+     * indexPresence is only the REALTIME path. The friends and groups
+     * subscriptions also change who is here, and while they assigned the index
+     * directly they never re-asked - so an arrival that arrived through the
+     * friends service left the roster on a pre-arrival answer for over two
+     * minutes. The re-ask now lives with the assignment, where no caller can
+     * miss it.
+     */
+    const adopt = WORKER.slice(WORKER.indexOf('function setPresenceIndex('))
+    expect(adopt.slice(0, 1_200)).toContain(// Every open destination, not one. A viewer with two streams keeps two
       // rosters, and a presence change re-asks for all of them.
       'room.want(sessionChannels())')
   })

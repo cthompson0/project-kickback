@@ -132,6 +132,12 @@ const handlers = {
   storage: async () => storageShape(),
   destinations: async () => diag('kickbackDestinations'),
   gravity: async () => diag('kickbackGravity'),
+  room: async () => diag('kickbackRoom'),
+  'room.check': async ({ channel }) => {
+    const d = globalThis.kickbackRoom
+    if (!d) return { available: false }
+    return { available: true, value: await d.check(channel) }
+  },
   diagnosticsAttached: async () => ({
     destinations: typeof globalThis.kickbackDestinations,
     gravity: typeof globalThis.kickbackGravity,

@@ -82,6 +82,22 @@ export interface StreamRoom {
   reset(): void
   /** For tests and diagnostics. */
   pending(channel?: string | null): boolean
+  /**
+   * The whole cache, clocks included. For tests and diagnostics.
+   *
+   * Membership bugs are almost always about WHEN a question was asked rather
+   * than what came back, and a roster alone cannot tell a stale answer from a
+   * fresh empty one.
+   */
+  inspect(): Record<string, RoomInspection>
+}
+
+export interface RoomInspection {
+  members: number
+  /** How long ago this answer was accepted as fresh; null if never. */
+  ageMs: number | null
+  inFlight: boolean
+  invalidations: number
 }
 
 /**
@@ -126,6 +142,17 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
 
   async function ask(channel: string, state: RoomState, mine: number, seen: number): Promise<void> {
     state.inFlight = true
+    /*
+     * The retry is launched AFTER the `finally`, not inside the `try`.
+     *
+     * It used to clear `inFlight` itself and recurse from where the check is
+     * below - and then the `finally` ran, on the way out of the outer call,
+     * and cleared the flag the INNER call had just set. `want()` could then
+     * start a second request for the same channel, and whichever answer landed
+     * last won: including the older, pre-arrival one, which would stamp itself
+     * fresh and be cached for the full interval.
+     */
+    let retry = false
     try {
       const payload = await deps.backend.members(channel)
       /*
@@ -166,12 +193,10 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
        */
       if (state.invalidations !== seen) {
         state.fetchedAt = 0
-        state.inFlight = false
-        void ask(channel, state, mine, state.invalidations)
-        return
+        retry = true
+      } else {
+        state.fetchedAt = now()
       }
-
-      state.fetchedAt = now()
     } catch (error) {
       /*
        * Nothing is cleared, and nothing outside this channel is touched.
@@ -186,6 +211,8 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
     } finally {
       if (mine === state.generation) state.inFlight = false
     }
+
+    if (retry) void ask(channel, state, mine, state.invalidations)
   }
 
   return {
@@ -253,6 +280,19 @@ export function createStreamRoom(deps: StreamRoomDeps): StreamRoom {
       for (const state of rooms.values()) state.generation += 1
       rooms.clear()
       deps.onChange?.()
+    },
+
+    inspect(): Record<string, RoomInspection> {
+      const out: Record<string, RoomInspection> = {}
+      for (const [channel, state] of rooms) {
+        out[channel] = {
+          members: state.members.length,
+          ageMs: state.fetchedAt === 0 ? null : now() - state.fetchedAt,
+          inFlight: state.inFlight,
+          invalidations: state.invalidations,
+        }
+      }
+      return out
     },
 
     pending(channel): boolean {

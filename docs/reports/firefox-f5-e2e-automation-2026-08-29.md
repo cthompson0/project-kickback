@@ -1410,3 +1410,270 @@ taken.
 ## 31.13 What was NOT begun
 
 F6, F7 and M3 remain untouched, as instructed.
+
+---
+
+# 32. WS-F5-01 resolution — the room roster now follows the arrival (2026-08-29)
+
+Fixed. The already-watching actor's Stream Room roster converges in **0.1s**,
+measured against 122s / 132s / >150s before.
+
+## 32.1 How it was diagnosed
+
+Four measurements, each one ruling something out, because the symptom pointed at
+three different layers and only one of them was guilty.
+
+**1. The SQL is not at fault.** A diagnostic was added to ask the server the
+room question directly, bypassing the cache. At the same instant the client's
+roster was empty, the server answered correctly for that same client:
+
+```
+B room diagnostic: rooms={"lirik":{"members":0,"ageMs":5749,"inFlight":false,"invalidations":0}}
+B asks the server directly: [{ user_id: <A>, hops: 1, via_user_id: <A> }]
+```
+
+**2. It is not slow convergence, and not the cache doing its job.** Polling both
+answers together for 45s, without touching the other actor:
+
+```
+t+0s   cache: members=0 ageMs=5844  inv=0  |  server says: 1
+t+25s  cache: members=0 ageMs=31232 inv=0  |  server says: 1
+t+30s  cache: (room dropped)               |  server says: 1
+t+35s  cache: members=1 ageMs=3445  inv=0  |  server says: 1
+```
+
+The server said "1" the whole time. `invalidations` never left **0** — so
+`room.invalidate()` was never called. The room only recovered when `want()`
+happened to drop and recreate the channel, which is also why the timing was so
+erratic across runs.
+
+**3. The co-presence key was never updated.** Reporting it beside the value it
+would have if recomputed:
+
+```
+here=lirik  key=''  keyNow='e9ee4788-…'
+```
+
+`coPresence` — the remembered key whose CHANGE triggers the invalidation — was
+empty while the correct value was sitting right there.
+
+**4. The trigger never ran.** Counting entries into `indexPresence`:
+
+```
+{"calls":2,"completed":0,"sameObject":2,"error":null}
+```
+
+Two calls, both returning at the first guard, **zero completions** — while the
+presence index demonstrably contained the arriving friend. Something else was
+writing it.
+
+## 32.2 Root cause
+
+`presenceIndex` had **four writers**, and the co-presence check that re-asks the
+room lived inside only one of them.
+
+| Writer | Path | Re-asked the room? |
+| --- | --- | --- |
+| `indexPresence` | realtime `postgres_changes` on `presence` | yes |
+| `friends.subscribe` | the friends service | **no** |
+| `groups.subscribe` | the groups service | **no** |
+| `watchPresence` | forgetting people no longer visible | **no** |
+
+The arrival reached the client through the **friends service**, which assigned
+`presenceIndex` directly. Every presence-derived surface therefore updated — the
+HERE card lit up in ~2.3s, `roomPeers` was correct, messages flowed — while the
+room was never told anything had changed. Its cached pre-arrival answer stood
+until the 90s interval lapsed and something incidental re-asked.
+
+## 32.3 Why the existing protection did not cover it
+
+`ask()` in `streamRoom.ts` already guards this class of bug, and its comment
+describes this exact symptom — *"the person who joined sees the session
+immediately, and the person already watching does not until they refresh."*
+
+That guard defends against an invalidation that **races a request already in the
+air**. It presumes an invalidation happens at all. Here none did. No downstream
+guard could have helped, because the fault was upstream of it: the trigger had
+four writers and only one fired it. The protection was correct and complete for
+the case it was written for; the case it was written for was not this one.
+
+## 32.4 The fix
+
+**`src/background/index.ts`** — one function is now the only way `presenceIndex`
+can change, and it carries the consequence:
+
+```ts
+function setPresenceIndex(next: PresenceIndex): boolean {
+  if (next === presenceIndex) return false
+  presenceIndex = next
+
+  const key = coPresenceKey(sessionChannel())
+  if (key !== coPresence) {
+    coPresence = key
+    room.invalidate()
+  }
+  room.want(sessionChannels())
+  return true
+}
+```
+
+All four writers go through it. Making the assignment and its consequence the
+same statement is the point: a fifth writer cannot reintroduce this by
+forgetting a call, because there is no separate call to forget.
+
+Nothing else changed. The 90s cache is untouched, no polling was added, no
+sleeps, no extra membership queries on a quiet channel — the re-ask is still
+keyed on WHO is here, so it is one query per real arrival or departure rather
+than one per heartbeat per friend.
+
+**`src/background/streamRoom.ts`** — a latent race in `ask()`, found while
+reading the same path. The retry was launched from inside the `try`, so the
+outer call's `finally` ran afterwards and cleared the `inFlight` flag the retry
+had just set. `want()` could then start a second concurrent request for the same
+channel, and whichever answer landed last won — including the older, pre-arrival
+one, which would stamp itself fresh and be cached for the full interval. The
+retry is now launched after the `finally`.
+
+`inspect()` was also added to `StreamRoom`: members beside the age of the answer
+that produced them, plus the in-flight and invalidation counters. It is what
+turned this from "the room is slow" into a one-line diagnosis, and it is what
+measurement 2 above is reading.
+
+**Diagnostics.** `kickbackRoom.now()` and `kickbackRoom.check(channel)` sit
+inside the existing `if (METADATA_DIAGNOSTICS)` block — development and beta
+only, absent from a production build (`grep -c kickbackRoom dist/…` is 0). They
+follow the `kickbackMetadata.check` idiom already in that file, for the reason
+that file already gives: the alternative is inferring backend health from
+whether a React card looks right.
+
+## 32.5 Deterministic regression coverage
+
+`tests/extension/roomInvalidation.test.ts`, 6 tests. **5 of the 6 fail against
+the pre-fix source**, verified by stashing the fix and re-running.
+
+The structural tests are the ones that would actually have caught WS-F5-01,
+because the wiring is what broke:
+
+- `presenceIndex` is assigned in **exactly one place** — four before the fix.
+- that place is `setPresenceIndex`, and it calls `room.invalidate()` and
+  `room.want(...)`.
+- `friends.subscribe`, `groups.subscribe` and `watchPresence` each adopt presence
+  through it and none assigns the field directly.
+
+The behavioural tests cover the service:
+
+- an invalidation converges **well inside** the refresh interval — asserted on
+  the clock, so a "fix" that merely shortened the cache cannot pass.
+- a retry keeps its in-flight flag, so no duplicate request can be started and
+  no older answer can win. This is the `ask()` race above.
+- `inspect()` reports members beside the age of the answer.
+
+Four existing source-shape guards in `destinationPublishing`, `roomResolution`,
+`sessionStability` and `socialViewing` asserted the literal text of
+`indexPresence`. They were updated to pin the same invariants in their new home
+rather than relaxed — `sessionStability`'s is now strictly stronger, checking
+every presence path instead of the realtime one only.
+
+## 32.6 Two-actor E2E — the workaround is gone
+
+The temporary acceptance is removed. The scenario no longer asserts a peer count
+while reporting stale membership; it asserts the **rendered roster on both
+sides**, with a convergence window of **45s — deliberately below the 90s cache**,
+so neither a regression nor a cache-shortening "fix" can pass.
+
+```
+ok  B sees A arrive: its own card for the channel turns HERE  (after 2.8s)
+ok  A can send into the room
+ok  B received A's message           ([Watchside E2E] mtex0edb A→B)
+ok  and it is attributed to A, not to B
+ok  B can send into the room
+ok  A received B's message           ([Watchside E2E] mtex0edb B→A)
+ok  and it is attributed to B
+ok  A's own message is attributed to A
+ok  the arriving actor's room lists the other by name            (after 0.0s)
+ok  the already-watching actor's room lists the arriver (WS-F5-01) (after 0.1s)
+ok  and it converged on the arrival, not on the 90s cache expiring  (0.1s)
+ok  B's room counts one peer - the actor who joined
+ok  and the server's membership answer agrees with it
+ok  A's friend list is unchanged by the run
+ok  the room contains only the two actors - no unrelated user was pulled in
+ok  neither worker errored during the exchange
+```
+
+### Convergence timing
+
+| | before | after |
+| --- | --- | --- |
+| arriving actor's roster | 0.0s | 0.0s |
+| **already-watching actor's roster** | **122s / 132s / >150s** | **0.1s** |
+| HERE card | 2.3s | 2.8s |
+| social scenario runtime | 150–180s | **21.4s** |
+| full 5-scenario suite | 290s | **128s** |
+
+The suite is faster because it is no longer waiting out a cache.
+
+## 32.7 Messaging
+
+Unaffected and still proven both ways, with attribution checked from both
+screens: the same message reads *not self, from AnoterosTV* on B and *self, from
+You* on A. Message retention was not touched; neither was the 30-minute window,
+room retention, or Presence/Gravity semantics.
+
+## 32.8 Seed safety
+
+| | |
+| --- | --- |
+| `seed-a` before / after | `490abc069b69176b` / `490abc069b69176b` |
+| `seed-b` before / after | `230347d30f6355fa` / `230347d30f6355fa` |
+
+Unchanged across the full suite. Seeds are copied, never opened; `createProfile()`
+still refuses any path outside `dist-firefox/e2e`.
+
+## 32.9 Chrome and shared-code implications
+
+**This is shared code.** `background/index.ts` and `background/streamRoom.ts` are
+not Firefox-specific, so **Chrome had the identical defect** and this fix cures
+it there too. It was only ever found on Firefox because that is where the
+two-actor harness runs.
+
+The submitted Chrome artifact was **not rebuilt**:
+`releases/Watchside-Store-v0.6.0.zip` is still `150e3c5b9319d3cc…`, unchanged.
+The fix is therefore in source and in the Firefox development package, and will
+reach Chrome users at the next Store build — which is an owner decision, not
+one taken here.
+
+`releases/Watchside-Firefox-v0.6.0.zip` **was** rebuilt to
+`ecfd6b683f9ee672…`, necessarily: it is the unsigned development package the
+E2E runs against, and it has to carry the fix for the E2E to prove anything. The
+submitted beta artifact `Watchside-Firefox-Beta-v0.6.0.zip` was not touched.
+
+No hosted schema change was needed or made. The SQL was proven correct in
+measurement 1 and not altered. No migration was applied. OAuth scopes untouched.
+
+## 32.10 Full verification
+
+| Check | Result |
+| --- | --- |
+| `roomInvalidation.test.ts` against the PRE-fix source | **5 of 6 fail** |
+| `roomInvalidation.test.ts` against the fix | 6/6 pass |
+| `npm test` | **2279 passed / 88 files** |
+| `tsc -b --force` | clean |
+| `eslint .` | clean |
+| `verify:firefox` · `verify:store` | pass |
+| `npm run verify:firefox:e2e` | **5/5 scenarios, 128s** |
+| Seed fingerprints | unchanged |
+| Chrome Store artifact | `150e3c5b…` unchanged |
+
+## 32.11 F5 final verdict
+
+**F5 is complete.** The two-actor Firefox E2E infrastructure and the social
+acceptance chain were accepted at `128aba0`. The one defect that work found,
+WS-F5-01, is now root-caused, fixed in the shared implementation, covered by
+deterministic tests that fail without the fix, and proven end to end on two real
+accounts in two real browsers.
+
+The E2E assertion that reported the defect is now a hard assertion with a
+window below the cache it used to wait for. There is no outstanding workaround
+and no known outstanding defect from F5.
+
+F6, F7 and M3 remain unstarted.

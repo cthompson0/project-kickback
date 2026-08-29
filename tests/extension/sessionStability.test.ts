@@ -277,15 +277,29 @@ describe('the worker converges on the same events that redraw HERE', () => {
   const WORKER = readFileSync('src/background/index.ts', 'utf8')
 
   it('invalidates and re-asks when the co-present set changes', () => {
-    expect(WORKER).toContain('const key = coPresenceKey(here)')
+    expect(WORKER).toContain('const key = coPresenceKey(sessionChannel())')
     expect(WORKER).toContain('if (key !== coPresence) {')
     expect(WORKER).toContain('room.invalidate()')
     expect(WORKER).toContain('room.want(sessionChannels())')
   })
 
-  it('does that from the presence path, which is what draws HERE', () => {
+  it('does that from EVERY presence path, not only the realtime one', () => {
+    /*
+     * Widened by WS-F5-01. This used to look inside `indexPresence` alone,
+     * which is the realtime path - and that was precisely the blind spot: the
+     * friends and groups subscriptions assigned the index directly and never
+     * re-asked the room, so an arrival delivered through the friends service
+     * left the roster on a pre-arrival answer until the 90s cache lapsed.
+     *
+     * The invalidation now lives with the ASSIGNMENT, so no caller can skip
+     * it. tests/extension/roomInvalidation.test.ts pins that there is exactly
+     * one assignment site.
+     */
+    const adopt = WORKER.slice(WORKER.indexOf('function setPresenceIndex('))
+    expect(adopt.slice(0, 1_200)).toContain('room.invalidate()')
+
     const index = WORKER.slice(WORKER.indexOf('function indexPresence('))
-    expect(index.slice(0, 1_800)).toContain('room.invalidate()')
+    expect(index.slice(0, 400)).toContain('setPresenceIndex(next)')
   })
 
   it('adds no polling loop of its own', () => {

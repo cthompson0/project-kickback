@@ -245,35 +245,37 @@ export default {
 
       // -------------------------------------------------- who the room says is here
       /*
-       * Two different answers to "who is in this room", and they disagree.
+       * The roster, asserted on BOTH sides and timed.
        *
-       *   roomPeers   - derived from PRESENCE. Lands in seconds.
-       *   roomMembers - the server's membership query, cached 90s and re-asked
-       *                 only when the client believes co-presence changed.
+       * Two different answers to "who is in this room" feed this:
        *
-       * The rendered roster lists roomMembers. On the actor who NAVIGATED it is
-       * correct instantly, because arriving re-asks. On the actor who was
-       * already watching it stays empty long past the cache - measured at
-       * 122s, 132s and >150s across runs - even though that same client shows
-       * the arrival on its HERE card within about two seconds and exchanges
-       * room messages with the arriver perfectly.
+       *   roomPeers   - derived from PRESENCE, and always fast.
+       *   roomMembers - the server's membership query, cached for 90s and
+       *                 re-asked when co-presence changes. This is what the
+       *                 rendered roster lists.
        *
-       * That is WS-F5-01, and it is reported below rather than asserted. The
-       * distinction matters: an assertion on a known-broken behaviour makes the
-       * gate permanently red, and a permanently red gate is one nobody reads.
-       * What IS asserted is everything that works - including B's own peer view,
-       * which is the client half of the same claim - so the coverage is not
-       * quietly dropped. When WS-F5-01 is fixed, the report below becomes an
-       * assertion and the timeout comes down.
+       * WS-F5-01 lived in the gap. The actor who NAVIGATED was always correct,
+       * because arriving re-asks; the actor already watching kept a pre-arrival
+       * answer for 122s, 132s and >150s across runs, while its own HERE card
+       * showed the arrival in about two seconds. The cause was that three of
+       * the four writers of the presence index never invalidated the room, so
+       * nothing re-asked until the cache happened to lapse.
+       *
+       * So the window here is the assertion, not decoration. It is set well
+       * BELOW the 90s refresh interval on purpose: a fix that merely shortened
+       * the cache, or one that regressed to waiting for it, cannot pass. Only
+       * event-driven convergence can.
        */
+      const CONVERGE_MS = 45_000
+
       const rosterLists = async (driver, who) => {
         const at = Date.now()
         const panel = await panelWhen(
           driver,
           MEET,
           (p) => p.session && p.session.people.some((n) => n.toLowerCase() === who.toLowerCase()),
-          `the roster to list ${who}`,
-          150_000,
+          `the roster to list ${who} within ${CONVERGE_MS / 1000}s`,
+          CONVERGE_MS,
         )
         return { panel, seconds: ((Date.now() - at) / 1000).toFixed(1) }
       }
@@ -285,12 +287,21 @@ export default {
         `${listsB.panel.session.people.join(', ')} after ${listsB.seconds}s`,
       )
 
+      const listsA = await rosterLists(b, idA.displayName)
+      assert(
+        "the already-watching actor's room lists the arriver by name (WS-F5-01)",
+        listsA.panel.session.people.some((p) => p.toLowerCase() === idA.displayName.toLowerCase()),
+        `${listsA.panel.session.people.join(', ')} after ${listsA.seconds}s`,
+      )
+      assert(
+        'and it converged on the arrival, not on the 90s cache expiring',
+        Number(listsA.seconds) < 90,
+        `${listsA.seconds}s`,
+      )
+
       /*
-       * B's half, asserted on the client's own peer set.
-       *
-       * This is the part that is not broken: B knows a friend is co-present on
-       * this channel. Asserting it keeps the two-sided claim under test while
-       * WS-F5-01 is outstanding, instead of leaving B's side unchecked.
+       * The client half of the same claim, kept because it is what tells a
+       * broken ROOM apart from broken PRESENCE if this ever fails again.
        */
       const peers = await b.waitFor(
         async () => {
@@ -301,27 +312,11 @@ export default {
         { label: `B to count a peer on ${MEET}`, timeout: 60_000 },
       )
       assert.equal("B's room counts one peer - the actor who joined", peers.roomPeers[MEET], 1)
-
-      const listsA = await rosterLists(b, idA.displayName)
-        .then((r) => ({ ...r, filled: true }))
-        .catch(() => ({ filled: false, seconds: '>150' }))
-
-      if (listsA.filled && Number(listsA.seconds) <= 90) {
-        assert(
-          "the already-watching actor's room lists the other by name",
-          true,
-          `after ${listsA.seconds}s`,
-        )
-      } else {
-        const after = await b.page(MEET, 'state').catch(() => null)
-        const view = after && [...(after.states || [])].reverse().find((x) => x.signedIn)
-        console.log(
-          `    !!  WS-F5-01: the already-watching actor's room roster took ${listsA.seconds}s ` +
-            `(cache is 90s) while its HERE card updated in ${noticedIn}s. ` +
-            `Its own view: peers=${JSON.stringify(view?.roomPeers ?? null)} ` +
-            `members=${JSON.stringify(view?.roomMembers ?? null)}`,
-        )
-      }
+      assert.equal(
+        "and the server's membership answer agrees with it",
+        (peers.roomMembers?.[MEET] ?? 0) >= 1,
+        true,
+      )
 
       // ------------------------------------------------ nobody else was touched
       /*

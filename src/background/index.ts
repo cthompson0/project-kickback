@@ -268,33 +268,60 @@ function coPresenceKey(channel: string | null): string {
 
 let coPresence = ''
 
-function indexPresence(next: PresenceIndex): void {
-  if (next === presenceIndex) return
+/**
+ * The ONE way `presenceIndex` is allowed to change.
+ *
+ * WS-F5-01 LIVED IN THE GAP THIS CLOSES.
+ *
+ * Who is here with the viewer decides what the room contains, and the room is
+ * the only surface that cannot work that out for itself: it is a server answer,
+ * cached for two heartbeats, and nothing else would ever re-ask it. So the
+ * co-presence comparison below has to run whenever the index changes.
+ *
+ * It used to live inside `indexPresence`, which is only the REALTIME path.
+ * Three other places assigned `presenceIndex` directly - the friends
+ * subscription, the groups subscription, and `watchPresence` - and none of them
+ * ran the comparison. An arrival that reached the client through the friends
+ * service therefore updated every presence-derived surface while the room was
+ * never invalidated: measured in the two-actor E2E as a HERE card lighting up
+ * in 2.3 seconds beside a roster that stayed empty for 122s, 132s and >150s,
+ * until the ninety-second cache happened to lapse.
+ *
+ * Note what this is NOT: the protection in `ask()` guards an invalidation that
+ * races a request already in the air. It presumes an invalidation happens at
+ * all. Here none did, so a downstream guard could never have helped - which is
+ * why the existing fix, and its comment describing this exact symptom, did not
+ * cover this path.
+ *
+ * Making the assignment and its consequence the same statement is what stops a
+ * fourth writer reintroducing it. `presenceIndexAssignments` in
+ * tests/extension/roomInvalidation.test.ts fails if one ever does.
+ *
+ * Returns whether anything actually changed, so callers can skip work.
+ */
+function setPresenceIndex(next: PresenceIndex): boolean {
+  if (next === presenceIndex) return false
   presenceIndex = next
-  // Somebody arriving on or leaving the channel this user is watching is
-  // exactly what starts and ends a shared watch, so it is re-evaluated here
-  // rather than only when the local user navigates.
-  updateTogether()
 
   /*
-   * And it is also the only thing that changes who is in the room.
-   *
-   * Membership is cached for two heartbeats, which is right for an answer
-   * that rarely differs - but nothing was re-asking, because presence updates
-   * do not run pushActivity. A friend arriving was therefore invisible to the
-   * room until the viewer navigated, hid the tab, or half an hour passed.
-   *
    * Keyed on WHO is here rather than on every presence tick, so this is one
    * query per actual arrival or departure, not one per heartbeat per friend.
    */
-  const here = sessionChannel()
-  const key = coPresenceKey(here)
+  const key = coPresenceKey(sessionChannel())
   if (key !== coPresence) {
     coPresence = key
     room.invalidate()
   }
   room.want(sessionChannels())
+  return true
+}
 
+function indexPresence(next: PresenceIndex): void {
+  if (!setPresenceIndex(next)) return
+  // Somebody arriving on or leaving the channel this user is watching is
+  // exactly what starts and ends a shared watch, so it is re-evaluated here
+  // rather than only when the local user navigates.
+  updateTogether()
   broadcast()
 }
 
@@ -1548,9 +1575,11 @@ groups.subscribe((next) => {
   groupsState = next
   // A roster snapshot carries presence for people we may know only through
   // this group - fold it in before anything renders.
-  presenceIndex = mergePresence(
-    presenceIndex,
-    Object.values(next.members).flatMap((roster) => roster.map((member) => member.presence)),
+  setPresenceIndex(
+    mergePresence(
+      presenceIndex,
+      Object.values(next.members).flatMap((roster) => roster.map((member) => member.presence)),
+    ),
   )
   watchPresence()
   if (authState.status === 'signed_in' && authState.identity) {
@@ -1566,9 +1595,11 @@ groups.subscribe((next) => {
 
 friends.subscribe((next) => {
   friendsState = next
-  presenceIndex = mergePresence(
-    presenceIndex,
-    next.friends.map((friend) => friend.presence),
+  setPresenceIndex(
+    mergePresence(
+      presenceIndex,
+      next.friends.map((friend) => friend.presence),
+    ),
   )
   if (authState.status === 'signed_in') {
     // Somebody was added, removed or blocked: who we may see destinations for
@@ -1599,10 +1630,12 @@ function watchPresence(): void {
   )
   // People we can no longer see stop being tracked, so a removed group member
   // does not leave a frozen presence behind.
-  presenceIndex = forgetPresence(
-    presenceIndex,
-    Object.keys(presenceIndex).filter(
-      (userId) => userId !== authState.identity?.userId && !watched.includes(userId),
+  setPresenceIndex(
+    forgetPresence(
+      presenceIndex,
+      Object.keys(presenceIndex).filter(
+        (userId) => userId !== authState.identity?.userId && !watched.includes(userId),
+      ),
     ),
   )
   presenceSync.setFriends(watched)
@@ -2206,6 +2239,47 @@ if (METADATA_DIAGNOSTICS) {
    * Channel names are here. Development and beta only, on the same build-time
    * constant the metadata probe uses, and nothing here goes to analytics.
    */
+  /*
+   * Why the room on screen says what it says.
+   *
+   *     kickbackRoom.now()
+   *
+   * A roster on its own cannot distinguish "the server said nobody is here"
+   * from "nobody has asked the server since before they arrived", and those
+   * are opposite bugs. This puts the two answers side by side - the peers the
+   * client can see from presence, and the members the server returned - along
+   * with how old that answer is and how many times it has been invalidated.
+   * WS-F5-01 was diagnosed with exactly this pair.
+   */
+  ;(globalThis as unknown as Record<string, unknown>).kickbackRoom = {
+    now() {
+      return {
+        here: sessionChannel(),
+        open: sessionChannels(),
+        peers: sessionPeerMap(),
+        coPresence,
+        rooms: room.inspect(),
+      }
+    },
+    /*
+     * Ask the server the room question directly, bypassing the cache.
+     *
+     *     await kickbackRoom.check('lirik')
+     *
+     * The same reasoning as kickbackMetadata.check: the alternative is
+     * inferring backend health from whether a roster looks right. It answers
+     * whether the SERVER thinks anybody is there, which is the only way to
+     * tell a stale cache from a genuinely empty room.
+     */
+    async check(channel: string) {
+      try {
+        return { members: await createSupabaseRoomBackend(supabase).members(channel) }
+      } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+      }
+    },
+  }
+
   ;(globalThis as unknown as Record<string, unknown>).kickbackDestinations = {
     now() {
       const tabs = tabActivity.snapshot()
