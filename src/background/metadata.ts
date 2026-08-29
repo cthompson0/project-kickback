@@ -78,6 +78,8 @@ export interface MetadataService {
   reset(): void
   /** For tests and diagnostics. */
   pending(): number
+  /** Whether a fetch is open for this channel right now. Diagnostics only. */
+  inFlight(channel: string): boolean
 }
 
 /**
@@ -207,6 +209,8 @@ export function createMetadataService(deps: MetadataServiceDeps): MetadataServic
     },
 
     pending: () => inFlight.size,
+
+    inFlight: (channel: string) => inFlight.has(channel.trim().toLowerCase()),
   }
 }
 

@@ -12,6 +12,7 @@ import type { ChannelMetadata } from '../core/twitchMetadata'
 import type { Reaction, TogetherReaction } from '../core/together'
 import type { RoomMember } from '../core/streamRoom'
 import type { RoomMessage } from '../core/roomMessages'
+import type { DestinationsByUser } from '../core/socialGravity'
 import type { Emote } from '../core/emotes'
 import type {
   AnalyticsEventMap,
@@ -105,7 +106,7 @@ export interface KickbackState {
    * information for them, and their singular presence.channel is still the
    * best answer. That is what keeps a v0.4.1 friend visible.
    */
-  friendDestinations: Record<string, string[]>
+  friendDestinations: DestinationsByUser
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
   friendsLoading: boolean

@@ -15,6 +15,8 @@ import type { PresenceIndex } from './presenceIndex'
 import { createPresenceReporter } from './presence'
 import type { PresenceBackend } from './presence'
 import { createActivityRegistry } from './activity'
+import { createFriendDestinations } from './friendDestinations'
+import { needsRefresh } from '../core/twitchMetadata'
 // The same selector and the same expansion the panel renders from, so the
 // diagnostic below cannot report a map the UI does not draw.
 import {
@@ -23,6 +25,7 @@ import {
   gravityModel,
   isGravity,
 } from '../core/socialGravity'
+import type { DestinationsByUser } from '../core/socialGravity'
 import { createGatheringWatcher } from './gatherings'
 import { resolveChannelName } from '../core/channelNames'
 import {
@@ -733,40 +736,47 @@ const attention = createAttentionService({ storage: storageArea, onError: logErr
  * make every friend look like they were nowhere, which is worse than showing a
  * slightly old set for a few seconds.
  */
-let friendDestinations: Record<string, string[]> = {}
-let destinationsPending = false
-let destinationsTimer: ReturnType<typeof setTimeout> | undefined
+const friendDestinationsStore = createFriendDestinations({
+  fetch: () => listFriendDestinations(supabase),
+  /*
+   * THE MISSING TRIGGER.
+   *
+   * A changed destination set is not only something to draw - it is something
+   * to ASK TWITCH ABOUT. Two channels that were not on the map a moment ago
+   * have no metadata, and nothing else in the worker is watching for that.
+   *
+   * Before this, the order was reliably wrong. A friend opening a second
+   * stream produces a presence event, which fires `refreshAttention` -> `
+   * wantMetadata` immediately, using the destination set as it was A SECOND
+   * BEFORE THE NEW ONE ARRIVED. The destinations then landed on the coalesced
+   * read, the panel drew three cards, and nobody asked about the two new
+   * channels until the friend's NEXT heartbeat forty-five seconds later.
+   * Delayed, partial, and cured by a refresh - which is exactly what was
+   * reported.
+   *
+   * Enrichment first, then the broadcast: `want` is synchronous and only
+   * starts requests, so this costs nothing and keeps the two in one place.
+   */
+  onChange: () => {
+    wantMetadata()
+    broadcast()
+  },
+  onError: logError,
+})
+
+/** The set itself, for everything that only needs to read it. */
+function friendDestinationsSnapshot(): DestinationsByUser {
+  return friendDestinationsStore.snapshot()
+}
 
 function refreshFriendDestinations(): void {
   if (authState.status !== 'signed_in') return
-  if (destinationsPending) return
-  destinationsPending = true
-
-  void listFriendDestinations(supabase)
-    .then((result) => {
-      if (result.error) {
-        logError('presence.destinations', result.error)
-        return
-      }
-      const next = result.value ?? {}
-      // Broadcast only on a real change: this runs on a timer, and an
-      // unchanged map would push a full state snapshot to every tab for
-      // nothing.
-      if (JSON.stringify(next) === JSON.stringify(friendDestinations)) return
-      friendDestinations = next
-      broadcast()
-    })
-    .finally(() => {
-      destinationsPending = false
-    })
+  friendDestinationsStore.refresh()
 }
 
 function scheduleDestinationsRefresh(): void {
-  if (destinationsTimer !== undefined) return
-  destinationsTimer = setTimeout(() => {
-    destinationsTimer = undefined
-    refreshFriendDestinations()
-  }, 1_000)
+  if (authState.status !== 'signed_in') return
+  friendDestinationsStore.schedule()
 }
 
 /**
@@ -981,7 +991,7 @@ function wantMetadata(): void {
       presence: friend.presence,
       userId: friend.user.id,
     })),
-    friendDestinations,
+    friendDestinationsSnapshot(),
   )
 
   const here = currentChannel()
@@ -1353,7 +1363,7 @@ function currentState(): KickbackState {
     sessionChannel: restoredSession(),
     mutedUserIds: sessionTab.muted(),
     blockedUsers: friendsState.blocked,
-    friendDestinations: { ...friendDestinations },
+    friendDestinations: { ...friendDestinationsSnapshot() },
   }
 }
 
@@ -2051,6 +2061,7 @@ if (METADATA_DIAGNOSTICS) {
       const selfId = authState.identity?.userId ?? null
 
       const records = metadata.snapshot()
+      const destinations = friendDestinationsSnapshot()
       // The same canonical call the panel makes, so this cannot report a map
       // the UI does not draw.
       const sections = gravityModel({
@@ -2059,7 +2070,7 @@ if (METADATA_DIAGNOSTICS) {
           presence: friend.presence,
           userId: friend.user.id,
         })),
-        destinations: friendDestinations,
+        destinations,
         localActivity: tabActivity.effective(),
         selfId,
         metadata: records,
@@ -2079,12 +2090,12 @@ if (METADATA_DIAGNOSTICS) {
         signedIn: authState.status === 'signed_in',
         // What list_friend_destinations last returned, per friend.
         received: Object.fromEntries(
-          Object.entries(friendDestinations).map(([userId, channels]) => [
+          Object.keys(destinations).map((userId) => [
             friends.find((friend) => friend.user.id === userId)?.user.username || userId,
-            [...channels],
+            [...destinations[userId]],
           ]),
         ),
-        friendsWithDestinations: Object.keys(friendDestinations).length,
+        friendsWithDestinations: Object.keys(destinations).length,
         // One entry per friend per destination - the thing Gravity clusters.
         gravityInput: byChannel,
         gravityInputCount: sections.reduce((total, section) => total + section.count, 0),
@@ -2104,13 +2115,31 @@ if (METADATA_DIAGNOSTICS) {
               presence: friend.presence,
               userId: friend.user.id,
             })),
-            friendDestinations,
+            destinations,
           ).map((channel) => {
             const record = records[channel]
             return [
               channel,
               {
+                /*
+                 * The lifecycle, per channel, in one word.
+                 *
+                 *   cached    - we have it and it is fresh enough to show
+                 *   stale     - we have it, and the next want() will refetch
+                 *   requested - a fetch is open right now
+                 *   missing   - nothing, and nothing asked. THIS IS THE BUG
+                 *               STATE: a destination on the map that nobody
+                 *               has asked Twitch about.
+                 */
+                state: record
+                  ? needsRefresh(record, Date.now())
+                    ? 'stale'
+                    : 'cached'
+                  : metadata.inFlight(channel)
+                    ? 'requested'
+                    : 'missing',
                 enriched: Boolean(record),
+                lastUpdated: record ? new Date(record.fetchedAt).toISOString() : null,
                 displayName: record?.displayName ?? null,
                 live: record?.live ?? 'unknown',
                 game: record?.gameName ?? null,
@@ -2119,6 +2148,12 @@ if (METADATA_DIAGNOSTICS) {
             ]
           }),
         ),
+        /*
+         * The lifecycle counters, so "is anything even happening" is one
+         * number rather than an inference from four fields.
+         */
+        metadataPending: metadata.pending(),
+        destinationsPending: friendDestinationsStore.pending(),
         // And what came out, with why each one renders as it does.
         gravityOutput: sections.map((section) => ({
           channel: section.channel,
