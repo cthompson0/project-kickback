@@ -243,8 +243,20 @@ try {
       status: s.status,
       here: s.here ?? null,
       signedIn: Boolean(s.identity),
+      // Non-secret identity only. These are the fields the panel itself shows;
+      // no token, and nothing that could reconstruct one.
+      userId: s.identity ? s.identity.userId : null,
+      displayName: s.identity ? s.identity.displayName : null,
+      twitchLogin: s.identity ? s.identity.twitchLogin : null,
+      friendCode: s.identity ? s.identity.friendCode : null,
       friends: Array.isArray(s.friends) ? s.friends.length : null,
+      friendLogins: Array.isArray(s.friends)
+        ? s.friends.map((f) => (f.user && f.user.username) || null).filter(Boolean).sort()
+        : null,
       gravityCount: Array.isArray(s.gravity) ? s.gravity.length : null,
+      gravityChannels: Array.isArray(s.gravity)
+        ? s.gravity.map((g) => g.channel).filter(Boolean)
+        : null,
     })
     if (states.length > 40) states.splice(0, states.length - 40)
   })

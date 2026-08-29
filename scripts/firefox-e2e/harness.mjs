@@ -91,6 +91,14 @@ export function createProfile({ name, seed = null, strictEtp = false }) {
   if (seed) {
     if (!existsSync(seed)) throw new Error(`seed profile not found: ${seed}`)
     cpSync(seed, dir, { recursive: true })
+    /*
+     * A seed captured from a force-killed browser carries its lock files, and
+     * Firefox then refuses to start in the copy. Removing them is safe: the
+     * copy is brand new and nothing is running in it.
+     */
+    for (const lock of ['parent.lock', '.parentlock', 'lock']) {
+      rmSync(join(dir, lock), { force: true })
+    }
   }
 
   if (strictEtp) {

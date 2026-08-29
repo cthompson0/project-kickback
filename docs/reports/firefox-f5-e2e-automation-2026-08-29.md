@@ -9,9 +9,11 @@ scope change, no Chrome Store action, no hosted change.
 
 ## 1. Executive result
 
-> **Updated 2026-08-29 - see '28. Social E2E - two-actor architecture' at the
-> end of this report.** The two-actor harness is built and verified; the social
-> scenarios remain blocked on a one-time owner sign-in for Actor B.
+> **Updated 2026-08-29 - see sections 28 and 29 at the end of this report.**
+> The two-actor harness is built and verified. The owner has approved using
+> their two existing accounts (section 29.1), and Actor A is confirmed as
+> AnoterosTV. The social scenarios remain blocked on one owner sign-in for
+> Actor B.
 
 **A real-Firefox E2E harness exists and passes**: four scenarios, ~65
 assertions, **95 seconds**, driving the real packaged extension in a real
@@ -719,3 +721,162 @@ action.
 - Chromium extension ID `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged.
 - Hosted schema 28 — untouched.
 - Firefox: harness ready for two actors; **social pipeline still unproven**.
+
+---
+
+# 29. Owner decision and actor identification (2026-08-29)
+
+## 29.1 The decision, recorded
+
+The owner **explicitly approved using their two existing Watchside/Twitch
+accounts** as Actors A and B, and explicitly accepted the §28.3 trade-off:
+
+- synthetic test presence may be visible to their existing beta friends;
+- test Gravity activity may appear to those friends;
+- a real friend who happens to be on the test channel could appear in the
+  contextual room and observe test activity;
+- F5 runs may enter the existing `private_beta` analytics cohort.
+
+**Dedicated throwaway accounts are not to be created.** That supersedes the
+recommendation in §28.3, which stands as the record of the trade-off rather
+than as an outstanding action.
+
+### The safety boundary that did NOT move
+
+Approval to *use* the accounts is not approval to *damage* them. Still
+forbidden, and still unexercised: deleting or resetting friendships, groups,
+badges or preferences; wiping account data; inserting friendship, presence or
+room rows directly; bypassing authorization; impersonating anyone; touching an
+unrelated tester's data.
+
+Allowed, and only through normal product paths: friend request and acceptance
+*if the two accounts are not already friends*, presence publication, Gravity,
+JOIN, Stream Rooms, clearly-marked E2E messages, and whatever cleanup the
+product itself offers.
+
+## 29.2 Actor identification — the answer, measured
+
+The brief asked which preserved profile corresponds to which account. That
+cannot be answered by looking at directories: a profile containing extension
+storage only proves the add-on *ran* there, not that anyone is signed in. So
+`scripts/firefox-e2e/identify-actors.mjs` (`npm run e2e:actors`) launches each
+seed in a **disposable copy** and asks the running extension who it is.
+
+```
+Actor A  [WATCHSIDE_E2E_SEED_A]
+  profile : …/scratchpad/ffprofile
+  status  : signed in
+  account : AnoterosTV (@anoterostv)
+  userId  : e9ee4788-a971-497a-994e-957da25e4090
+  friends : 3 ["bobtheunstoppable","ohjuliego","wtfchuck27"]
+
+Actor B  [WATCHSIDE_E2E_SEED_B]
+  profile : C:/Users/sk8bo/watchside-e2e/seed-b
+  status  : signed out
+```
+
+Non-secret fields only — display name, Twitch login, user id, friend code,
+friend count. No token, cookie or session value is read, and the seeds are
+never opened, only copied.
+
+### Finding: only ONE authenticated profile exists on this machine
+
+Actor A is confirmed as **AnoterosTV**, the account F3 authenticated. There is
+no second authenticated Watchside profile anywhere the harness can see. The
+`seed-b` profile is healthy and ready — it has simply never had a Watchside
+login.
+
+The brief's instruction for exactly this case is to **stop and hand back the
+one-line command**, which §29.4 does. Nothing was faked to move past it.
+
+## 29.3 Two robustness fixes found while identifying
+
+Both were real, and both would have bitten the owner rather than me:
+
+1. **Stale profile locks.** A seed captured from a force-killed browser carries
+   `parent.lock`, and Firefox then refuses to start in the *copy* — surfacing as
+   an unexplained boot timeout. `createProfile()` now strips the lock files after
+   copying, which is safe because the copy is new and nothing is running in it.
+2. **One actor's failure hid the other.** The identification tool aborted on the
+   first bad actor, so a broken B meant learning nothing about A. It now reports
+   both, including failures.
+
+## 29.4 OWNER ACTION — authenticate Actor B
+
+Run this from `c:\Users\sk8bo\Projects\Kickback` in PowerShell. One line,
+verified end to end on this machine:
+
+```
+node node_modules\web-ext\bin\web-ext.js run --source-dir dist-firefox\package --firefox "C:\Program Files\Mozilla Firefox\firefox.exe" --firefox-profile C:\Users\sk8bo\watchside-e2e\seed-b --profile-create-if-missing --keep-profile-changes --start-url https://www.twitch.tv/lirik --no-reload
+```
+
+Then:
+
+1. In the Watchside panel, click **Continue with Twitch**.
+2. Sign in as **your second existing Twitch account** — the one that is to be
+   Actor B, not `AnoterosTV`.
+3. Wait until the panel shows that second identity.
+4. **Close Firefox normally** (window close, not a kill) so the profile is left
+   clean.
+5. Tell me.
+
+To confirm before handing back, run `npm run e2e:actors` — it should print two
+signed-in accounts with different user ids.
+
+No credential passes through Claude, the harness, the agents, the logs or this
+report. Authentication happens directly between you and Twitch in a browser
+window; the harness only ever handles a filesystem path.
+
+## 29.5 What remains blocked
+
+Friendship verification, presence, Gravity, JOIN, Stream Room, and bidirectional
+messaging — together with their three mutation proofs — all need Actor B. None
+is written as a skipped test: the runner **fails** on a missing required seed
+with a named reason (§28.13).
+
+## 29.6 Isolation, restated as the owner asked
+
+| | |
+| --- | --- |
+| **Harness isolation** | **Proven.** Two concurrent browsers, separate instrumented packages, OS-assigned ports, separate disposable profiles, separate background contexts, separate destination sets. `createProfile()` cannot address a path outside `dist-firefox/e2e/`. |
+| **Account isolation** | **Waived by the owner.** These are the owner's real accounts. Actor A has three real beta friends who may see synthetic presence. **They are not dedicated E2E-only identities and this report does not claim they are.** |
+| **Data safety** | **Still required, and still intact.** Nothing has been mutated on any account: no friendship, group, badge, preference or room row has been written, and no unrelated tester has been touched. Once the social scenarios run, this becomes an assertion rather than an absence. |
+
+## 29.7 Analytics
+
+Unchanged, as instructed. No enum or schema change. E2E runs are built
+`VITE_KICKBACK_ENV=private_beta`, so their events **enter the existing
+private_beta cohort alongside real testers** — the owner has accepted this. A
+dedicated `e2e` cohort remains M3/pre-public work and is deliberately not solved
+here.
+
+## 29.8 Verification at this point
+
+| Gate | Result |
+| --- | --- |
+| `tsc -b --force` · `eslint .` | clean |
+| `npm test` | **2273 passed / 87 files** |
+| `verify:firefox` · `verify:store` · `verify:config` · `verify:groups` | pass |
+| `verify:firefox:e2e` | **4/4 scenarios, 97s** — unchanged by the agent additions |
+| `npm run e2e:actors` | A signed in, B signed out — exits non-zero, correctly |
+
+Chrome artifacts unchanged: `150e3c5b…b7a818d3d`, `c1217ff5…6067203e`.
+
+## 29.9 F5 verdict at this point
+
+### F5: INCOMPLETE — blocked on one owner sign-in
+
+Seven of thirteen §14 criteria pass. The six social criteria remain unproven,
+and no synthetic social state was introduced to make them look otherwise.
+
+## 29.10 Production, hosted, Chrome
+
+**Zero production code.** **Zero hosted changes.** Chrome untouched — neither
+packager run, no Store action. Changes confined to `scripts/firefox-e2e/`,
+one `package.json` script (`e2e:actors`), and this report.
+
+## 29.11 Git
+
+- Branch `main`, tracking `origin/main`, pushed.
+- Chromium extension ID `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged.
+- Hosted schema 28 — untouched.
