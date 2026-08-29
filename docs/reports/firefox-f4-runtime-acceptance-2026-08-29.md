@@ -9,6 +9,10 @@ harness, no OAuth/Twitch/Supabase/Chrome change.
 
 ## 1. Executive verdict
 
+> **SUPERSEDED - see '25. WS-F4-01 resolution' at the end of this report.
+> WS-F4-01 is fixed and F4 is now PASS.** The assessment below is kept as the
+> record of what was found before the fix.
+
 ### F4: CONDITIONAL PASS
 
 Every Gecko-specific question F4 set out to answer was answered by measurement,
@@ -587,3 +591,393 @@ Pushed to `origin/main`.
 - Chrome Web Store: submitted v0.6.0 — untouched.
 - Firefox: F4 conditional pass. Not shippable; F5–F7 outstanding, and WS-F4-01
   should be fixed first.
+
+---
+
+# 25. WS-F4-01 resolution — 2026-08-29
+
+**CLOSED.** Root cause proven from history, fixed with a structural correction,
+and protected by a regression test that fails ten ways against the old code.
+
+## 25.1 Root cause
+
+`src/background/index.ts` opened
+
+```js
+ext.runtime.onStartup(() => {
+```
+
+and the callback did not close for **277 lines**. Everything in between ran only
+when `runtime.onStartup` fired — which happens when the *browser* starts, never
+when an MV3 background context is revived, and never at all for a temporarily
+installed Firefox add-on.
+
+## 25.2 History — the boundary was accidental, and provably so
+
+`git log -S "runtime.onStartup" -- src/background/index.ts` returns **exactly one
+commit**: `b27fe62`, the first commit in the repository. No later commit ever
+touched that line. In `b27fe62` the block reads, in full:
+
+```js
+chrome.runtime.onStartup.addListener(() => {
+  void auth.initialize()
+})
+
+chrome.runtime.onInstalled.addListener(() => {
+  void auth.initialize()
+})
+
+// The worker is also revived by a tab connecting or an alarm firing, and each
+// revival re-runs this module - so initialising here covers every wake-up.
+void auth.initialize()
+```
+
+Correct, closed, and one statement long.
+
+What happened afterwards is visible in the indentation of the pre-fix file:
+
+```
+2128  ext.runtime.onStartup(() => {
+2129    void preferences.hydrate()     <- indent 2
+2130  void attention.hydrate()         <- indent 0
+2133  void metadata.hydrate()          <- indent 0
+2137  void sessionTab.hydrate()        <- indent 0
+2153  if (METADATA_DIAGNOSTICS) { … }  <- indent 0
+2403  void groups.hydrate()            <- indent 0
+2404  void auth.initialize()           <- indent 0, the ORIGINAL callback body
+2405  })
+```
+
+Later work inserted statements *above* the original `void auth.initialize()`,
+writing them at column 0 as the top-level statements they were meant to be — and
+every one of them landed inside a callback that was still open.
+
+The brief warned against treating indentation as proof. It is not the proof
+here; it is corroboration. **The proof is `b27fe62`**, which shows what the
+callback was for, and the behavioural measurement in §25.8, which shows what the
+two versions actually do.
+
+**Stop condition checked and cleared:** the boundary is not intentional.
+
+## 25.3 The lifecycle invariant
+
+Written down before editing:
+
+| Trigger | What must happen |
+| --- | --- |
+| **A. Module evaluation** | Rebuild all local state needed to safely answer an incoming event. This is the only hook that fires for *every* one of C–F. |
+| **B. Browser startup** | Only work semantically tied to the browser starting. |
+| **C. Install / update** | `onInstalled` work only. |
+| **D. Chromium MV3 worker revival** | Same as A. `onStartup` does **not** fire. |
+| **E. Firefox MV3 event-page revival** | Same as A. `onStartup` does **not** fire. F4 §11 measured this happening every ~45–70s of idle with no Twitch port. |
+| **F. Twitch tab reconnect** | Activity replay and destination restatement, driven by the port — unchanged by this fix. |
+
+> **Every fresh background evaluation must reconstruct the local state required
+> to safely process incoming events.**
+
+The converse discipline was applied too: nothing was moved *into* module scope
+merely to make a test pass. `auth.initialize()` stayed in `onStartup`, because
+that is what the callback was written to hold.
+
+## 25.4 Classification of the accidental contents
+
+| Statement | Class | Why |
+| --- | --- | --- |
+| `preferences.hydrate()` | **EVERY EVALUATION** | reads `kickback:preferences`; without it the panel silently falls back to defaults |
+| `attention.hydrate()` | **EVERY EVALUATION** | reads `kickback:attention:seen`; without it dismissed items can reappear |
+| `metadata.hydrate()` | **EVERY EVALUATION** | channel metadata cache; the block's own comment says a woken worker should not start cold |
+| `sessionTab.hydrate()` | **EVERY EVALUATION** | reads `kickback:sessionTab`, `kickback:sessionRead`, **`kickback:mutedUsers`** — the highest-consequence one |
+| `if (METADATA_DIAGNOSTICS) { … }` | **DIAGNOSTIC, every evaluation** | three `globalThis` assignments; useless if they only exist after a browser restart |
+| `groups.hydrate()` | **EVERY EVALUATION** | reads `kickback:groups:seen`, `kickback:groups:muted` |
+| `auth.initialize()` | **BROWSER STARTUP** | the original body; also called at module scope, so belt-and-braces |
+
+No listener, subscription, alarm or timer was inside the callback — checked
+explicitly, because a listener registered inside a hook that can fire more than
+once is how duplicate-handler bugs are born. `runtime.onConnect`,
+`alarms.create`, `alarms.onAlarm`, `notifications.onClicked` and
+`notifications.onButtonClicked` are all registered at module scope and were not
+touched.
+
+## 25.5 The fix
+
+Two edits. Nothing else in the file changed.
+
+1. Removed the `ext.runtime.onStartup(() => {` opener from line 2128 and
+   de-indented `void preferences.hydrate()`, so the hydration and diagnostics sit
+   at module scope.
+2. Re-opened the callback immediately before `void auth.initialize()`, restoring
+   `b27fe62`'s shape:
+
+```js
+ext.runtime.onStartup(() => {
+  void auth.initialize()
+})
+```
+
+Both sites carry a comment explaining the lifecycle reasoning, so the next
+person to add a statement there knows which side of the brace they want.
+
+No key renamed, no feature behaviour altered, no Firefox branch introduced —
+Chrome and Firefox share the corrected behaviour, as they shared the defect.
+
+### TDZ check
+
+Moving code from a deferred callback to module scope means it now runs *during*
+evaluation, so anything it references must already be initialised. Verified:
+there are **no top-level declarations after line 2128** — only calls and the
+diagnostics object literals — so every identifier the moved block touches
+(`metadataBackend`, `tabActivity`, `portLabels`, `presenceReporter`,
+`presenceWrites`, `friendsState`, `presenceIndex`, `metadata`, `room`,
+`roomChat`, …) is declared earlier in the module. `tsc -b --force` is clean and
+the bundle evaluates without throwing (§25.8).
+
+## 25.6 Async and race analysis
+
+Every hydrate is `void`-ed; nothing awaits them. That deserves an answer rather
+than a shrug.
+
+**The race is not new.** It existed inside the callback: `onStartup` fired,
+hydration began, and a port could connect before it finished. The fix does not
+introduce it.
+
+**The fix strictly shrinks it.** Before: hydration waited for an event that, on
+a revived worker, never came — so the window was *the entire worker lifetime*.
+After: the window is one storage round-trip from module evaluation.
+
+**Cold reads are self-correcting.** Each service re-broadcasts when its hydrate
+lands (`sessionTab` calls `deps.onChange?.()`, `preferences` calls `emit()`), so
+a panel that rendered against cold state is corrected rather than left wrong.
+The worst observable case is a mute briefly appearing unset for a few
+milliseconds after a revival, converging on its own — against the pre-fix
+behaviour of appearing unset *permanently* for that worker's life.
+
+**Ordering is unchanged.** The hydrates ran in the same order inside the
+callback as they do now at module scope, and none depends on another.
+
+**No readiness barrier was built.** The brief asked for the smallest mechanism
+evidence requires, and the evidence does not require one: the window shrank, the
+failure mode is self-correcting, and a barrier would be a general lifecycle
+framework — a much larger change than the defect, with its own deadlock risks,
+inserted into the file that has already produced two timing defects. Recorded as
+a considered decision, not an omission.
+
+## 25.7 Regression test
+
+`tests/extension/backgroundLifecycle.test.ts` — **15 tests, two layers**.
+
+**Behavioural** (the real proof). It loads the actual built
+`dist/kickback-background.js` into a `node:vm` sandbox with a hand-built fake
+`chrome`, evaluates it, and watches which storage keys the worker asks for. That
+*is* the invariant: hydration is observable as storage reads.
+
+- every hydration key is read at evaluation, with `runtime.onStartup` **never
+  fired**;
+- the auth session key is read, so a revival can restore it;
+- firing `onStartup` afterwards does **not** re-run cache hydration — the other
+  half of the invariant, guarding against a "fix" that simply duplicated work;
+- every listener a revived worker needs is registered;
+- the three diagnostics are attached at evaluation.
+
+The fake browser is deliberately hand-built rather than auto-mocked: what the
+worker may touch at startup is exactly what that object offers, so a new startup
+dependency fails loudly here instead of working in one engine and not the other.
+
+**Structural** (runs on a bare checkout, no build required). A real brace-depth
+scanner — skipping strings, template literals and both comment forms — asserts
+each `hydrate()` call sits at depth 0, that the diagnostics block does too, and
+that `runtime.onStartup`'s body is exactly `['void auth.initialize()']`. It is
+not a string match: a hydrate nested inside *any* callback fails it.
+
+No sleeps, no timing assumptions.
+
+## 25.8 Proof against the old behaviour
+
+The pre-fix source was restored, built to a scratch directory, and run through
+the same sandbox.
+
+| | Pre-fix | Post-fix |
+| --- | --- | --- |
+| Storage keys read at evaluation | `sb-…-auth-token`, `kickback:channelNames` | those **plus** `kickback:preferences`, `kickback:attention:seen`, `kickback:channelMetadata`, `kickback:sessionTab`, `kickback:sessionRead`, `kickback:mutedUsers`, `kickback:groups:seen`, `kickback:groups:muted` |
+| `globalThis` diagnostics | **none** | `kickbackMetadata`, `kickbackDestinations`, `kickbackGravity`, `kickbackSession` |
+| Bundle evaluates | yes | yes |
+
+Running the new suite against the pre-fix source and bundle:
+
+```
+10 failed | 5 passed (15)
+```
+
+Restored: `15 passed`. Both layers bite — the behavioural tests on the bundle
+and the structural tests on the source.
+
+## 25.9 Existing recovery coverage
+
+Re-run in full, unchanged and passing:
+
+| Suite | Result |
+| --- | --- |
+| `destinationPublishing` · `workerPortPublishing` · `destinationsConvergence` · `multiDestination` · `sessionStability` · `browserAdapter` · `oauthContract` | **181 passed** |
+| Full suite | **2273 passed / 87 files, 0 failed** (was 2258 / 86) |
+
+Activity replay, destination restatement, multi-destination presence, alarms,
+notification behaviour and cross-tab behaviour are all still green.
+
+## 25.10 Real Firefox recheck
+
+A **disposable copy** of the preserved authenticated profile was used;
+`ffprofile` and `ffprofile-backup` were never opened.
+
+### Hydration and diagnostics survive revival
+
+Four background contexts across one session, three of them alarm-driven
+revivals:
+
+```
+BOOT 1  initial evaluation   diagnosticsAttached=true   errors=0
+BOOT 2  woken by alarm       diagnosticsAttached=true   errors=0
+BOOT 3  woken by alarm       diagnosticsAttached=true   errors=0
+BOOT 4  woken by alarm       (run window ended before the probe's 8s timer)
+```
+
+`typeofDestinations`/`typeofGravity`/`typeofMetadata` all `"object"`,
+`hasOwn: true` — on a **temporary add-on**, where `runtime.onStartup` never
+fires. Before the fix these were `"undefined"` with `hasOwn: false`. **Zero
+background errors** across every boot.
+
+### The multi-destination evidence F4 could not obtain
+
+With the diagnostic reachable, the worker's own view of presence is readable on
+Firefox for the first time:
+
+```
+ports = [tab1/lirik(visible)]
+        aggregated=["lirik"]            published=["lirik"]
+
+ports = [tab1/lirik(visible), tab3/shroud(hidden)]
+        aggregated=["shroud","lirik"]   published=["shroud","lirik"]
+
+ports = [tab1/lirik, tab3/shroud, tab5/shroud]          <- reconnect
+        aggregated=["shroud","lirik"]   published=["shroud","lirik"]
+
+ports = [tab1/null, tab3/shroud, tab5/shroud]           <- tab1 navigated away
+        aggregated=["shroud"]           published=["shroud"]
+
+ports = [tab1/null, tab3/null, tab5/null]
+        aggregated=[]                   published=[]
+```
+
+Three things this settles, on Gecko, from the worker itself:
+
+1. **Two destinations aggregate and publish together** — the multi-destination
+   architecture works, and F4 §6's gap is closed.
+2. **`published` tracks `aggregated` at every step** — restatement is correct,
+   including on the way down.
+3. **A hidden tab still contributes** (`visible:false` on tab3/tab5) — no
+   focus-based weighting crept in.
+
+One boot, 25 reports, **0 errors**.
+
+## 25.11 Chrome safety
+
+Chromium's semantics were checked deterministically rather than with another
+human pass — the behavioural test *is* a Chromium test, because it runs the
+Chromium bundle from `dist/`.
+
+| Concern | Result |
+| --- | --- |
+| Browser startup still correct | `onStartup` still registered and still calls `auth.initialize()` |
+| Worker revival hydrates | proven — every key read at evaluation |
+| Duplicate startup side effects | none — firing `onStartup` re-runs no cache hydration (asserted) |
+| Duplicate listeners | none — no listener was ever inside the callback; all register once at module scope |
+| Duplicate timers/alarms | none — `alarms.create` is at module scope and untouched |
+| Duplicate presence writes | none — the publisher was not touched; `published` tracks `aggregated` exactly in §25.10 |
+| Existing recovery intact | 181 recovery-suite tests pass |
+| Extension ID / permissions / OAuth | unchanged |
+
+At browser startup, hydration now happens once at evaluation instead of once in
+the callback — the same single execution, moved earlier. It is not duplicated.
+
+## 25.12 Production behaviour impact
+
+One file, two structural edits, plus comments. No key renamed, no feature
+changed, no browser branch.
+
+**What changes for a user:** after a background revival — routine on Firefox,
+and the documented Chromium MV3 behaviour — the worker now restores its muted
+users, read watermarks, remembered session tab, seen-state, channel metadata,
+channel names and group state, instead of starting cold and staying cold. The
+most consequential of those is the mute list: pre-fix, a muted user could appear
+unmuted for the whole life of a revived worker.
+
+**What does not change:** everything server-derived (identity, friends, groups,
+presence) behaved correctly before and behaves identically now, which is why
+this survived from the first commit without anyone noticing.
+
+## 25.13 Still unexercised
+
+Unchanged by this fix, and explicitly **not** claimed as passing:
+
+- **Gravity / JOIN** — no friend was online; still unexercised.
+- **Stream Rooms / realtime** — same.
+- **Strict ETP** — Standard protection only.
+- **home/browse → channel** navigation.
+- **Collapsed-chat** layout.
+- Notification body-click → open, and dismissal-does-not-navigate (needs a human
+  click).
+
+These remain F5/F7 work.
+
+## 25.14 Final F4 verdict
+
+### F4: PASS
+
+| Criterion | Before | Now |
+| --- | --- | --- |
+| Twitch injection / navigation reliable | PASS | PASS |
+| Panel geometry acceptable | PASS | PASS |
+| Storage under supported privacy behaviour | PASS | PASS |
+| Multi-destination presence | PARTIAL | **PASS** — §25.10 |
+| Notifications within Gecko limits | PASS | PASS |
+| **Background recovery safe** | **FAIL** | **PASS** — §25.7, §25.10 |
+| Permission failure clean | PASS | PASS |
+| No serious Gecko runtime errors | PASS | PASS |
+| Chrome unaffected | PASS | PASS |
+| Gravity / JOIN | not exercised | **still not exercised** |
+| Stream Rooms / realtime | not exercised | **still not exercised** |
+
+WS-F4-01 is closed, and it took the multi-destination gap with it. The two
+unexercised features are not failures — nothing was observed to be wrong with
+them — but they are not evidence either, and F5 should make them testable with a
+seeded friend-presence fixture rather than waiting for a friend to be live.
+
+**F4 advances to F5.**
+
+## 25.15 Artifact and release impact
+
+| Artifact | State |
+| --- | --- |
+| `releases/Watchside-Store-v0.6.0.zip` | `150e3c5b…b7a818d3d` — **untouched** |
+| `releases/Watchside-Private-Beta-v0.6.0.zip` | `c1217ff5…6067203e` — **untouched** |
+| `releases/Watchside-Firefox-v0.6.0.zip` | rebuilt: `1f456194c7e45f5f06ef7771005f8def2404938ee386e38bf882000ea75e9317` |
+
+Neither Chromium packager was run; the submitted v0.6.0 release is historical
+and stayed that way. The Firefox package is a development artifact and was
+rebuilt so the recheck ran against the fixed code. No Chrome Web Store action
+was taken.
+
+## 25.16 Commit and push
+
+One commit: `fix: hydrate the worker on every evaluation, not only at browser
+startup` — the two-line structural correction, its comments, the regression
+test, and this report section. Pushed to `origin/main`.
+
+## 25.17 Git status
+
+- Branch `main`, tracking `origin/main`, pushed.
+- Production change: `src/background/index.ts` only.
+- New test: `tests/extension/backgroundLifecycle.test.ts`.
+- Chromium extension ID `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged.
+- Hosted schema 28 — untouched. Supabase configuration — untouched.
+- Chrome Web Store: submitted v0.6.0 — untouched.
+- Firefox: **F4 PASS**, WS-F4-01 closed. F5–F7 outstanding; Firefox is not yet
+  shippable.

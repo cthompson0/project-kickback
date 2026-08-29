@@ -2125,8 +2125,28 @@ ext.alarms.onAlarm((name) => {
   }
 })
 
-ext.runtime.onStartup(() => {
-  void preferences.hydrate()
+/*
+ * Rebuild the local caches this worker needs before it can answer anything.
+ *
+ * MODULE SCOPE, DELIBERATELY. Every one of these has to run on every fresh
+ * evaluation of the background context, because that is what a revival IS: the
+ * worker is torn down, the module is re-run, and whatever was in memory is
+ * gone. Chromium evicts an MV3 worker; Firefox suspends the event page once no
+ * Twitch port holds it open - measured at roughly a minute of idle in F4. Both
+ * come back by re-evaluating this file.
+ *
+ * These used to sit inside `runtime.onStartup` by accident (WS-F4-01). That
+ * event fires only when the browser itself starts, so a revived worker began
+ * with a cold mute list, cold read watermarks and cold caches, and stayed that
+ * way for its whole lifetime.
+ *
+ * Hydration is asynchronous and nothing waits for it. That race is not new -
+ * it existed inside the callback too - and it is strictly smaller here: a
+ * cold read is now corrected within one storage round-trip instead of never.
+ * Each service re-broadcasts when it lands, so the panel converges rather than
+ * staying wrong.
+ */
+void preferences.hydrate()
 void attention.hydrate()
 // A worker that has just woken should not start from a cold metadata cache;
 // a day-old record is dropped on the way in rather than shown.
@@ -2401,7 +2421,22 @@ if (METADATA_DIAGNOSTICS) {
   }
 }
 void groups.hydrate()
-void auth.initialize()
+
+/*
+ * Browser startup, and nothing else.
+ *
+ * This is what the callback held when it was written, before later additions
+ * were inserted above the closing brace and were swallowed by it. Restoring
+ * the boundary puts the hydration above back at module scope, where its
+ * indentation always said it belonged.
+ *
+ * `auth.initialize()` is also called at module scope below, so this handler is
+ * belt-and-braces rather than load-bearing. It is left alone: it is idempotent,
+ * it is what shipped, and removing it is a behaviour change this fix has no
+ * business making.
+ */
+ext.runtime.onStartup(() => {
+  void auth.initialize()
 })
 
 ext.runtime.onInstalled(() => {
