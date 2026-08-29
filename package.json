@@ -33,7 +33,8 @@
     "package:firefox-beta": "node scripts/package-firefox.mjs --beta",
     "verify:firefox": "node scripts/verify-firefox.mjs",
     "verify:firefox:e2e": "node scripts/firefox-e2e/run.mjs",
-    "e2e:actors": "node scripts/firefox-e2e/identify-actors.mjs"
+    "e2e:actors": "node scripts/firefox-e2e/identify-actors.mjs",
+    "e2e:proofs": "node scripts/firefox-e2e/mutation-proofs.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

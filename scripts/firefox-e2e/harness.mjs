@@ -76,9 +76,18 @@ const STRICT_ETP_PREFS = [
  * `seed` is copied, never opened in place, so the source cannot be mutated by
  * anything the browser does.
  */
+/**
+ * How each disposable profile was built, so it can be rebuilt.
+ *
+ * A relaunch that reuses a half-copied directory fails exactly the way the
+ * first attempt did, which is what made the retry useless until this existed.
+ */
+const RECIPES = new Map()
+
 export function createProfile({ name, seed = null, strictEtp = false }) {
   mkdirSync(SANDBOX_ROOT, { recursive: true })
   const dir = join(SANDBOX_ROOT, name)
+  RECIPES.set(resolve(dir), { name, seed, strictEtp })
 
   if (!resolve(dir).startsWith(SANDBOX_ROOT)) {
     throw new Error(`refusing a profile outside ${SANDBOX_ROOT}: ${dir}`)
@@ -115,7 +124,7 @@ export function createProfile({ name, seed = null, strictEtp = false }) {
 }
 
 /** A scratch copy of the real package with the two agents added. */
-function instrument({ dir, port }) {
+function instrument({ dir, port, mutate = null }) {
   rmSync(dir, { recursive: true, force: true })
   mkdirSync(dir, { recursive: true })
   cpSync(PACKAGE_DIR, dir, { recursive: true })
@@ -129,6 +138,22 @@ function instrument({ dir, port }) {
 
   writeFileSync(join(dir, 'e2e-background.js'), backgroundAgent(port))
   writeFileSync(join(dir, 'e2e-content.js'), contentAgent())
+
+  /*
+   * The seam the false-positive proofs run through.
+   *
+   * A green suite only means something if a broken product would turn it red,
+   * and the only way to know that is to break the product and watch. The
+   * break has to land HERE - in the disposable per-actor copy - and nowhere
+   * else: `dist-firefox/package` is what gets shipped and signed, and a proof
+   * that edits it is one crashed process away from leaving a sabotaged build
+   * on disk. This copy is deleted and rebuilt on the next launch, so there is
+   * nothing to restore and nothing to forget to restore.
+   *
+   * Per-actor also means a mutation can be aimed at ONE side, which is what
+   * "suppress B's presence and watch A's gravity go dark" actually requires.
+   */
+  if (mutate) mutate(dir)
   return dir
 }
 
@@ -255,15 +280,86 @@ function createChannel(port) {
 /**
  * Launch a browser, install the instrumented package, and hand back a driver.
  */
-export async function launch({
+/**
+ * Kill every Firefox running against a given profile directory, and wait until
+ * they are actually gone.
+ *
+ * Matched on the profile directory NAME rather than the image name or the
+ * process tree.  killed every Firefox on the
+ * machine - the owner's browsing, a second actor mid-run, and any window
+ * somebody was signing in to. Killing our own process TREE failed the other
+ * way: Firefox's launcher exits immediately and the real browser reparents, so
+ * the tree no longer contains it and thirty processes leaked into the next
+ * scenario. The profile name is unique per run and lives only inside our
+ * sandbox, so it selects exactly our browser and nothing else.
+ *
+ * Force, deliberately. Being graceful left content processes alive holding the
+ * debugger port and the NEXT launch failed with ECONNREFUSED - and politeness
+ * buys nothing here, because the harness only ever opens disposable copies, so
+ * there is no login an unflushed profile could lose.
+ */
+async function sweepProfile(profile) {
+  if (process.platform !== 'win32') return
+
+  const marker = basename(profile)
+  const script =
+    `Get-CimInstance Win32_Process -Filter "Name='firefox.exe'" | ` +
+    `Where-Object { $_.CommandLine -like '*${marker}*' } | ` +
+    `ForEach-Object { $_.ProcessId }`
+
+  const pidsMatching = () =>
+    new Promise((done) => {
+      let out = ''
+      const ps = spawn('powershell', ['-NoProfile', '-Command', script], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+      })
+      ps.stdout.on('data', (d) => { out += String(d) })
+      ps.on('close', () =>
+        done(out.split(NEWLINE).map((line) => line.trim()).filter(Boolean)),
+      )
+      ps.on('error', () => done([]))
+    })
+
+  const taskkill = (args) =>
+    new Promise((done) => {
+      const proc = spawn('taskkill', args, { stdio: 'ignore' })
+      proc.on('close', done)
+      proc.on('error', done)
+    })
+
+  for (const pid of await pidsMatching()) await taskkill(['/PID', pid, '/T', '/F'])
+
+  // Confirm they are gone rather than assuming, then let the OS settle.
+  const deadline = Date.now() + 15_000
+  while ((await pidsMatching()).length > 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 250))
+  }
+  await new Promise((r) => setTimeout(r, 750))
+}
+
+async function launchOnce({
   profile,
   startUrl = 'https://www.twitch.tv/',
   label = 'actor',
   timeoutMs = 60_000,
+  mutate = null,
 } = {}) {
   if (!existsSync(PACKAGE_DIR)) {
     throw new Error(`No Firefox package at ${PACKAGE_DIR}. Run: npm run package:firefox`)
   }
+
+  /*
+   * Clear the ground before starting, not only after finishing.
+   *
+   * A Firefox still holding this profile directory - a straggler from a run
+   * that was interrupted, or one still shutting down - makes the new instance
+   * exit instead of opening its debugger listener. web-ext then reports
+   * ECONNREFUSED and the harness reports "timed out waiting for the extension
+   * background to boot", which points at the extension and is nowhere near
+   * the truth. Sweeping first costs one process query and removes the whole
+   * class of failure.
+   */
+  await sweepProfile(profile)
 
   /*
    * Bind first, instrument second.
@@ -293,6 +389,7 @@ export async function launch({
   const sourceDir = instrument({
     dir: join(SANDBOX_ROOT, `instrumented-${label}`),
     port,
+    mutate,
   })
 
   /*
@@ -381,90 +478,12 @@ export async function launch({
 
     /**
      * Shut down only what this harness started - identified by PROFILE PATH.
-     *
-     * Two earlier attempts were wrong in instructive ways. `taskkill /F /IM
-     * firefox.exe` killed EVERY Firefox on the machine: the owner's browsing,
-     * a second actor mid-run, and any window somebody was signing in to - and
-     * a force kill also denies Firefox the chance to flush its profile, so
-     * cookies written moments earlier vanish and the next launch looks logged
-     * out. Killing our own process TREE then failed the other way: Firefox's
-     * launcher exits immediately and the real browser reparents, so the tree
-     * no longer contains it and thirty processes leaked into the next scenario.
-     *
-     * The profile directory is unique per run and lives inside our sandbox, so
-     * matching on it selects exactly our browser and nothing else. Ask
-     * politely first so the profile is flushed; escalate only for stragglers.
+     * See sweepProfile() for why it is matched that way and killed that hard.
      */
     async close() {
       await channel.close()
       child.kill()
-
-      if (process.platform !== 'win32') {
-        await new Promise((r) => setTimeout(r, 1_000))
-        return
-      }
-
-      /*
-       * Matched on the profile DIRECTORY NAME rather than the full path, so
-       * forward and back slashes cannot make the comparison miss. The name is
-       * unique per scenario and lives only inside our sandbox, so it selects
-       * our browser and nothing else.
-       */
-      const marker = basename(profile)
-      const script =
-        `Get-CimInstance Win32_Process -Filter "Name='firefox.exe'" | ` +
-        `Where-Object { $_.CommandLine -like '*${marker}*' } | ` +
-        `ForEach-Object { $_.ProcessId }`
-
-      const pidsMatching = () =>
-        new Promise((done) => {
-          let out = ''
-          const ps = spawn('powershell', ['-NoProfile', '-Command', script], {
-            stdio: ['ignore', 'pipe', 'ignore'],
-          })
-          ps.stdout.on('data', (d) => { out += String(d) })
-          ps.on('close', () =>
-            done(
-              out
-                .split(NEWLINE)
-                .map((line) => line.trim())
-                .filter(Boolean),
-            ),
-          )
-          ps.on('error', () => done([]))
-        })
-
-      const ours = await pidsMatching()
-
-      const taskkill = (args) =>
-        new Promise((done) => {
-          const proc = spawn('taskkill', args, { stdio: 'ignore' })
-          proc.on('close', done)
-          proc.on('error', done)
-        })
-
-      /*
-       * FORCE, but only on processes matching our profile.
-       *
-       * Being polite here was a mistake worth recording: a graceful kill left
-       * content processes alive holding the debugger port, and the NEXT launch
-       * then failed with ECONNREFUSED. It also bought nothing, because the
-       * harness never opens a seed profile - it opens disposable copies, so
-       * there is no login here that an unflushed profile could lose. The
-       * graceful shutdown that genuinely matters is the owner closing their
-       * own authentication window, which this code never touches.
-       *
-       * What DOES matter is the scoping: matched by profile name, so the
-       * owner's browser and any concurrent actor are never in range.
-       */
-      for (const pid of ours) await taskkill(['/PID', pid, '/T', '/F'])
-
-      // Confirm they are gone rather than assuming, then let the OS settle.
-      const deadline = Date.now() + 15_000
-      while ((await pidsMatching()).length > 0 && Date.now() < deadline) {
-        await new Promise((r) => setTimeout(r, 250))
-      }
-      await new Promise((r) => setTimeout(r, 750))
+      await sweepProfile(profile)
     },
   }
 
@@ -494,6 +513,43 @@ export async function launch({
 }
 
 /**
+ * Start a browser, retrying once if Firefox never opened its debugger.
+ * web-ext talks to Firefox over a debugger port it picks itself, and that
+ * handshake intermittently fails with ECONNREFUSED - the browser is launched,
+ * the listener never appears, and the harness sees only "timed out waiting for
+ * the extension background to boot". It is a flaky external handshake rather
+ * than anything about the extension, and it is not a sleep-and-hope: the
+ * failed attempt has already been torn down and verified gone by close(), so
+ * the retry starts from the same clean state the first attempt did.
+ *
+ * Bounded at one retry, and the reason is printed. A launch that fails twice
+ * is a real failure and still fails the run.
+ */
+export async function launch(options = {}) {
+  try {
+    return await launchOnce(options)
+  } catch (error) {
+    const log = (error.diagnostics && error.diagnostics.webExt) || []
+    if (!log.some((line) => line.includes('ECONNREFUSED'))) throw error
+    console.log(
+      `    ..  ${options.label || 'actor'}: Firefox never opened its debugger port, relaunching once`,
+    )
+    /*
+     * Rebuilt from scratch, not merely restarted.
+     *
+     * A profile copied while a straggler still held the directory is damaged,
+     * and Firefox refuses to start in it every time - so a retry against the
+     * same directory reproduces the failure exactly and proves nothing. The
+     * sweep in launchOnce has run by now, so re-seeding gets a clean copy.
+     */
+    await sweepProfile(options.profile)
+    const recipe = RECIPES.get(resolve(options.profile))
+    if (recipe) createProfile(recipe)
+    return launchOnce(options)
+  }
+}
+
+/**
  * Where an actor's authenticated seed profile lives.
  *
  *   A  WATCHSIDE_E2E_SEED_A  (or the older WATCHSIDE_E2E_SEED_PROFILE)
@@ -505,11 +561,33 @@ export async function launch({
  */
 export function seedProfile(actor) {
   const key = actor === 'B' ? 'WATCHSIDE_E2E_SEED_B' : 'WATCHSIDE_E2E_SEED_A'
-  const value =
-    process.env[key] ||
-    (actor === 'A' ? process.env.WATCHSIDE_E2E_SEED_PROFILE : null) ||
-    null
+
+  /*
+   * Environment first, then a gitignored local file.
+   *
+   * Requiring an env var in every terminal is how a suite quietly stops being
+   * run. seeds.local.json makes the configuration durable on a developer
+   * machine while keeping absolute paths - which point at profiles holding
+   * real sessions - out of version control. CI can still override with the
+   * environment.
+   */
+  let value = process.env[key] || null
+  if (!value && actor === 'A') value = process.env.WATCHSIDE_E2E_SEED_PROFILE || null
+
+  if (!value) {
+    try {
+      const file = join('scripts', 'firefox-e2e', 'seeds.local.json')
+      if (existsSync(file)) {
+        const seeds = JSON.parse(readFileSync(file, 'utf8'))
+        value = seeds[actor] || null
+      }
+    } catch {
+      /* a malformed local file is the same as none */
+    }
+  }
+
   return { key, path: value, present: Boolean(value && existsSync(value)) }
 }
+
 
 export { SANDBOX_ROOT }

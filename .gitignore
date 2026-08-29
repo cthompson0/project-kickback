@@ -55,3 +55,7 @@ dist-testlab
 # Private-beta archives. Built by `npm run package:beta`, sent by hand, and
 # never committed - a release is reproducible from a tag plus the script.
 releases
+
+# Firefox E2E seed profiles. Machine-specific paths to profiles holding real
+# sessions - never committed. See scripts/firefox-e2e/seeds.example.json.
+scripts/firefox-e2e/seeds.local.json

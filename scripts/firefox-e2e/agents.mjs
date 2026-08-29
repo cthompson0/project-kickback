@@ -230,6 +230,16 @@ window.addEventListener('error', (e) => errors.push({ message: String(e.message)
 window.addEventListener('unhandledrejection', (e) =>
   errors.push({ rejection: String(e.reason).slice(0, 200) }))
 
+const countPer = (map) =>
+  map && typeof map === 'object'
+    ? Object.fromEntries(
+        Object.entries(map).map(([channel, list]) => [
+          channel,
+          Array.isArray(list) ? list.length : 0,
+        ]),
+      )
+    : null
+
 /* Observe the product through its OWN protocol: a port named as the panel
  * names it, so the worker broadcasts the same state the panel receives. No
  * credential is in that state. */
@@ -253,6 +263,16 @@ try {
       friendLogins: Array.isArray(s.friends)
         ? s.friends.map((f) => (f.user && f.user.username) || null).filter(Boolean).sort()
         : null,
+      /*
+       * The two answers to "who is in this room", as COUNTS.
+       *
+       * roomPeers is derived from presence; roomMembers is the server's
+       * membership answer. They are supposed to agree, and the only way to
+       * see them disagree is to record both. Counts, not ids - the harness
+       * has no business carrying other people's identifiers around.
+       */
+      roomPeers: countPer(s.roomPeers),
+      roomMembers: countPer(s.roomMembers),
       gravityCount: Array.isArray(s.gravity) ? s.gravity.length : null,
       gravityChannels: Array.isArray(s.gravity)
         ? s.gravity.map((g) => g.channel).filter(Boolean)
@@ -410,17 +430,140 @@ const handlers = {
     return { toggled: true, label: button.getAttribute('aria-label') }
   },
 
+  /*
+   * The panel as a structured snapshot, read from the RENDERED DOM.
+   *
+   * The social assertions could be made against the state broadcast instead,
+   * and they would be easier - but a state field says the client believes
+   * something, while a card in the shadow root says the owner would have SEEN
+   * it. Gravity, JOIN and the room are all claims about what is on screen, so
+   * that is where they are checked.
+   */
+  panel: () => {
+    const root = shadow()
+    if (!root) return { present: false }
+    const text = (el) => (el ? el.textContent.trim() : null)
+
+    const session = root.querySelector('.kb-session')
+
+    return {
+      present: true,
+      collapsed: Boolean(root.querySelector('.kb-launcher')),
+      tabs: [...root.querySelectorAll('.kb-tab')].map((t) => ({
+        label: text(t),
+        active: t.classList.contains('kb-tab-active'),
+        session: t.classList.contains('kb-tab-session'),
+      })),
+      // Friend rows, with the HERE badge. This is the presence-derived view of
+      // who is co-present, which is a DIFFERENT path from the room roster -
+      // and being able to compare the two is what tells a slow server answer
+      // apart from a client that never noticed the arrival.
+      rows: [...root.querySelectorAll('.kb-row')].map((r) => ({
+        name: text(r.querySelector('.kb-row-name')),
+        status: text(r.querySelector('.kb-row-status')),
+        here: Boolean(r.querySelector('.kb-badge-here')),
+      })),
+      cards: [...root.querySelectorAll('.kb-gravity-card')].map((card) => ({
+        channel: text(card.querySelector('.kb-gravity-channel')),
+        count: text(card.querySelector('.kb-gravity-count')),
+        heavy: card.classList.contains('kb-gravity-card-strong'),
+        here: card.classList.contains('kb-gravity-card-here'),
+        join: Boolean(card.querySelector('button.kb-join')),
+      })),
+      session: session
+        ? {
+            channel: text(session.querySelector('.kb-session-channel')),
+            count: text(session.querySelector('.kb-session-count')),
+            // The roster is behind a tap, so report whether it is open as well
+            // as what it says - an empty list means "closed", not "nobody".
+            roster: Boolean(session.querySelector('.kb-room-people')),
+            people: [...session.querySelectorAll('.kb-cluster-name')].map((p) =>
+              p.textContent.trim()),
+            composer: Boolean(session.querySelector('.kb-composer-input')),
+            messages: [...session.querySelectorAll('.kb-msg')].map((m) => ({
+              // The name carries the ":" that separates it from the body, so
+              // it is trimmed here rather than in every assertion.
+              who: (text(m.querySelector('.kb-msg-who')) || '').replace(/:+$/, ''),
+              self: Boolean(m.querySelector('.kb-msg-who-self')),
+              body: text(m.querySelector('.kb-msg-body')),
+            })),
+          }
+        : null,
+    }
+  },
+
+  expand: () => {
+    const root = shadow()
+    const launcher = root && root.querySelector('.kb-launcher')
+    if (!launcher) return { expanded: false, reason: 'not collapsed' }
+    launcher.click()
+    return { expanded: true }
+  },
+
+  /* JOIN from the gravity card for a NAMED channel - not "the first JOIN on
+   * screen", which would pass while sending the actor somewhere else. */
+  join: ({ channel }) => {
+    const root = shadow()
+    if (!root) return { clicked: false, reason: 'no shadow root' }
+    const cards = [...root.querySelectorAll('.kb-gravity-card')]
+    const wanted = String(channel).trim().toLowerCase()
+    const seen = cards.map((c) => {
+      const name = c.querySelector('.kb-gravity-channel')
+      return name ? name.textContent.trim() : null
+    })
+    const index = seen.findIndex((name) => name && name.toLowerCase() === wanted)
+    if (index < 0) return { clicked: false, reason: 'no card for ' + channel, seen }
+    const button = cards[index].querySelector('button.kb-join')
+    if (!button) return { clicked: false, reason: 'card has no JOIN', seen }
+    button.click()
+    return { clicked: true, channel, label: button.textContent.trim() }
+  },
+
+  compose: ({ body, send }) => {
+    const root = shadow()
+    const input = root && root.querySelector('.kb-composer-input')
+    if (!input) return { typed: false, reason: 'no composer' }
+    /*
+     * A controlled React input ignores a plain .value assignment: React holds
+     * the value in state and overwrites the node on the next render, and the
+     * SEND button stays disabled because state never changed. Setting through
+     * the prototype descriptor React reads, then firing the event it listens
+     * for, is what makes this a real keystroke rather than a DOM poke.
+     */
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+    setter.call(input, body)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+    if (!send) return { typed: true, sent: false }
+    const button = root.querySelector('button.kb-send')
+    if (!button) return { typed: true, sent: false, reason: 'no send button' }
+    if (button.disabled) return { typed: true, sent: false, reason: 'send disabled' }
+    button.click()
+    return { typed: true, sent: true }
+  },
+
   resize: () => {
     window.dispatchEvent(new Event('resize'))
     return { dispatched: true }
   },
 }
 
-const bus = browser.runtime.connect({ name: '${E2E_PORT_NAME}' })
-bus.postMessage({ register: AGENT, url: location.pathname })
+/*
+ * The bus RECONNECTS, because on Gecko the other end goes away.
+ *
+ * The background is an event page, not a service worker: idle for long enough
+ * with nothing holding it, it suspends, and every port to it disconnects. A
+ * page agent that connected once at load is then unreachable forever, and the
+ * harness reports "no page agent on /lirik" - which reads like the tab died
+ * when in fact the tab is fine and the worker merely took a nap.
+ *
+ * That is not hypothetical: it is what a scenario waiting two minutes for a
+ * server-side answer does to the OTHER actor, who is sitting idle throughout.
+ * Reconnecting re-registers under the same AGENT id, so the harness never
+ * notices the gap.
+ */
+let bus = null
 
-bus.onMessage.addListener(async (job) => {
-  if (!job || job.jobId == null) return
+async function run(job) {
   let result, error = null
   try {
     const handler = handlers[job.command]
@@ -429,13 +572,36 @@ bus.onMessage.addListener(async (job) => {
   } catch (e) {
     error = String(e && e.message ? e.message : e)
   }
-  bus.postMessage({ jobId: job.jobId, result, error, url: location.pathname })
-})
+  try {
+    bus.postMessage({ jobId: job.jobId, result, error, url: location.pathname })
+  } catch { /* the port went away mid-job; the harness will retry */ }
+}
+
+function connect() {
+  try {
+    bus = browser.runtime.connect({ name: '${E2E_PORT_NAME}' })
+  } catch (error) {
+    errors.push({ connectError: String(error).slice(0, 160) })
+    setTimeout(connect, 500)
+    return
+  }
+  bus.postMessage({ register: AGENT, url: location.pathname })
+  bus.onMessage.addListener((job) => {
+    if (job && job.jobId != null) void run(job)
+  })
+  bus.onDisconnect.addListener(() => {
+    bus = null
+    setTimeout(connect, 250)
+  })
+}
+
+connect()
 
 /* Twitch navigates without reloading, so the agent tells the background where
  * it is now - otherwise the harness would address tabs by a stale URL. */
 let lastPath = location.pathname
 setInterval(() => {
+  if (!bus) return
   if (location.pathname === lastPath) return
   lastPath = location.pathname
   try { bus.postMessage({ url: lastPath }) } catch { /* port closed */ }

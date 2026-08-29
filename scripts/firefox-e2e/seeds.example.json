@@ -1,0 +1,15 @@
+{
+  "//": [
+    "Copy this to seeds.local.json and point it at your authenticated Firefox",
+    "profiles. seeds.local.json is gitignored: these are machine-specific paths",
+    "to profiles holding real sessions, and neither belongs in version control.",
+    "",
+    "Each seed is authenticated ONCE, by hand, and then only ever copied - the",
+    "harness never opens a seed, so a test run cannot expire or overwrite it.",
+    "",
+    "Environment variables still win if set (WATCHSIDE_E2E_SEED_A / _B), which",
+    "is what CI would use."
+  ],
+  "A": "C:/path/to/an/authenticated/firefox/profile",
+  "B": "C:/path/to/a/second/authenticated/firefox/profile"
+}

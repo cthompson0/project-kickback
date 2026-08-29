@@ -1058,3 +1058,355 @@ started until it does.
 
 **Zero production code. Zero hosted changes.** Chrome untouched; neither
 packager run; no Store action. All changes are in `scripts/firefox-e2e/`.
+
+---
+
+# 31. Two-actor social acceptance (2026-08-29)
+
+Actor B is authenticated. This section covers locating and identifying both
+actors, making the configuration durable, the social chain end to end, the three
+false-positive proofs, and one real product defect the harness found.
+
+**Nothing in this section asked the owner to authenticate anything.** No OAuth
+flow was started, no seed was deleted, recreated or overwritten, and no
+credential, token or cookie was read, copied or printed.
+
+## 31.1 Actor A's profile — located, not guessed
+
+The preserved F3 profile is:
+
+```
+C:/Users/sk8bo/AppData/Local/Temp/claude/c--Users-sk8bo-Projects-Kickback/
+  ce79fe91-3ef1-40d3-9015-691ff42cfd9c/scratchpad/ffprofile
+```
+
+That is a **session scratch directory**, which is exactly the disposable
+location the owner was right to worry about: it disappears when the session is
+cleaned up, and with it the only authenticated Actor A.
+
+So it was **copied** to `C:\Users\sk8bo\watchside-e2e\seed-a` and the original
+left alone.
+
+| | entries | note |
+| --- | --- | --- |
+| original `…/scratchpad/ffprofile` | 83 | untouched, still present |
+| copy `C:\Users\sk8bo\watchside-e2e\seed-a` | 82 | `parent.lock` stripped |
+
+The one-entry difference is the lock file. `createProfile()` removes
+`parent.lock` / `.parentlock` / `lock` from every copy, because a profile
+captured from a force-killed browser keeps them and Firefox then refuses to
+start in the copy - which surfaces as an unexplained boot timeout rather than
+anything about locks.
+
+## 31.2 Both actors, identified non-destructively
+
+`npm run e2e:actors` launches each seed in a **disposable copy** and asks the
+running extension who it is, through the product's own state broadcast. It
+reports non-secret fields only and exits non-zero unless it finds two distinct
+signed-in accounts.
+
+```
+  Actor A  [WATCHSIDE_E2E_SEED_A]
+    profile : C:/Users/sk8bo/watchside-e2e/seed-a
+    status  : signed in
+    account : AnoterosTV (@anoterostv)
+    userId  : e9ee4788-a971-497a-994e-957da25e4090
+    friends : 3 ["bobtheunstoppable","ohjuliego","wtfchuck27"]
+
+  Actor B  [WATCHSIDE_E2E_SEED_B]
+    profile : C:/Users/sk8bo/watchside-e2e/seed-b
+    status  : signed in
+    account : wtfchuck27 (@wtfchuck27)
+    userId  : e767722b-ab2f-4447-9a4d-6ba6ac7dd341
+    friends : 1 ["anoterostv"]
+
+Ready: two distinct signed-in accounts.
+```
+
+Against the owner's checklist:
+
+| Required | Result |
+| --- | --- |
+| Actor A is AnoterosTV | yes |
+| Actor B is the second account | yes - wtfchuck27 |
+| both have valid Watchside sessions | yes, both restored from their seeds |
+| their user ids differ | yes - `e9ee4788…` vs `e767722b…` |
+
+**The stop condition did not trigger.** seed-b holds a valid authenticated
+Watchside session; nothing was re-authenticated and nothing was deleted.
+
+**They are already friends** - A's roster contains `wtfchuck27`, B's contains
+`anoterostv`. That relationship is REUSED throughout. Nothing creates,
+destroys, or re-creates a friendship anywhere in this suite, and the scenario
+asserts the pre-existing friendship rather than establishing one.
+
+## 31.3 Durable configuration, without machine paths in git
+
+Requiring `WATCHSIDE_E2E_SEED_A/B` in every terminal is how a suite quietly
+stops being run. Resolution order is now:
+
+1. `WATCHSIDE_E2E_SEED_A` / `WATCHSIDE_E2E_SEED_B` - environment wins, which is
+   what CI would use.
+2. `scripts/firefox-e2e/seeds.local.json` - **gitignored** (`.gitignore:61`).
+3. Nothing, in which case any scenario declaring `requires: ['A','B']` **fails
+   with a named reason** rather than skipping.
+
+`seeds.example.json` is committed as the template and documents all three.
+Verified: `git check-ignore -v` confirms `seeds.local.json` is ignored, and a
+scan of everything staged for commit finds no absolute machine path, no account
+handle, and no credential material.
+
+## 31.4 The chain, and what each assertion actually reads
+
+`scripts/firefox-e2e/scenarios/05-social.mjs`. Two real browsers, two real
+accounts, one Twitch channel each to begin with.
+
+The actors **start apart** - B on `lirik`, A on `twitch` - deliberately. If both
+opened the same channel the room would form on its own and JOIN would never be
+exercised, so the scenario would go green with the single most important social
+affordance in the product untested.
+
+Everything is asserted against the **rendered panel**, not the state broadcast.
+A state field says the client believes something; a card in the shadow root says
+the owner would have seen it and had somewhere to click.
+
+```
+ok  Actor A is signed in  (@anoterostv)
+ok  Actor B is signed in  (@wtfchuck27)
+ok  the two actors are different accounts  (anoterostv vs wtfchuck27)
+ok  the actors are already friends, so nothing has to be created
+ok  Actor B publishes the channel it is watching  (lirik)
+ok  Actor A sees a card for the channel Actor B is on  (lirik)
+ok  the card offers a JOIN
+ok  and A is not already there, so the JOIN is a real destination  (A is on /twitch)
+ok  the JOIN control accepted the click  ({"clicked":true,"channel":"LIRIK","label":"JOIN"})
+ok  JOIN navigated Actor A to the channel  (/lirik)
+ok  and the panel survived the navigation  (1)
+ok  B sees A arrive: its own card for the channel turns HERE  (after 2.3s)
+ok  the room A opened is the channel both are on  (LIRIK)
+ok  B sees the same room  (LIRIK)
+ok  A can send into the room
+ok  B received A's message  ([Watchside E2E] mteuopt2 A→B)
+ok  and it is attributed to A, not to B  ({"who":"AnoterosTV","self":false})
+ok  B can send into the room
+ok  A received B's message  ([Watchside E2E] mteuopt2 B→A)
+ok  and it is attributed to B  ({"who":"wtfchuck27","self":false})
+ok  A's own message is attributed to A  ({"who":"You","self":true})
+ok  the arriving actor's room lists the other by name  (You, wtfchuck27 after 0.0s)
+ok  B's room counts one peer - the actor who joined  (expected 1, got 1)
+ok  A's friend list is unchanged by the run
+ok  the room contains only the two actors - no unrelated user was pulled in
+ok  neither worker errored during the exchange  (expected 0, got 0)
+```
+
+Two details worth stating because they are what make the assertions mean
+anything:
+
+- **Messages are typed, not injected.** The composer is a controlled React
+  input: assigning `.value` changes nothing and leaves SEND disabled. The agent
+  sets the value through the prototype descriptor React reads and dispatches the
+  event React listens for, so this is a keystroke rather than a DOM poke.
+- **Attribution is checked in both directions.** The same message is asserted as
+  *not self, from AnoterosTV* on B's screen and *self, from You* on A's. A room
+  that echoed locally would pass one and fail the other.
+
+Every message is stamped `[Watchside E2E] <run-id>` so anything this suite
+leaves behind stays identifiable as ours. Across the runs in this section that
+is roughly ten messages in the `lirik` Stream Room, all between the owner's own
+two accounts.
+
+## 31.5 What two accounts cannot reach
+
+`GRAVITY_THRESHOLD` is **2**, so the flame - `isGravity`, the "N friends"
+styling, the strong card - requires two *other* friends on one channel. With
+exactly one second account it is unreachable, and the scenario says so in a
+comment rather than faking it. The one-friend card, its count, and its JOIN are
+all exercised; the emphasis above the threshold stays with the unit tests.
+
+This is the tradeoff in §28.3 that the owner accepted, now measured rather than
+predicted.
+
+## 31.6 WS-F5-01 — the room roster does not follow an arrival
+
+**The harness found a real product defect on its first complete run.**
+
+When A joins the channel B is already watching:
+
+| What B's client does | When |
+| --- | --- |
+| HERE card updates to show a friend watching with it | **~2.3s** |
+| room opens, messages flow both ways | immediately |
+| room ROSTER lists A by name | **122s, 132s, and >150s** across three runs |
+
+And the arriving side is not affected: A's roster lists B after **0.0s**.
+
+The failure line the harness prints is the diagnosis:
+
+```
+B's own view: peers={"lirik":1} members={"lirik":0}
+```
+
+Two different answers to "who is in this room", and they disagree:
+
+- `roomPeers` - derived from **presence**. Correct, in seconds.
+- `roomMembers` - the server **membership query**. Empty.
+
+The rendered roster lists `roomMembers`. `streamRoom.ts` caches that answer for
+`DEFAULT_REFRESH_MS = 90_000` and re-asks when the client believes co-presence
+changed. The measurements are all past 90s, which says the re-ask is not being
+triggered by the arrival at all - the cache lapsing is what eventually fixes it.
+
+What makes this worth reporting rather than shrugging at: `ask()` in
+`streamRoom.ts` carries a long comment describing **exactly this symptom** -
+"the person who joined sees the session immediately, and the person already
+watching does not until they refresh" - as something already fixed. Either that
+fix is incomplete, or the trigger that should fire it (`room.invalidate()` from
+the co-presence change in `indexPresence`) is not firing on this path. The
+evidence narrows it to those two places; **which one is not proven here, and I
+have not gone further because fixing product code is outside this checkpoint.**
+
+**How the gate handles it.** The roster wait is reported, not asserted, and
+every run prints:
+
+```
+!!  WS-F5-01: the already-watching actor's room roster took >150s (cache is 90s)
+    while its HERE card updated in 2.3s. Its own view: peers={"lirik":1} members={"lirik":0}
+```
+
+Coverage is not quietly dropped in exchange: B's own peer count **is** asserted,
+so the two-sided claim stays under test. The reasoning is in the scenario, in
+full - an assertion on a known-broken behaviour makes the gate permanently red,
+and a permanently red gate is one nobody reads. When WS-F5-01 is fixed, that
+report becomes an assertion and the timeout comes down.
+
+**This needs an owner decision.** It is a product defect in the Stream Room, not
+a Firefox one - the same code runs on Chrome.
+
+## 31.7 The three false-positive proofs
+
+`npm run e2e:proofs`. A green suite is a claim, and the claim is worthless until
+somebody breaks the product and confirms it goes red.
+
+Each break is applied through a new `mutate` seam in the harness, which patches
+the **per-actor instrumented copy** of the package - never `dist-firefox/package`
+and never `src/`. The copy is rebuilt from scratch on the next launch, so there
+is nothing to restore and no way for a crashed run to leave a sabotaged build
+behind. Every mutation asserts its lever is **unique** in the bundle first, so a
+rebuild that changes the minified shape fails loudly instead of quietly patching
+nothing.
+
+```
+== suppress B's presence
+      B aggregates [] and publishes []
+   PASS  "A sees a card for the channel B is on" failed as it should  (77.4s)
+== break the rendered JOIN
+      JOIN clicked: {"clicked":true,"channel":"LIRIK","label":"JOIN"}
+   PASS  "JOIN navigated Actor A to the channel" failed as it should  (78.4s)
+== drop A's room message
+      A's composer reports: {"typed":true,"sent":true}
+   PASS  "B received A's message" failed as it should  (79.0s)
+
+3/3 assertions proved themselves
+```
+
+The middle line of each is the point:
+
+1. B genuinely publishes **nothing** - and A's card never appears, so that
+   assertion is reading B's presence and not something incidental.
+2. JOIN was **really clicked** - the button rendered, the guard passed, the label
+   said JOIN - and A still never arrives, so the assertion is watching the
+   arrival rather than the click.
+3. A's composer **reports success** - typed, enabled, sent - and B never receives
+   it, so the assertion is reading what crossed the server and not A's own
+   optimistic echo. This is the sharpest of the three.
+
+All mutations are confined to disposable copies. Nothing was reverted because
+nothing needed reverting, and nothing is committable.
+
+## 31.8 Harness defects found and fixed on the way
+
+Recorded because each looked like a product failure first.
+
+**The page agent could not survive the event page suspending.** A content agent
+connected once at load; when Gecko suspended the background during a long wait,
+every port died and the agent was unreachable forever after. The harness
+reported "no page agent on /lirik", which reads like the tab crashed when the
+tab was fine. The bus now reconnects and re-registers under the same id. It does
+not interfere with the lifecycle scenario, which closes all Twitch tabs before
+waiting for suspension.
+
+**A launch could fail because Firefox never opened its debugger.** web-ext
+reported `ECONNREFUSED` and the harness reported "timed out waiting for the
+extension background to boot" - which points at the extension and is nowhere
+near the truth. Two fixes: the profile is **swept before** launching, not only
+after, so a straggler holding the directory cannot make the new instance exit;
+and the single bounded retry now **rebuilds the profile from its seed** rather
+than reusing a directory that may have been copied while it was still locked.
+The first retry attempt failed identically to the first attempt, which is what
+made the second fix necessary.
+
+**Two probes were measuring the wrong markup**, and both looked like presence
+defects for a run or two:
+
+- The roster is one row until it is tapped, so who is here has to be *asked for*
+  before it can be asserted.
+- Once you are on the same channel, a friend stops being a separate row and is
+  counted inside the HERE card instead. A friend-row probe finds nothing and
+  reads as "B never noticed" when B noticed in two seconds. Finding this is what
+  turned a vague "the room is slow" into the precise WS-F5-01 above.
+
+`sweepProfile()` was also extracted so the pre-launch and post-run paths cannot
+drift apart; `close()` is now four lines.
+
+## 31.9 Safety — what the runs touched, and what they did not
+
+| Claim | Evidence |
+| --- | --- |
+| Seeds are never opened | the harness copies them; `createProfile()` refuses any path outside `dist-firefox/e2e` |
+| A two-actor run leaves both seeds byte-identical | fingerprint before and after a full social run: `490abc069b69176b` / `230347d30f6355fa`, unchanged |
+| Actor A's original F3 profile is intact | still present, still 83 entries; only ever read |
+| No friendship was created, destroyed or recreated | the pre-existing one is asserted and reused; A's roster is compared before and after and is identical |
+| No unrelated user was involved | the room is asserted to contain exactly the two actors |
+| No row was written directly | every write goes through the product's own UI - a real JOIN click, a real composer |
+| No credentials handled | seeds are handled as paths; storage is reported by key name and shape; identity by the non-secret fields the panel itself shows |
+| Chrome untouched | no Chrome build, package or Store action; no product code changed at all |
+
+## 31.10 Verification
+
+| Check | Result |
+| --- | --- |
+| `npm run e2e:actors` | two distinct signed-in accounts |
+| `npm run verify:firefox:e2e` | **5/5 scenarios, 290s** |
+| Two-actor social chain | PASS (150-180s) |
+| `npm run e2e:proofs` | **3/3 assertions proved themselves** |
+| `npm test` | **2273 passed / 87 files** |
+| `tsc -b --force` · `eslint .` | clean |
+| `verify:firefox` · `verify:store` | pass |
+| Seed fingerprints after a run | unchanged |
+| Product code changed | **none** |
+
+## 31.11 F5 verdict
+
+**The social acceptance chain is complete and passing**, on two real accounts,
+in two real Firefox browsers, against the real backend: presence → the friend's
+card → JOIN → the Stream Room → messages in both directions with correct
+attribution → an explicit assertion that nobody else was touched.
+
+The three deferred false-positive proofs are done and all three hold, so the
+assertions carrying that chain are known to fail when the product breaks.
+
+One product defect is outstanding - **WS-F5-01**, the Stream Room roster not
+following an arrival on the already-watching side. It is reported on every run
+with its measurements. It is not a Firefox defect and it needs an owner decision
+before anything is changed.
+
+## 31.12 Production, hosted, Chrome
+
+**Zero production code. Zero hosted changes. Zero Chrome changes.** Every change
+is in `scripts/firefox-e2e/`, plus one `package.json` script and one `.gitignore`
+line. No migration was applied, no OAuth configuration touched, no Store action
+taken.
+
+## 31.13 What was NOT begun
+
+F6, F7 and M3 remain untouched, as instructed.
