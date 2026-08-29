@@ -12,6 +12,10 @@ change, no hosted Supabase change, no Chrome modification.
 
 ## 1. Executive result
 
+> **SUPERSEDED — see §26, "Completion after owner login", at the end of this
+> report. F3 is now PASS.** The assessment below was written before the owner
+> signed in and is kept as the record of what was proved without a human.
+
 ### PARTIALLY COMPLETE — stopped at the one human boundary the brief anticipated.
 
 Everything in F3 that can be proved without a person has been proved, against a
@@ -395,3 +399,291 @@ One commit: `docs: record Firefox F3 real-auth progress` — this report plus
 - Hosted schema 28 — untouched. Supabase configuration — untouched.
 - Chrome Web Store: submitted v0.6.0 — untouched.
 - Firefox: F3 **incomplete**, blocked on one owner sign-in.
+
+---
+
+# 26. Completion after owner login — 2026-08-29
+
+**F3 VERDICT: PASS.**
+
+Everything the earlier sections left open is now measured. Sections 6–15 above
+describe the pre-login state and are superseded by what follows.
+
+## 26.1 Owner login completed
+
+The owner ran the §23 command, clicked **Continue with Twitch**, signed in with
+the same Twitch account they use in Chrome, and closed Firefox. Nothing else was
+asked of them, and they were not asked again.
+
+Before running a single test, the authenticated profile was **copied to
+`ffprofile-backup`** — 312 MB — so that any destructive step (logout in
+particular) could be undone without another sign-in. It was never needed.
+
+## 26.2 Session establishment
+
+Firefox was started against the preserved profile and the running extension was
+read directly. Storage was inspected **by shape, never by value**:
+
+| | |
+| --- | --- |
+| `sessionKeyPresent` | **true** |
+| `sessionKeyCount` | **1** |
+| session fields | `access_token`, `expires_at`, `expires_in`, `provider_refresh_token`, `provider_token`, `refresh_token`, `token_type`, `user` |
+| `hasAccessToken` / `hasRefreshToken` | true / true |
+| `providerIsTwitch` | **true** |
+| `pkceVerifierKeyCount` | 3 |
+| OAuth flows this run (`launchCalled`) | **0** |
+
+The PKCE-verifier keys are separated from the session key deliberately, because
+the earlier attempt left verifiers behind with no session and the two must never
+be confused. Here there is a real session key **and** the verifiers; the session
+is the session.
+
+## 26.3 Firefox Twitch identity
+
+| | |
+| --- | --- |
+| provider | `twitch` |
+| `identityProviders` | `["twitch"]` |
+| `identitiesCount` | **1** |
+| provider subject present | yes (value not recorded) |
+| Twitch login from provider metadata | `AnoterosTV` |
+
+## 26.4 Firefox Watchside identity
+
+From Watchside's own state broadcast — the same object the panel receives, which
+carries no credential:
+
+```
+status             signed_in
+userId             e9ee4788-a971-497a-994e-957da25e4090
+displayName        AnoterosTV
+twitchLogin        anoterostv
+friendCode         KB-B51A-8T06
+presenceVisibility visible
+friends            3
+groups             2
+referralCount      0
+displayedBadge     null
+```
+
+Panel text, rendered: `Friends 0/3 · Groups 2 · Offline · 3 ·
+bobtheunstoppable · ohjuliego · wtfchuck27 · Watchside v0.6.0`.
+
+## 26.5 Cross-browser identity comparison
+
+What was compared, and why each item is load-bearing:
+
+| Evidence | Value | What it rules out |
+| --- | --- | --- |
+| Supabase **auth user id** | `e9ee4788-a971-497a-994e-957da25e4090` | — |
+| Watchside **profile id** (`identity.userId`) | `e9ee4788-a971-497a-994e-957da25e4090` | the two are **identical**, so `sync_kickback_identity()` mapped to the existing `public.users` row rather than inserting one |
+| **`auth.users.created_at`** | **2026-08-23T06:18:30.425886Z** | the account was created **six days before** this login, and before the Firefox package existed at all (F2 was 2026-08-28). Firefox cannot have created it. |
+| `identitiesCount` | **1** | no second provider identity was attached |
+| Friends | **3** — `bobtheunstoppable`, `ohjuliego`, `wtfchuck27` | accepted friendships need the other party to have acted; they cannot exist on an account minted today |
+| Groups | **2** | same |
+| Friend code | `KB-B51A-8T06` | minted once, at account creation |
+| Invite code | present, 22 characters | server-side, minted before today |
+| Twitch login | `anoterostv` / display `AnoterosTV` | matches the identity Chrome-side testing has used throughout this project |
+
+Display names were explicitly **not** relied on: the comparison rests on the
+Supabase UUID, the account creation timestamp, and durable relational state.
+
+### SAME ACCOUNT: **YES**
+
+Precisely what that rests on: the account this Firefox login resolved to was
+created on **2026-08-23**, carries three accepted friendships and two groups,
+and has exactly one Twitch identity — so it is the pre-existing account, and the
+only account this Twitch user has. Supabase keys `auth.users` on
+(provider, provider_id), so a second row for the same Twitch subject cannot
+exist.
+
+Stated honestly: this proves Firefox resolved to *the* existing account for that
+Twitch user. It does not separately read Chrome's local storage to compare a
+value — that was neither necessary nor safe, because there is only one account
+it could be.
+
+## 26.6 Duplicate check
+
+| Check | Result |
+| --- | --- |
+| Duplicate auth identity | **none** — `identitiesCount: 1`, providers `["twitch"]` |
+| Duplicate Watchside profile | **none** — profile id equals auth id; a new profile would carry a new id, zero friends and a new friend code |
+| Duplicate connected account | **none** — one provider identity |
+| Sessions | exactly **1** session key |
+| Account age after two separate logins | `created_at` still 2026-08-23 |
+
+**No duplicate identity was created**, by the owner's login or by the re-login
+in §26.10.
+
+## 26.7 Durable server state
+
+All of it predates the Firefox login, and all of it resolved:
+
+- **3 friends**, by name, all offline at the time
+- **2 groups**
+- **invite code** present (22 characters)
+- **referral summary** `{ successful: 0, pending: 0 }`
+- **badges** `0` — consistent with zero successful referrals, not an empty account
+- friend code `KB-B51A-8T06`
+- presence visibility `visible`
+
+Nothing was mutated to prove any of it. `suggestFriends` returned 0, which is
+correct for an account whose three friends share no further mutuals.
+
+## 26.8 Restart persistence
+
+Firefox was closed cleanly and relaunched against the same profile:
+
+| | |
+| --- | --- |
+| OAuth flows (`launchCalled`) | **0** — no authorization window, no round trip |
+| Session | restored, 1 key |
+| `authUserId` | `e9ee4788-…` — unchanged |
+| `identitiesCount` | 1 |
+| Watchside identity | `signed_in`, same userId, same friend code |
+| Friends / groups | **3 / 2** — unchanged |
+
+Auth survives a real Firefox restart with no re-authentication.
+
+## 26.9 Logout
+
+The **real** Sign out button was used — the account panel opened via the avatar,
+then the button clicked. Not a simulated call, and the profile was not cleared
+by hand.
+
+```
+restored          status=signed_in   session=true
+clicked-signout   status=signed_in   session=true
+after             status=signed_out  session=false   button="Continue with Twitch"
+final             status=signed_out  session=false   button="Continue with Twitch"
+```
+
+| Check | Result |
+| --- | --- |
+| Client session cleared | yes — `sessionKeyCount: 0` |
+| UI returned to signed-out | yes — avatar gone, sign-in button back |
+| Server account deleted? | **no** — §26.10 signs straight back into it |
+| Durable state retained server-side | yes — friends and groups returned intact on re-login |
+| Local Watchside state corrupted? | no — `kickback:attention:seen`, `kickback:channelMetadata` and `kickback:channelNames` all retained. `kickback:analytics:session` was cleared, which is correct: an analytics session ends when the user does. |
+
+## 26.10 Re-login
+
+Clicked the real **Continue with Twitch** again. It completed **without any
+owner interaction** — the profile still held the Twitch session and the prior
+authorization, so Twitch redirected straight through. The owner was not asked
+for credentials at any point.
+
+```
+restored        status=signed_out  launch=0
+clicked-signin  status=signed_out  launch=1
+after           status=signed_in   user=e9ee4788  friends=3  groups=2
+final           status=signed_in   user=e9ee4788  friends=3  groups=2
+```
+
+| Check | Result |
+| --- | --- |
+| Same Twitch provider identity | yes — `["twitch"]`, one identity |
+| Same Watchside/Supabase identity | **yes** — `e9ee4788-a971-497a-994e-957da25e4090` |
+| Same durable server state | yes — 3 friends, 2 groups |
+| Duplicate created? | **no** — `identitiesCount: 1`, `created_at` still 2026-08-23 |
+| New session works | yes — one session key, signed-in panel |
+
+A full sign-out / sign-in cycle returns to exactly the same account.
+
+## 26.11 Cancellation and failure
+
+Not re-run. It was proved on a real Firefox earlier in this report (§16) — the
+auth window closed programmatically, Gecko rejected with "User cancelled or
+denied access.", no partial session, no error banner, and the panel recovered.
+No auth code has changed since, so nothing invalidates it.
+
+## 26.12 Production code impact
+
+**Zero.** No production file was modified in this task. F1's injected-dependency
+architecture carried real Twitch OAuth, session restore, logout and re-login on
+Gecko without a line of change, and no Gecko auth defect was found.
+
+## 26.13 Chrome impact
+
+| Check | Result |
+| --- | --- |
+| Permanent Chromium ID | `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged |
+| Chromium redirect | derived from the same unchanged key — unchanged |
+| OAuth scopes | still absent, pinned by test |
+| Manifest / permissions | unchanged |
+| `Watchside-Store-v0.6.0.zip` | `150e3c5b…b7a818d3d` — untouched |
+| `Watchside-Private-Beta-v0.6.0.zip` | `c1217ff5…6067203e` — untouched |
+| Chrome Web Store action | none |
+
+Neither Chromium packager was run.
+
+## 26.14 Tests
+
+| Gate | Result |
+| --- | --- |
+| `oauthContract` + `browserAdapter` | 69 passed |
+| `tsc -b --force` | clean |
+| `eslint .` | clean |
+| `npm test` | **2258 passed / 86 files, 0 failed** |
+| `verify:firefox` | pass |
+| `verify:store` | pass |
+| `verify:config` | pass |
+| `verify:groups` | pass |
+| `verify:lab` / `test:authz` | not run — excluded by instruction |
+
+No new unit tests were manufactured: nothing changed in production code, and the
+F3 invariants worth pinning were already pinned in `oauthContract.test.ts`.
+
+## 26.15 Security and redaction
+
+No access token, refresh token, provider token, PKCE verifier, authorization
+code, OAuth state or cookie was read, printed, transmitted or committed. Tokens
+were reported as **booleans**, and session contents as **field names** only. The
+Supabase user UUID and the friend code are non-secret account identifiers and
+are the evidence itself. The owner's own Firefox profile was never opened or
+copied; all work used the scratch profile created for this milestone.
+
+## 26.16 F3 pass criteria
+
+| Criterion | Result |
+| --- | --- |
+| Firefox completes real Twitch OAuth | **PASS** |
+| A valid session exists | **PASS** |
+| Same Twitch user → same existing account | **PASS** |
+| No duplicate identity/profile | **PASS** |
+| Existing durable server state appears | **PASS** |
+| Auth survives restart | **PASS** |
+| Logout works | **PASS** |
+| Re-login resolves to same identity | **PASS** |
+| Chrome unaffected | **PASS** |
+
+### F3: PASS
+
+## 26.17 Remaining Firefox work
+
+**F4** — panel anchoring against Twitch's layout under Gecko, page-origin
+`localStorage` under strict ETP, host-permission revocation behaviour,
+notifications on Gecko (the button strip is unit-tested but has never been
+seen), background suspend/resume.
+
+**F5** — `scripts/rdp.mjs` and the eight-assertion E2E suite; both browser
+verifications wired into the release gate.
+
+**F6** — AMO: signing, listing, the source package for minified code, and
+`data_collection_permissions` (an owner decision, see the F2 report).
+
+**F7** — human acceptance on Firefox.
+
+Nothing in F3 changed any of that.
+
+## 26.18 Git status
+
+- Branch `main`, tracking `origin/main`, pushed.
+- **No production code changed** in this task; the only change is this report.
+- Chromium extension ID `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged.
+- Hosted schema 28 — untouched. Supabase configuration — untouched beyond the
+  redirect the owner added before this task.
+- Chrome Web Store: submitted v0.6.0 — untouched.
+- Firefox: **F3 complete and passing.** F4–F7 outstanding; Firefox is not yet a
+  shippable product.
