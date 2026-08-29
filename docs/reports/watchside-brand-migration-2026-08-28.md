@@ -1,7 +1,7 @@
 # Watchside — Kickback → Watchside brand migration
 
 **Date:** 2026-08-28
-**Branch:** `watchside-migration` (4 commits, not merged, not pushed)
+**Branch:** merged into `main` and pushed — `main` = `origin/main` = `33c7dcb`
 **Version:** 0.6.0 — unchanged, see *Version* below
 **Extension ID:** `ngfopkeokddfnncdhfkhnffilbdhkkip` — unchanged and verified
 
@@ -207,9 +207,89 @@ available. A rename alone is not a reason to bump.
 
 ---
 
+## Publication — final state (2026-08-28)
+
+Everything below was done after the migration itself and verified against what
+is actually live, not against what was pushed.
+
+**Database — DONE.** The owner ran `select public.analytics_schema_version();`
+in the hosted SQL Editor and it returned **28**. 0028 is applied and confirmed.
+No migration was applied, replayed or bundled from here. Owner action 1 below
+is retained as a record of what was run and why; **it is complete — do not run
+it again.**
+
+**Pages — PUBLISHED.** `b600e95..f2881a4` pushed to
+`Anoteros-Labs/anoteros-labs.github.io`, no force. All six routes verified
+live over HTTP:
+
+| Route | |
+| --- | --- |
+| `/watchside/invite/` `/watchside/privacy/` `/watchside/support/` | 200 |
+| `/kickback/invite/` `/kickback/privacy/` `/kickback/support/` | 200 |
+
+**Legacy invite compatibility — verified in a real browser, not from source.**
+The forward is client-side, so HTTP alone cannot answer it. Driving the
+deployed page with Chrome DevTools Protocol:
+
+```
+/kickback/invite/?c=TESTCODE   ->  /watchside/invite/?c=TESTCODE
+/kickback/privacy/             ->  /watchside/privacy/
+/kickback/support/             ->  /watchside/support/
+```
+
+and a real 22-character code survives **both** hops — the canonical page built
+`https://www.twitch.tv/?kickback_invite=<CODE>` and its headline read
+*"A friend invited you to Watchside"*. The live invite page points at
+`chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip`, carries no
+`authuser`/`hl` parameters, no stale non-hyphenated domain, and no Kickback
+branding. 16/16 checks passed.
+
+**Code — MERGED AND PUSHED.** `watchside-migration` fast-forwarded into `main`
+(this repository's history is linear; there has never been a merge commit, so a
+fast-forward is the established shape and it preserves all four commits without
+squashing or rewriting). `497aeba..33c7dcb` pushed to `origin/main`.
+
+**Artifacts — NOT rebuilt, and not needed.** The merge was a fast-forward, so
+the tree hash is unchanged either side of it: `634060e9…` before and after,
+with `src`, `public` and `scripts` byte-identical (`175fe48e…`, `adc26faa…`,
+`cfe7bacb…`). The two ZIPs were re-hashed on disk rather than regenerated and
+both still match, so no third set of "final" artifacts exists.
+
+**Post-merge identity re-proved on `main`:** name `Watchside`, version `0.6.0`,
+ID `ngfopkeokddfnncdhfkhnffilbdhkkip`. Permissions and host permissions are
+byte-identical to pre-migration `497aeba`. `signInWithOAuth` requests **no**
+`scopes` option, before or after — every diff in `auth.ts` and
+`supabaseBackend.ts` is a comment string. Beta package keeps the manifest
+`key`; Store package omits it. Shipped package contains **zero** occurrences of
+`Kickback`, while the compatibility keys (`kickback:preferences`,
+`kickback:sessionTab`, `kickback:channelMetadata`, `kickback_invite`) are all
+still present. Shipped icons are byte-identical to `public/icons/` and all four
+still match `assets/brand/watchside-mark.svg`.
+
+**Gates on merged `main`:** `verify:store`, `verify:config`, `verify:groups`
+all pass. Full suite **2162 passed / 83 files**.
+
+> One wrinkle worth recording, because it will recur. Immediately after
+> `git checkout main`, three source-pin tests failed. That is the CRLF debt
+> already listed below, not a regression: `core.autocrlf=true` rewrote the
+> working copy on checkout, and those assertions match multi-line template
+> literals containing `\n`. Converting *only the line endings* of two files —
+> no content change — took all 54 of their assertions green. The committed
+> blobs are pure LF and `cmp` reports the working file byte-identical to
+> `HEAD`, so nothing was altered; `git status` may show `src/background/index.ts`
+> as modified purely because autocrlf wants CRLF in the working tree. There is
+> nothing to commit.
+
+**Still not done, deliberately:** nothing uploaded to the Chrome Web Store, no
+new Store item, human browser acceptance pending, Firefox not started.
+
+---
+
 ## Owner actions
 
-1. **Hosted database is one migration behind: apply 0028, alone.**
+1. ~~**Hosted database is one migration behind: apply 0028, alone.**~~
+   **COMPLETE — hosted reports 28, confirmed by the owner. Do not re-run.**
+   Retained below as the record of what was applied.
 
    > **Corrected 2026-08-28.** An earlier draft of this report said hosted was
    > at **26** and told you to paste the whole bundle. Both were wrong. The
@@ -252,18 +332,17 @@ available. A rename alone is not a reason to bump.
 
    Applying it twice leaves the marker at 28 and the copy unchanged, so a
    double-paste is harmless.
-2. **Push the Pages repo.** `c:/Users/sk8bo/Projects/anoteros-pages`, commit
-   `f2881a4`, committed locally but **not pushed** — publishing to a public
-   site is your call. Until it is pushed, `/watchside/invite/` 404s. Nothing
-   is live-broken today, because the shipped Store build is still 0.4.1 and
-   does not mint links at that path.
+2. ~~**Push the Pages repo.**~~ **COMPLETE** — `f2881a4` pushed, all six routes
+   verified live, query preservation verified in a real browser. See
+   *Publication* above.
 3. **Rename the Store listing** from "Kickback BETA" to "Watchside BETA", and
    refresh the listing description, screenshots and promo tile. `verify:store`
    now expects the "Watchside BETA" name.
 4. **Two ZIPs in `releases/` share version 0.6.0** —
    `Kickback-Store-v0.6.0.zip` (stale) and `Watchside-Store-v0.6.0.zip`
    (current). I did not delete the old ones. Upload the **Watchside** file.
-5. **Merge `watchside-migration`** into `main` when you have reviewed it.
+5. ~~**Merge `watchside-migration`** into `main`.~~ **COMPLETE** —
+   fast-forwarded and pushed; `main` = `origin/main` = `33c7dcb`.
 6. **Human acceptance test.**
 
 ## Flagged, not fixed
