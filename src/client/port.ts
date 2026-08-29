@@ -7,6 +7,8 @@ import type {
   SendRequestOutcome,
 } from './types'
 import { PORT_NAME, isWorkerMessage } from './messages'
+import { runtime } from '../platforms/browser'
+import type { ExtensionPort } from '../platforms/browser'
 import type { EarnedBadge, FriendSuggestion } from '../background/supabaseBackend'
 import type { ClientMessage, RpcMethod } from './messages'
 
@@ -51,7 +53,7 @@ export function createPortClient(): KickbackClient {
   const listeners = new Set<(state: KickbackState) => void>()
   const pending = new Map<number, PendingCall>()
   let state: KickbackState = { ...INITIAL_STATE }
-  let port: chrome.runtime.Port | null = null
+  let port: ExtensionPort | null = null
   let reconnectDelay = RECONNECT_DELAY_MS
   let nextCallId = 1
   let disposed = false
@@ -78,7 +80,7 @@ export function createPortClient(): KickbackClient {
     if (disposed) return
 
     try {
-      port = chrome.runtime.connect({ name: PORT_NAME })
+      port = runtime.connect(PORT_NAME)
     } catch {
       // Happens while the extension is being reloaded during development.
       scheduleReconnect()

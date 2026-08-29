@@ -1,3 +1,5 @@
+import { ext } from '../platforms/browser'
+import type { ExtensionPort } from '../platforms/browser'
 import { createAuthService } from './auth'
 import { createFriendsService } from './friends'
 import { createSocialSync } from './socialSync'
@@ -116,7 +118,7 @@ import { INITIAL_STATE } from '../client/types'
  * token, and they never call the database themselves.
  *
  * MV3 workers are killed after ~30s idle, so nothing here may live only in
- * memory. The session is in chrome.storage.local, and an alarm brings the
+ * memory. The session is in extension storage, and an alarm brings the
  * worker back to refresh it.
  */
 
@@ -126,11 +128,7 @@ const SUPABASE_PUBLISHABLE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY
 const REFRESH_ALARM = 'kickback:refresh-session'
 const REFRESH_PERIOD_MINUTES = 30
 
-const storage = createExtensionStorage({
-  get: (keys) => chrome.storage.local.get(keys),
-  set: (items) => chrome.storage.local.set(items),
-  remove: (keys) => chrome.storage.local.remove(keys),
-})
+const storage = createExtensionStorage(ext.storage)
 
 // Startup diagnostic. Logs which project the worker is pointed at and how long
 // the key is - never the key itself. A truncated key is otherwise invisible:
@@ -200,12 +198,8 @@ function noteRealtime(surface: RealtimeSurface, status: 'connected' | 'error'): 
 
 const auth = createAuthService({
   backend: createSupabaseBackend(supabase),
-  launchWebAuthFlow: (url) =>
-    chrome.identity.launchWebAuthFlow({ url, interactive: true }).then((redirectedTo) => {
-      if (!redirectedTo) throw new Error('Sign-in window closed')
-      return redirectedTo
-    }),
-  redirectUrl: chrome.identity.getRedirectURL(),
+  launchWebAuthFlow: (url) => ext.identity.launchWebAuthFlow(url),
+  redirectUrl: ext.identity.getRedirectURL(),
   onError: logError,
 })
 
@@ -465,11 +459,7 @@ const emoteCatalog = createEmoteCatalog({
   onError: logError,
 })
 
-const storageArea = {
-  get: (keys: string | string[]) => chrome.storage.local.get(keys),
-  set: (items: Record<string, unknown>) => chrome.storage.local.set(items),
-  remove: (keys: string | string[]) => chrome.storage.local.remove(keys),
-}
+const storageArea = ext.storage
 
 const preferences = createPreferences(storageArea, logError)
 
@@ -968,11 +958,11 @@ const metadata = createMetadataService({
 })
 
 const notifier = createNotifier({
-  create: (id, options) => chrome.notifications.create(id, options),
-  clear: (id) => chrome.notifications.clear(id),
-  onClicked: (handler) => chrome.notifications.onClicked.addListener(handler),
-  onButtonClicked: (handler) => chrome.notifications.onButtonClicked.addListener(handler),
-  openUrl: (url) => void chrome.tabs.create({ url }),
+  create: (id, options) => ext.notifications.create(id, options),
+  clear: (id) => ext.notifications.clear(id),
+  onClicked: (handler) => ext.notifications.onClicked(handler),
+  onButtonClicked: (handler) => ext.notifications.onButtonClicked(handler),
+  openUrl: (url) => ext.tabs.create(url),
   // Clicking a gathering notification IS a JOIN, from the notification
   // surface - so it goes through the same path a JOIN button does rather than
   // becoming a second, parallel notion of joining.
@@ -989,7 +979,7 @@ const notifier = createNotifier({
       alreadyOnDestination: currentChannel() === channel,
     })
   },
-  iconUrl: chrome.runtime.getURL('icons/icon-128.png'),
+  iconUrl: ext.runtime.getURL('icons/icon-128.png'),
 })
 
 /**
@@ -1287,13 +1277,13 @@ function rememberChannelName(channel: string, name: string): void {
   entries.push([login, name])
   channelNames = Object.fromEntries(entries.slice(-MAX_CHANNEL_NAMES))
 
-  void chrome.storage.local.set({ [CHANNEL_NAMES_KEY]: channelNames })
+  void ext.storage.set({ [CHANNEL_NAMES_KEY]: channelNames })
   broadcast()
 }
 
 async function loadChannelNames(): Promise<void> {
   try {
-    const stored = await chrome.storage.local.get(CHANNEL_NAMES_KEY)
+    const stored = await ext.storage.get(CHANNEL_NAMES_KEY)
     const value = stored?.[CHANNEL_NAMES_KEY]
     if (value && typeof value === 'object') {
       channelNames = Object.fromEntries(
@@ -1415,7 +1405,7 @@ let authState = auth.getState()
 let friendsState = friends.getState()
 let groupsState = groups.getState()
 
-const ports = new Set<chrome.runtime.Port>()
+const ports = new Set<ExtensionPort>()
 
 /**
  * A stable name per port, so diagnostics can say "tab2" rather than printing
@@ -1872,7 +1862,7 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   },
 }
 
-async function handleRpc(port: chrome.runtime.Port, message: ClientMessage): Promise<void> {
+async function handleRpc(port: ExtensionPort, message: ClientMessage): Promise<void> {
   if (message.type !== 'rpc') return
 
   const handler = RPC_HANDLERS[message.method]
@@ -1917,7 +1907,7 @@ async function handleRpc(port: chrome.runtime.Port, message: ClientMessage): Pro
 
 // -------------------------------------------------------------------- tabs
 
-chrome.runtime.onConnect.addListener((port) => {
+ext.runtime.onConnect((port) => {
   if (port.name !== PORT_NAME) return
 
   ports.add(port)
@@ -2119,10 +2109,10 @@ chrome.runtime.onConnect.addListener((port) => {
 
 // -------------------------------------------------------------- lifecycle
 
-chrome.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES })
+ext.alarms.create(REFRESH_ALARM, { periodInMinutes: REFRESH_PERIOD_MINUTES })
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name !== REFRESH_ALARM) return
+ext.alarms.onAlarm((name) => {
+  if (name !== REFRESH_ALARM) return
   void auth.ensureFreshSession()
   // Safety net, not a polling strategy: if the socket died quietly, this puts
   // the friends list right within the half hour rather than never.
@@ -2135,7 +2125,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
   }
 })
 
-chrome.runtime.onStartup.addListener(() => {
+ext.runtime.onStartup(() => {
   void preferences.hydrate()
 void attention.hydrate()
 // A worker that has just woken should not start from a cold metadata cache;
@@ -2414,7 +2404,7 @@ void groups.hydrate()
 void auth.initialize()
 })
 
-chrome.runtime.onInstalled.addListener(() => {
+ext.runtime.onInstalled(() => {
   void auth.initialize()
 })
 

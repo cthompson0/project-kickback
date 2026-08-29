@@ -11,8 +11,14 @@ import { defineConfig } from 'vite'
 /** Read from the manifest so the shipped version has exactly one source. */
 const version = JSON.parse(readFileSync('public/manifest.json', 'utf8')).version
 
+/** Which engine this bundle is for. See vite.config.ts for the reasoning. */
+const browserTarget = process.env.WATCHSIDE_BROWSER === 'gecko' ? 'gecko' : 'chromium'
+
 export default defineConfig({
-  define: { __KICKBACK_VERSION__: JSON.stringify(version) },
+  define: {
+    __KICKBACK_VERSION__: JSON.stringify(version),
+    'import.meta.env.VITE_WATCHSIDE_BROWSER': JSON.stringify(browserTarget),
+  },
   build: {
     outDir: 'dist',
     emptyOutDir: false,

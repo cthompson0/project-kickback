@@ -14,8 +14,23 @@ import react from '@vitejs/plugin-react'
 /** Read from the manifest so the shipped version has exactly one source. */
 const version = JSON.parse(readFileSync('public/manifest.json', 'utf8')).version
 
+/**
+ * Which engine this bundle is for.
+ *
+ * Folded into the source as a string literal, so src/platforms/browser/index.ts
+ * picks its adapter at build time and the other engine's adapter is dropped by
+ * tree-shaking rather than shipped and skipped over at runtime.
+ *
+ * Defaults to chromium on purpose: a build with no flag set should produce the
+ * shipping product, not a broken one.
+ */
+const browserTarget = process.env.WATCHSIDE_BROWSER === 'gecko' ? 'gecko' : 'chromium'
+
 export default defineConfig({
-  define: { __KICKBACK_VERSION__: JSON.stringify(version) },
+  define: {
+    __KICKBACK_VERSION__: JSON.stringify(version),
+    'import.meta.env.VITE_WATCHSIDE_BROWSER': JSON.stringify(browserTarget),
+  },
   plugins: [react()],
   build: {
     outDir: 'dist',
