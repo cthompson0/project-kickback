@@ -16,6 +16,13 @@ import { createPresenceReporter } from './presence'
 import type { PresenceBackend } from './presence'
 import { createActivityRegistry } from './activity'
 import { createFriendDestinations } from './friendDestinations'
+import {
+  openSessionChannels,
+  peersOnChannel,
+  restoredSessionChannel,
+  sessionChannelOf,
+  unreadByChannel,
+} from './sessionState'
 import { needsRefresh } from '../core/twitchMetadata'
 // The same selector and the same expansion the panel renders from, so the
 // diagnostic below cannot report a map the UI does not draw.
@@ -46,7 +53,7 @@ import { createTogetherReactions } from './togetherReactions'
 import { createStreamRoom } from './streamRoom'
 import { createRoomMessages } from './roomMessages'
 import { createSessionTab } from './sessionTab'
-import { MAX_MESSAGE_LENGTH, unreadCount } from '../core/roomMessages'
+import { MAX_MESSAGE_LENGTH } from '../core/roomMessages'
 import { isEmoteOnly } from '../core/emotes'
 import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
@@ -635,22 +642,13 @@ const sessionTab = createSessionTab({
 function restoredSession(): string | null {
   const remembered = sessionTab.selected()
   if (!remembered) return null
-  if (remembered !== sessionChannel()) return null
-  // Either kind of evidence will do, for the same reason availability accepts
-  // either: a direct friend the client can already see is not less real than
-  // one the server has confirmed.
-  /*
-   * Either kind of evidence, plus the conversation itself.
-   *
-   * Retained messages now count, which is what supersedes the Patch 1
-   * workaround: a room the viewer was in stays restorable for exactly as long
-   * as its messages live, and not one moment longer.
-   */
-  const live =
-    room.snapshot(remembered).length > 0 ||
-    peersOn(remembered).length > 0 ||
-    roomChat.snapshot().some((message) => message.channel === remembered)
-  return live ? remembered : null
+  return restoredSessionChannel({
+    remembered,
+    here: sessionChannel(),
+    members: room.snapshot(remembered),
+    peers: peersOn(remembered),
+    messages: roomChat.snapshot(),
+  })
 }
 
 /**
@@ -664,15 +662,12 @@ function restoredSession(): string | null {
  * open ones, so a room kept alive by its conversation still shows a count.
  */
 function roomUnreadMap(): Record<string, number> {
-  const selfId = authState.identity?.userId ?? null
-  const messages = roomChat.snapshot()
-  const channels = new Set([...sessionChannels(), ...messages.map((message) => message.channel)])
-
-  const out: Record<string, number> = {}
-  for (const channel of channels) {
-    out[channel] = unreadCount(messages, channel, sessionTab.readAt(channel), selfId)
-  }
-  return out
+  return unreadByChannel({
+    messages: roomChat.snapshot(),
+    open: sessionChannels(),
+    readAt: (channel) => sessionTab.readAt(channel),
+    selfId: authState.identity?.userId ?? null,
+  })
 }
 
 /** Everyone in one room, including the viewer. Zero when there is no room. */
@@ -1032,10 +1027,7 @@ function wantMetadata(): void {
  */
 function sessionChannel(): string | null {
   if (authState.status !== 'signed_in') return null
-  const here = currentChannel()
-  if (!here) return null
-
-  return presenceReporter.lastDestinations().includes(here) ? here : null
+  return sessionChannelOf(currentChannel(), presenceReporter.lastDestinations())
 }
 
 /**
@@ -1053,8 +1045,7 @@ function sessionChannel(): string | null {
  */
 function sessionChannels(): string[] {
   if (authState.status !== 'signed_in') return []
-  const open = new Set(tabActivity.destinations())
-  return presenceReporter.lastDestinations().filter((channel) => open.has(channel))
+  return openSessionChannels(tabActivity.destinations(), presenceReporter.lastDestinations())
 }
 
 /**
@@ -1088,16 +1079,12 @@ function liveWatchChannel(): string | null {
  * pretend it does not already know about a direct friend it can see.
  */
 function peersOn(here: string): string[] {
-  const viewer: Activity = { type: 'watching', platform: 'twitch', channel: here }
-  const selfId = authState.identity?.userId ?? null
-  const friendIds = new Set(friendsState.friends.map((friend) => friend.user.id))
-
-  const peers: string[] = []
-  for (const [userId, presence] of Object.entries(presenceIndex)) {
-    if (userId === selfId || !friendIds.has(userId)) continue
-    if (describePresence(presence, viewer).kind === 'watching_with_you') peers.push(userId)
-  }
-  return peers.sort()
+  return peersOnChannel({
+    channel: here,
+    presence: presenceIndex,
+    friendIds: new Set(friendsState.friends.map((friend) => friend.user.id)),
+    selfId: authState.identity?.userId ?? null,
+  })
 }
 
 /**
@@ -1355,6 +1342,8 @@ function currentState(): KickbackState {
     groupsError: groupsState.groupsError,
     channelNames: { ...channelNames },
     channelMetadata: { ...metadata.snapshot() },
+    // Which of those are still on their way. See KickbackState.
+    channelMetadataPending: metadata.inFlightChannels(),
     togetherReactions: together.snapshot(),
     roomMembers: room.rosters(),
     roomPeers: sessionPeerMap(),

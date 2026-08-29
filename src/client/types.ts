@@ -107,6 +107,20 @@ export interface KickbackState {
    * best answer. That is what keeps a v0.4.1 friend visible.
    */
   friendDestinations: DestinationsByUser
+  /**
+   * Channels with a Twitch metadata request open right now.
+   *
+   * The difference between a destination that is ARRIVING and one that will
+   * never arrive. A newly discovered destination has no metadata for the half
+   * second before the fetch lands, and rendering it in that gap produced a
+   * bare card that visibly transformed - correct, and cheap-looking. Knowing a
+   * request is in flight lets Gravity wait for it, and knowing none is lets
+   * Gravity stop waiting and show what it has.
+   *
+   * Empty by default, which reproduces the behaviour before this existed:
+   * nothing is ever held back.
+   */
+  channelMetadataPending: readonly string[]
   incomingRequests: FriendRequest[]
   outgoingRequests: FriendRequest[]
   friendsLoading: boolean
@@ -253,6 +267,7 @@ export const INITIAL_STATE: KickbackState = {
   error: null,
   friends: [],
   friendDestinations: {},
+  channelMetadataPending: [],
   incomingRequests: [],
   outgoingRequests: [],
   friendsLoading: false,

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { gravityModel, isGravity } from '../../core/socialGravity'
+import { gravityModel, isGravity, visibleGravity } from '../../core/socialGravity'
 import type { DestinationsByUser } from '../../core/socialGravity'
 import type { GravitySection } from '../../core/socialGravity'
 import { formatViewers } from '../../core/twitchMetadata'
@@ -55,6 +55,7 @@ import type { UserCardContext } from './UserCard'
 /** Stable empty defaults, so an omitted prop is not a new object each render. */
 const EMPTY_DESTINATIONS: DestinationsByUser = {}
 const EMPTY_METADATA: Readonly<Record<string, ChannelMetadata>> = {}
+const EMPTY_PENDING: readonly string[] = []
 
 interface SocialGravityProps {
   friends: Friend[]
@@ -69,6 +70,14 @@ interface SocialGravityProps {
    * multi-destination existed.
    */
   destinations?: DestinationsByUser
+  /**
+   * Channels whose Twitch metadata is still on its way.
+   *
+   * A destination in here with no metadata yet is HELD BACK rather than drawn
+   * bare - see visibleGravity. Empty by default, which draws everything, so a
+   * caller that does not know about enrichment timing behaves as before.
+   */
+  pendingChannels?: readonly string[]
   localActivity: Activity
   onRemove?: (userId: string) => void
   client: KickbackClient
@@ -462,6 +471,7 @@ function DestinationCard({
 export function SocialGravity({
   friends,
   destinations = EMPTY_DESTINATIONS,
+  pendingChannels = EMPTY_PENDING,
   localActivity,
   onRemove,
   client,
@@ -502,13 +512,27 @@ export function SocialGravity({
     [friends, destinations, localActivity, cardContext.selfId, metadata],
   )
 
+  /*
+   * What to draw right now.
+   *
+   * A destination discovered a moment ago has no metadata for the half second
+   * before Twitch answers, and drawing it in that gap produced a raw lowercase
+   * card that visibly transformed. Held back until it is complete - and only
+   * while a request is actually open, so a failure shows the plain card rather
+   * than nothing at all.
+   */
+  const drawn = useMemo(
+    () => visibleGravity(sections, metadata ?? EMPTY_METADATA, pendingChannels),
+    [sections, metadata, pendingChannels],
+  )
+
   if (friends.length === 0) {
     return <div className="kb-empty">No friends yet.</div>
   }
 
   return (
     <div className="kb-gravity">
-      {sections.map((section) => {
+      {drawn.map((section) => {
         const key = `${section.kind}:${section.channel ?? ''}`
 
         if (section.kind === 'here' || section.kind === 'destination') {

@@ -866,6 +866,7 @@ export function KickbackPanel({
                   <SocialGravity
                     friends={friends}
                     destinations={view.friendDestinations}
+                    pendingChannels={view.channelMetadataPending}
                     localActivity={view.localActivity}
                     onRemove={removeFriend}
                     client={client}

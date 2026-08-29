@@ -401,3 +401,52 @@ export function gravityChannels<T>(
   }
   return [...channels]
 }
+
+/**
+ * A destination whose card would be blank, and whose metadata is on its way.
+ *
+ * THE PROBLEM THIS SOLVES
+ *
+ * A newly discovered destination reaches the map before Twitch has been asked
+ * about it. For the half second that follows, the card has no display casing,
+ * no live badge, no category, no viewers and no avatar - it renders as a raw
+ * lowercase login and then visibly transforms. Correct, and cheap-looking.
+ *
+ * WHY THIS IS NOT A TIMER
+ *
+ * The answer is already in the state. A channel with a fetch open is ARRIVING;
+ * a channel with no record and no fetch open will not arrive, because a failed
+ * request clears itself and a request that was never made is not pending. So
+ * "wait" and "give up" are read from the metadata service rather than guessed
+ * from a clock, and a failure degrades to the plain card the panel has always
+ * drawn rather than to an indefinite spinner.
+ *
+ * NEVER THE VIEWER'S OWN CARD, and never `around` or `offline`. HERE is where
+ * the viewer already is - hiding it would remove the people they are actually
+ * with - and the quiet sections carry no metadata at all.
+ */
+export function awaitingEnrichment<T>(
+  section: GravitySection<T>,
+  metadata: Readonly<Record<string, ChannelMetadata>>,
+  pending: readonly string[],
+): boolean {
+  if (section.kind !== 'destination' || !section.channel) return false
+  if (metadata[section.channel]) return false
+  return pending.includes(section.channel)
+}
+
+/**
+ * The map as it should be drawn right now.
+ *
+ * Destinations still waiting for their first enrichment are held back; every
+ * other section renders exactly as before. Holding one card back never holds
+ * the map back - the rest of Gravity, and the friends below it, are untouched.
+ */
+export function visibleGravity<T>(
+  sections: readonly GravitySection<T>[],
+  metadata: Readonly<Record<string, ChannelMetadata>>,
+  pending: readonly string[],
+): Array<GravitySection<T>> {
+  if (pending.length === 0) return [...sections]
+  return sections.filter((section) => !awaitingEnrichment(section, metadata, pending))
+}

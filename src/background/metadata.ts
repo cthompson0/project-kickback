@@ -80,6 +80,14 @@ export interface MetadataService {
   pending(): number
   /** Whether a fetch is open for this channel right now. Diagnostics only. */
   inFlight(channel: string): boolean
+  /**
+   * Every channel with a fetch open right now.
+   *
+   * Broadcast to the panel so a destination that is ARRIVING can be told
+   * apart from one that will never arrive - the difference between waiting a
+   * moment and rendering a card with nothing on it.
+   */
+  inFlightChannels(): string[]
 }
 
 /**
@@ -211,6 +219,8 @@ export function createMetadataService(deps: MetadataServiceDeps): MetadataServic
     pending: () => inFlight.size,
 
     inFlight: (channel: string) => inFlight.has(channel.trim().toLowerCase()),
+
+    inFlightChannels: () => [...inFlight],
   }
 }
 
