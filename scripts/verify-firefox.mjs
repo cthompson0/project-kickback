@@ -20,7 +20,13 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
 import { join } from 'node:path'
 import { RUNTIME_FILES, FORBIDDEN_PATHS, walk } from './package-shared.mjs'
-import { GECKO_ID, GECKO_MIN_VERSION, manifestFor } from './manifest.mjs'
+import {
+  GECKO_DATA_COLLECTION,
+  GECKO_ID,
+  GECKO_MIN_VERSION,
+  SUPABASE_WILDCARD,
+  manifestFor,
+} from './manifest.mjs'
 import { EXPECTED_EXTENSION_ID } from './extension-identity.mjs'
 
 const PACKAGE = join('dist-firefox', 'package')
@@ -88,8 +94,15 @@ function main() {
     fail(`background.scripts is ${JSON.stringify(scripts)}, expected ["kickback-background.js"]`)
   } else ok('background', 'event page -> kickback-background.js')
 
-  // The transform is the only thing allowed to have produced this.
-  const derived = manifestFor('gecko', source)
+  // The transform is the only thing allowed to have produced this - and with
+  // the origin the BUNDLE names, so a manifest granting a project the code does
+  // not talk to fails here rather than at a user's sign-in.
+  const built = readFileSync(join(PACKAGE, 'kickback-background.js'), 'utf8')
+  const origins = [
+    ...new Set([...built.matchAll(/https:\/\/[a-z0-9-]+\.supabase\.co/g)].map((m) => m[0])),
+  ]
+  if (origins.length !== 1) fail(`expected one Supabase origin in the bundle, found ${origins.length}`)
+  const derived = manifestFor('gecko', source, { supabaseOrigin: origins[0] })
   if (JSON.stringify(manifest) !== JSON.stringify(derived)) {
     fail('the packaged manifest is not what manifestFor("gecko") produces from public/manifest.json')
   } else ok('derived from the canonical manifest', 'exactly')
@@ -103,9 +116,32 @@ function main() {
     fail(`permissions differ from Chromium: ${JSON.stringify(manifest.permissions)}`)
   } else ok('permissions', JSON.stringify(manifest.permissions))
 
-  if (!same(manifest.host_permissions, source.host_permissions)) {
-    fail(`host permissions differ from Chromium: ${JSON.stringify(manifest.host_permissions)}`)
+  /*
+   * Host permissions are NARROWER than Chromium's, on purpose and in one place.
+   *
+   * Chromium asks for every Supabase project on the internet; Firefox asks for
+   * ours. So this cannot be an equality check any more - it asserts the shape
+   * of the divergence instead: the wildcard is gone, exactly one Supabase
+   * origin remains, it is the one the bundle talks to, and nothing else moved.
+   */
+  const narrowed = `${origins[0]}/*`
+  const expectedHosts = source.host_permissions.map((p) => (p === SUPABASE_WILDCARD ? narrowed : p))
+  if (!same(manifest.host_permissions, expectedHosts)) {
+    fail(`host permissions are not Chromium's with the backend narrowed: ${JSON.stringify(manifest.host_permissions)}`)
   } else ok('host permissions', JSON.stringify(manifest.host_permissions))
+
+  if (manifest.host_permissions.some((p) => p.includes('*.supabase.co'))) {
+    fail('the Supabase wildcard survived into the Firefox manifest')
+  } else ok('backend grant', `narrowed to ${narrowed}`)
+
+  const declared = manifest.browser_specific_settings?.gecko?.data_collection_permissions
+  if (JSON.stringify(declared) !== JSON.stringify(GECKO_DATA_COLLECTION)) {
+    fail('data_collection_permissions is not the declared mapping')
+  } else ok('data collection', declared.required.join(', '))
+
+  if (manifest.browser_specific_settings?.gecko_android) {
+    fail('gecko_android is present - Watchside is desktop-only and untested on Android')
+  } else ok('android', 'not claimed (desktop-only)')
 
   if (!same(manifest.content_scripts, source.content_scripts)) {
     fail('content_scripts differ from Chromium')

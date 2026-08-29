@@ -160,6 +160,31 @@ export default {
        * tests rather than faked here.
        */
 
+      /*
+       * The narrowed backend grant, proven at runtime.
+       *
+       * F6 replaced `https://*.supabase.co/*` with this project's origin alone.
+       * supabase-js derives auth, REST, realtime, storage and Edge Functions
+       * from that one URL, so if the narrowing were wrong the first thing to
+       * break would be the Edge Function - it is the only call that is not a
+       * plain PostgREST request. Channel metadata comes from it, so an enriched
+       * channel is proof the grant covers every service, not just the ones a
+       * REST round trip touches.
+       */
+      const enriched = await a.waitFor(
+        async () => {
+          const g = await a.bg('gravity')
+          const record = g.available && g.value.enrichment?.[MEET]
+          return record?.enriched ? record : null
+        },
+        { label: `channel metadata for ${MEET} from the Edge Function`, timeout: 60_000 },
+      )
+      assert(
+        'the Edge Function is reachable under the narrowed backend grant',
+        enriched.enriched === true,
+        `${MEET} -> "${enriched.displayName}"`,
+      )
+
       // ---------------------------------------------------------------- JOIN
       const joined = await a.page(HOME, 'join', { channel: card.channel })
       assert('the JOIN control accepted the click', joined.clicked, JSON.stringify(joined))

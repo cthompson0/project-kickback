@@ -3,7 +3,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createChromiumApi } from '../../src/platforms/browser/chromium'
 import { createGeckoApi } from '../../src/platforms/browser/gecko'
-import { GECKO_ID, GECKO_MIN_VERSION, manifestFor } from '../../scripts/manifest.mjs'
+import {
+  GECKO_DATA_COLLECTION,
+  GECKO_ID,
+  GECKO_MIN_VERSION,
+  manifestFor,
+} from '../../scripts/manifest.mjs'
 import type { BrowserExtensionApi, ExtensionNotificationOptions } from '../../src/platforms/browser/types'
 
 /**
@@ -497,14 +502,27 @@ describe('the manifest transform', () => {
     it('pins the permanent Gecko id', () => {
       expect(GECKO_ID).toBe('watchside@anoteros-labs.com')
       expect(gecko().browser_specific_settings).toEqual({
-        gecko: { id: GECKO_ID, strict_min_version: GECKO_MIN_VERSION },
+        gecko: {
+          id: GECKO_ID,
+          strict_min_version: GECKO_MIN_VERSION,
+          data_collection_permissions: GECKO_DATA_COLLECTION,
+        },
       })
     })
 
-    /** Above Firefox 127, where MV3 host permissions began being granted at install. */
-    it('will not install below Firefox 128', () => {
-      expect(GECKO_MIN_VERSION).toBe('128.0')
-      expect(Number.parseInt(GECKO_MIN_VERSION, 10)).toBeGreaterThanOrEqual(128)
+    /*
+     * The floor moved from 128 to 140 in F6, and both numbers had the same
+     * reason: the CURRENT ESR. Firefox 128 ESR went out of support on
+     * 16 September 2025, so it had stopped being the conservative choice and
+     * become a dead one. 140 is also where `data_collection_permissions` was
+     * introduced - below it the disclosure above exists in the manifest and is
+     * never shown to anybody at install.
+     */
+    it('will not install below the current Firefox ESR', () => {
+      expect(GECKO_MIN_VERSION).toBe('140.0')
+      // 140 for the consent UI; still comfortably above 127, where MV3 host
+      // permissions began being granted at install rather than by opt-in.
+      expect(Number.parseInt(GECKO_MIN_VERSION, 10)).toBeGreaterThanOrEqual(140)
     })
 
     it('stays Manifest V3', () => {

@@ -139,9 +139,35 @@ friends.** We can see who sent it, so that we can follow up.
   schedule that.
 - **`notifications`** — for the optional desktop alert when several friends
   gather on one channel. You can turn it off in the account panel.
-- **`https://*.supabase.co/*`** — Watchside's own backend.
+- **Watchside's own backend** — sign-in, presence, friends, groups and rooms.
+  The Firefox add-on grants exactly one origin, our own Supabase project. The
+  Chrome extension currently grants `https://*.supabase.co/*`; it reaches only
+  the same single project, and will be narrowed to match at its next release.
 - **`https://7tv.io/*`, `https://cdn.7tv.app/*`** — public emote metadata and
-  images. Nothing about you is sent.
+  images. The request carries the **channel name**, so that channel's emote set
+  can be looked up, and nothing that identifies you: no account, no user id, no
+  token, and no cookie of ours.
+
+Watchside requests **no access to sites other than Twitch**, and cannot read any
+other page you visit.
+
+## What Firefox tells you at install
+
+Firefox asks for consent to data collection in its own words, from what the
+add-on declares in its manifest. Watchside declares four things, and they map to
+the table above:
+
+| Firefox says | What that is here |
+| --- | --- |
+| Authentication information | signing in with Twitch, and the Watchside account it creates |
+| Browsing activity | the Twitch channel you are watching — the whole point of the product |
+| Personal communications | stream-session messages, reactions, and feedback you write |
+| Website activity | JOINs, and which surface you clicked one from |
+
+Watchside does **not** declare *personally identifying information*: no email
+address, phone number, postal address, demographics or biometrics is collected
+anywhere. Your Twitch handle, display name and avatar are your own public Twitch
+profile, and they are covered by *authentication information*.
 
 Watchside requests **no access to sites other than Twitch**, and cannot read any
 other page you visit.

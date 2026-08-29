@@ -34,7 +34,9 @@
     "verify:firefox": "node scripts/verify-firefox.mjs",
     "verify:firefox:e2e": "node scripts/firefox-e2e/run.mjs",
     "e2e:actors": "node scripts/firefox-e2e/identify-actors.mjs",
-    "e2e:proofs": "node scripts/firefox-e2e/mutation-proofs.mjs"
+    "e2e:proofs": "node scripts/firefox-e2e/mutation-proofs.mjs",
+    "package:source": "node scripts/package-source.mjs",
+    "package:amo": "node scripts/package-firefox.mjs --amo && node scripts/package-source.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

@@ -34,16 +34,67 @@ export const GECKO_ID = 'watchside@anoteros-labs.com'
 /**
  * The oldest Firefox Watchside will install on.
  *
- * 128 is an ESR, so it is what institutional users are actually running, and
- * it sits comfortably above Firefox 127 - the release where MV3 host
- * permissions listed in `host_permissions` and `content_scripts` began being
- * granted at install rather than requiring a separate opt-in. Below that line a
- * Twitch overlay would install and then quietly do nothing.
+ * 140, because it is the CURRENT ESR - which is the same reasoning that first
+ * chose 128, applied to today's facts. Firefox 128 ESR went out of support on
+ * 16 September 2025, so a 128 floor was no longer protecting anybody; it was
+ * naming a browser Mozilla had stopped shipping fixes for.
+ *
+ * 140 is also the release that introduced
+ * `browser_specific_settings.gecko.data_collection_permissions`. Below it the
+ * key is ignored, so a user on 139 would install without ever seeing Firefox's
+ * built-in data-collection consent - the disclosure would exist in the manifest
+ * and never reach the person it is for. Raising the floor is what makes the
+ * declaration below mean something at install time rather than only on AMO.
+ *
+ * It stays comfortably above Firefox 127, the release where MV3 host
+ * permissions began being granted at install rather than requiring a separate
+ * opt-in - the original reason this floor exists at all.
  */
-export const GECKO_MIN_VERSION = '128.0'
+export const GECKO_MIN_VERSION = '140.0'
+
+/**
+ * What Watchside collects, in Mozilla's taxonomy.
+ *
+ * Required for AMO since 3 November 2025, and shown to the user in the install
+ * prompt, on the listing page, and in about:addons. It is a promise made to
+ * somebody deciding whether to trust this, so it is mapped from what the code
+ * actually transmits rather than from what sounds reassuring - see the F6
+ * report for the line-by-line mapping.
+ *
+ *   authenticationInfo    signing in with Twitch, and the account that creates
+ *   browsingActivity      the Twitch channel you are watching, which is the
+ *                         entire product and is also sent to 7TV to look up
+ *                         that channel's emotes
+ *   personalCommunications stream-room messages, reactions, and free-text
+ *                         feedback
+ *   websiteActivity       JOINs and the surfaces they came from
+ *
+ * DELIBERATELY ABSENT:
+ *
+ * `personallyIdentifyingInfo` - no email, phone, address, demographics or
+ * biometrics is collected anywhere. The Twitch handle, display name and avatar
+ * are the account's own public profile and are what `authenticationInfo`
+ * already covers; claiming PII as well would tell users something untrue in the
+ * more alarming direction.
+ *
+ * `technicalAndInteraction` - Mozilla allows it only as OPTIONAL, which means
+ * honouring a user who declines it. Watchside has no analytics opt-out today,
+ * so declaring it would be a promise the code does not keep. See the F6 report:
+ * this is an open owner decision, not an oversight.
+ *
+ * `websiteContent` - the content script reads the channel from the URL and
+ * finds the chat container to position the panel. None of that page content is
+ * transmitted; only the channel login is, and that is browsingActivity.
+ */
+export const GECKO_DATA_COLLECTION = {
+  required: ['authenticationInfo', 'browsingActivity', 'personalCommunications', 'websiteActivity'],
+}
 
 /** The background entry point, shared by both engines. */
 const BACKGROUND_SCRIPT = 'kickback-background.js'
+
+/** The Chromium manifest's broad backend grant, which Gecko narrows. */
+export const SUPABASE_WILDCARD = 'https://*.supabase.co/*'
 
 /**
  * Derive the manifest for a target engine.
@@ -52,9 +103,11 @@ const BACKGROUND_SCRIPT = 'kickback-background.js'
  *
  * @param {'chromium' | 'gecko'} target
  * @param {Record<string, unknown>} source parsed public/manifest.json
+ * @param {{ supabaseOrigin?: string | null }} [options] gecko only: the project
+ *   origin that replaces the Supabase wildcard host permission
  * @returns {Record<string, unknown>}
  */
-export function manifestFor(target, source) {
+export function manifestFor(target, source, { supabaseOrigin = null } = {}) {
   if (target !== 'chromium' && target !== 'gecko') {
     throw new Error(`Unknown browser target: ${target}`)
   }
@@ -94,7 +147,44 @@ export function manifestFor(target, source) {
    * allow-list entry.
    */
   manifest.browser_specific_settings = {
-    gecko: { id: GECKO_ID, strict_min_version: GECKO_MIN_VERSION },
+    gecko: {
+      id: GECKO_ID,
+      strict_min_version: GECKO_MIN_VERSION,
+      data_collection_permissions: structuredClone(GECKO_DATA_COLLECTION),
+    },
+  }
+
+  /*
+   * NO `gecko_android`, and that is the statement.
+   *
+   * Omitting the key is how an add-on says desktop-only: MDN is explicit that
+   * without it "the extension is only made available on desktop Firefox".
+   * Watchside is a panel that lives beside a Twitch player and a chat column,
+   * it has never been run on Firefox for Android, and claiming a platform we
+   * have not tested to silence a linter warning would be the wrong trade. The
+   * one Android warning that remains is documented in the F6 report rather
+   * than bought off.
+   */
+
+  /*
+   * The backend, narrowed from the wildcard to OUR project.
+   *
+   * `https://*.supabase.co/*` grants every Supabase project on the internet,
+   * which is far more than Watchside needs and exactly the kind of breadth an
+   * AMO reviewer has to stop and ask about. supabase-js derives auth, REST,
+   * realtime, storage and functions from the single project URL - each one is
+   * `new URL('<service>/v1', supabaseUrl)` - so one origin covers every call
+   * the extension makes.
+   *
+   * Gecko only. `public/manifest.json` is the Chromium manifest and the
+   * artifact already submitted to the Chrome Web Store; narrowing it there
+   * would mean a new Chrome submission, which is a separate decision.
+   */
+  if (supabaseOrigin) {
+    const narrowed = `${new URL(supabaseOrigin).origin}/*`
+    manifest.host_permissions = manifest.host_permissions.map((pattern) =>
+      pattern === SUPABASE_WILDCARD ? narrowed : pattern,
+    )
   }
 
   return manifest

@@ -7,8 +7,15 @@ import {
   FORBIDDEN_PATHS,
   RUNTIME_FILES,
   createScanner,
+  walk,
 } from '../../scripts/package-shared.mjs'
-import { GECKO_ID, GECKO_MIN_VERSION, manifestFor } from '../../scripts/manifest.mjs'
+import {
+  GECKO_DATA_COLLECTION,
+  GECKO_ID,
+  GECKO_MIN_VERSION,
+  SUPABASE_WILDCARD,
+  manifestFor,
+} from '../../scripts/manifest.mjs'
 import { EXPECTED_EXTENSION_ID } from '../../scripts/extension-identity.mjs'
 
 /**
@@ -163,8 +170,16 @@ describe.runIf(built)('the generated Firefox package', () => {
   const background = readFileSync(join(PACKAGE, 'kickback-background.js'), 'utf8')
   const content = readFileSync(join(PACKAGE, 'kickback-content.js'), 'utf8')
 
-  it('is exactly what the transform produces', () => {
-    expect(manifest).toEqual(manifestFor('gecko', source))
+  it('is exactly what the transform produces, for the origin it was built against', () => {
+    /*
+     * The origin is read back out of the BUILT bundle, exactly as the packager
+     * does it. Passing a constant here would let the manifest and the code
+     * drift apart and still pass - which is the one failure that matters,
+     * because it presents as a Firefox user who cannot sign in.
+     */
+    const origins = [...new Set([...background.matchAll(/https:\/\/[a-z0-9-]+\.supabase\.co/g)].map((m) => m[0]))]
+    expect(origins).toHaveLength(1)
+    expect(manifest).toEqual(manifestFor('gecko', source, { supabaseOrigin: origins[0] }))
   })
 
   it('is Manifest V3', () => {
@@ -176,6 +191,46 @@ describe.runIf(built)('the generated Firefox package', () => {
     expect(manifest.browser_specific_settings.gecko.strict_min_version).toBe(GECKO_MIN_VERSION)
   })
 
+  /**
+   * AMO requires this of every new extension, and Firefox shows it to the user
+   * in the install prompt. It is a promise, so it is pinned: adding a category
+   * we do not collect, or dropping one we do, has to be a deliberate edit in
+   * two places rather than a quiet change in one.
+   */
+  it('declares what it collects, and nothing it does not', () => {
+    const declared = manifest.browser_specific_settings.gecko.data_collection_permissions
+    expect(declared).toEqual(GECKO_DATA_COLLECTION)
+    expect(declared.required).toEqual([
+      'authenticationInfo',
+      'browsingActivity',
+      'personalCommunications',
+      'websiteActivity',
+    ])
+
+    /*
+     * `technicalAndInteraction` may only ever be OPTIONAL, and honouring an
+     * optional data permission means checking it before collecting. Watchside
+     * has no analytics opt-out, so declaring it would be a promise the code
+     * does not keep. This fails if somebody adds it without the gate.
+     */
+    expect(declared.optional).toBeUndefined()
+    expect(JSON.stringify(declared)).not.toContain('technicalAndInteraction')
+  })
+
+  /**
+   * The declaration is only shown to users on Firefox 140+, so a floor below
+   * that would put the disclosure in the manifest and never in front of anyone.
+   */
+  it('sets a floor high enough for the disclosure to actually be shown', () => {
+    const min = Number.parseFloat(manifest.browser_specific_settings.gecko.strict_min_version)
+    expect(min).toBeGreaterThanOrEqual(140)
+  })
+
+  /** Omitting the key is how an add-on says desktop-only; see manifest.mjs. */
+  it('does not claim Firefox for Android', () => {
+    expect(manifest.browser_specific_settings.gecko_android).toBeUndefined()
+  })
+
   it('carries no Chromium identity', () => {
     expect(manifest.key).toBeUndefined()
     expect(JSON.stringify(manifest)).not.toContain(EXPECTED_EXTENSION_ID)
@@ -185,10 +240,67 @@ describe.runIf(built)('the generated Firefox package', () => {
     expect(manifest.background).toEqual({ scripts: ['kickback-background.js'] })
   })
 
-  it('asks for exactly what Chromium asks for', () => {
+  it('asks for the same API permissions Chromium asks for', () => {
     expect(manifest.permissions).toEqual(source.permissions)
-    expect(manifest.host_permissions).toEqual(source.host_permissions)
     expect(manifest.optional_permissions).toBeUndefined()
+  })
+
+  /**
+   * THE ONE DELIBERATE DIVERGENCE FROM THE CHROMIUM MANIFEST.
+   *
+   * Chromium asks for `https://*.supabase.co/*` - every Supabase project on the
+   * internet. Firefox asks for ours and nothing else. supabase-js derives auth,
+   * REST, realtime, storage and functions from the single project URL, so one
+   * origin is genuinely all the extension uses, and an AMO reviewer should not
+   * have to take a wildcard on trust.
+   *
+   * Chromium keeps the wildcard because narrowing it there means a new Chrome
+   * Web Store submission, which is a separate decision.
+   */
+  it('narrows the Supabase grant to our project, and only that', () => {
+    const wildcard = manifest.host_permissions.filter((p: string) => p.includes('*.supabase.co'))
+    expect(wildcard).toEqual([])
+
+    const supabase = manifest.host_permissions.filter((p: string) => p.includes('supabase.co'))
+    expect(supabase).toHaveLength(1)
+    expect(supabase[0]).toMatch(/^https:\/\/[a-z0-9-]+\.supabase\.co\/\*$/)
+
+    // And it is the origin the code actually talks to.
+    expect(background).toContain(supabase[0].replace(/\/\*$/, ''))
+  })
+
+  it('changes nothing else about what it can reach', () => {
+    const unchanged = source.host_permissions.filter((p: string) => !p.includes('supabase.co'))
+    for (const pattern of unchanged) expect(manifest.host_permissions).toContain(pattern)
+    expect(manifest.host_permissions).toHaveLength(source.host_permissions.length)
+  })
+
+  /** Chromium's manifest is the submitted one and must be untouched by all this. */
+  it('leaves the Chromium manifest exactly as it is', () => {
+    const chromium = manifestFor('chromium', source)
+    expect(chromium).toEqual(source)
+    expect(chromium.host_permissions).toContain(SUPABASE_WILDCARD)
+    expect(chromium.browser_specific_settings).toBeUndefined()
+  })
+
+  /**
+   * THE TWO VALIDATOR WARNINGS WE SHIP WITH, AND WHY THEY ARE UNREACHABLE.
+   *
+   * `web-ext lint` reports UNSAFE_VAR_ASSIGNMENT twice against the content
+   * bundle. Both land inside React's own DOM implementation, on the branch that
+   * handles `dangerouslySetInnerHTML` - a prop no Watchside component passes.
+   * That is documented in the F6 report rather than suppressed, and this is what
+   * makes the documentation true instead of merely claimed: the day somebody
+   * uses that prop, this fails and the warning stops being unreachable.
+   */
+  it('never asks React to set innerHTML, so the validator warnings stay dead code', () => {
+    const ours = walk('src').filter((f) => /.(ts|tsx)$/.test(f))
+    expect(ours.length).toBeGreaterThan(20)
+    for (const file of ours) {
+      const text = readFileSync(join('src', file), 'utf8')
+      expect(text, `src/${file}`).not.toContain('dangerouslySetInnerHTML')
+      expect(text, `src/${file}`).not.toMatch(/.innerHTMLs*=/)
+    }
   })
 
   // ------------------------------------------------------------- bundles

@@ -96,10 +96,25 @@ export default {
       /* Re-granting needs a user gesture, so it is not automated. Asserting the
        * refusal keeps the F7 hand-off honest rather than silently untested. */
       const all = await driver.bg('perm.all')
+      /*
+       * Matched by SHAPE, not by literal.
+       *
+       * This used to name `https://*.supabase.co/*`. F6 narrowed the Firefox
+       * grant to our own project origin, and a hard-coded wildcard turned that
+       * improvement into a red suite - which is the wrong signal entirely. What
+       * the assertion is actually about is that revoking Twitch left the backend
+       * grant alone, and that holds whichever origin the backend is.
+       */
+      const backend = all.origins.filter((origin) => origin.includes('supabase.co'))
       assert(
         'the other host permissions are untouched by revoking one',
-        all.origins.includes('https://*.supabase.co/*'),
+        backend.length === 1,
         all.origins.join(),
+      )
+      assert(
+        'and the backend grant is a single project, not a wildcard',
+        /^https:\/\/[a-z0-9-]+\.supabase\.co\/\*$/.test(backend[0] ?? ''),
+        backend.join(),
       )
 
       return { driver }

@@ -48,11 +48,29 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listZip, writeZip } from './zip.mjs'
 import { RUNTIME_FILES, createScanner, run, step, walk } from './package-shared.mjs'
-import { GECKO_ID, GECKO_MIN_VERSION, manifestFor } from './manifest.mjs'
+import { GECKO_DATA_COLLECTION, GECKO_ID, GECKO_MIN_VERSION, manifestFor } from './manifest.mjs'
 
 const DIST = 'dist-firefox'
 const RELEASES = 'releases'
 const BETA = process.argv.includes('--beta')
+
+/*
+ * THREE ARTIFACTS THAT MUST NEVER BE CONFUSED.
+ *
+ *   (no flag)  Watchside-Firefox-v<x>.zip           development. What the E2E
+ *                                                   harness installs, rebuilt
+ *                                                   whenever the code changes.
+ *   --beta     Watchside-Firefox-Beta-v<x>.zip      the same, plus a README for
+ *                                                   a human tester.
+ *   --amo      Watchside-AMO-Candidate-v<x>.zip     the unsigned upload
+ *                                                   candidate. One deliberate
+ *                                                   build, kept, and named so
+ *                                                   nothing overwrites it.
+ *
+ * None of these is a signed add-on. Mozilla produces that, from the candidate,
+ * and it is the only one a user can install without developer mode.
+ */
+const AMO = process.argv.includes('--amo')
 
 /**
  * A fixed timestamp for every archive entry.
@@ -85,6 +103,27 @@ const { scanContents, checkPaths } = createScanner(fail)
  * manifest.json at the root of the archive. So both Firefox artifacts are
  * root-shaped and the only difference between them is the README.
  */
+/**
+ * The Supabase origin this bundle was actually built against.
+ *
+ * Read out of the built background rather than taken from the environment, so
+ * the narrowed host permission can only ever name the project the code talks
+ * to. If the build and the manifest could disagree, the failure would be a
+ * Firefox user who cannot sign in - and it would look like a backend outage.
+ */
+function supabaseOriginOf(bundle) {
+  const source = readFileSync(bundle, 'utf8')
+  const found = [...source.matchAll(/https:\/\/[a-z0-9-]+\.supabase\.co/g)].map((m) => m[0])
+  const unique = [...new Set(found)]
+  if (unique.length !== 1) {
+    fail(
+      `expected exactly one Supabase origin in ${bundle}, found ${unique.length}` +
+        (unique.length ? `: ${unique.join(', ')}` : ''),
+    )
+  }
+  return unique[0] ?? null
+}
+
 async function main() {
   // ------------------------------------------------------------- build
   step('Building the Gecko bundles')
@@ -157,7 +196,16 @@ async function main() {
    * had to agree about permissions, version and icons would eventually
    * disagree, and a user would find out before we did.
    */
-  const manifest = manifestFor('gecko', source)
+  /*
+   * The backend origin comes from the BUILD, not from a constant.
+   *
+   * The narrowed host permission has to name the project this bundle actually
+   * talks to. Reading it back out of the built background bundle - rather than
+   * from an env var this script happens to see - means the manifest cannot
+   * grant an origin the code does not use, or miss one it does.
+   */
+  const supabaseOrigin = supabaseOriginOf(join(DIST, 'kickback-background.js'))
+  const manifest = manifestFor('gecko', source, { supabaseOrigin })
   writeFileSync(
     join(staging, 'manifest.json'),
     `${JSON.stringify(manifest, null, 2)}\n`,
@@ -173,6 +221,26 @@ async function main() {
   if (manifest.browser_specific_settings?.gecko?.strict_min_version !== GECKO_MIN_VERSION) {
     fail(`strict_min_version is not ${GECKO_MIN_VERSION}`)
   }
+
+  /*
+   * The disclosure and the narrowed grant are checked HERE as well as in the
+   * transform, because this is the file that produces the thing we upload.
+   */
+  const declared = manifest.browser_specific_settings?.gecko?.data_collection_permissions
+  if (JSON.stringify(declared) !== JSON.stringify(GECKO_DATA_COLLECTION)) {
+    fail('data_collection_permissions does not match the declared mapping')
+  }
+  if (manifest.browser_specific_settings?.gecko_android) {
+    fail('gecko_android is present - Watchside is desktop-only and untested on Android')
+  }
+  if (!supabaseOrigin || !manifest.host_permissions.includes(`${supabaseOrigin}/*`)) {
+    fail(`host_permissions does not name the built backend origin (${supabaseOrigin})`)
+  }
+  if (manifest.host_permissions.some((pattern) => pattern.includes('*.supabase.co'))) {
+    fail('the Supabase wildcard host permission survived into the Firefox manifest')
+  }
+  console.log(`  backend grant  : ${supabaseOrigin}/*`)
+  console.log(`  data collection: ${GECKO_DATA_COLLECTION.required.join(', ')}`)
   if (manifest.key) fail('the Firefox package still carries the Chromium manifest key')
   if (manifest.background?.service_worker) {
     fail('the Firefox package still declares a service worker; Gecko needs an event page')
@@ -198,7 +266,11 @@ async function main() {
   mkdirSync(RELEASES, { recursive: true })
   const zipPath = join(
     RELEASES,
-    BETA ? `Watchside-Firefox-Beta-v${version}.zip` : `Watchside-Firefox-v${version}.zip`,
+    AMO
+      ? `Watchside-AMO-Candidate-v${version}.zip`
+      : BETA
+        ? `Watchside-Firefox-Beta-v${version}.zip`
+        : `Watchside-Firefox-v${version}.zip`,
   )
   rmSync(zipPath, { force: true })
 
@@ -228,7 +300,7 @@ async function main() {
    * from the zip would be a second code path that could differ from the one
    * that produced the archive. This IS the archive, unzipped.
    */
-  const unpacked = join(DIST, BETA ? 'package-beta' : 'package')
+  const unpacked = join(DIST, BETA ? 'package-beta' : AMO ? 'package-amo' : 'package')
   rmSync(unpacked, { recursive: true, force: true })
   mkdirSync(unpacked, { recursive: true })
   for (const file of staged) {
@@ -245,9 +317,15 @@ async function main() {
   console.log(`  sha256 ${createHash('sha256').update(readFileSync(zipPath)).digest('hex')}`)
   console.log(`  unpacked ${unpacked}`)
   console.log(`  gecko id ${GECKO_ID}`)
-  console.log('\nThis is a DEVELOPMENT artifact. It is unsigned, has no AMO source')
-  console.log('package, and Firefox sign-in does not work until the redirect URL is')
-  console.log('registered with Supabase. Next: npm run verify:firefox')
+  if (AMO) {
+    console.log('\nThis is the UNSIGNED AMO UPLOAD CANDIDATE. It is not signed and')
+    console.log('cannot be installed by an ordinary Firefox user until Mozilla signs it.')
+    console.log('It needs its source archive: npm run package:source')
+  } else {
+    console.log('\nThis is a DEVELOPMENT artifact. It is unsigned, has no AMO source')
+    console.log('package, and is not the file to upload - see npm run package:amo.')
+    console.log('Next: npm run verify:firefox')
+  }
   return 0
 }
 
