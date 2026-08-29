@@ -8,7 +8,44 @@ there — the version in the account panel tells you which build you are running
 
 ---
 
-## 0.5.0 — Multi-Destination Presence *(unreleased — local smoke build)*
+## 0.6.0 — Friends Beta
+
+Kickback is better with people in it. This release is about getting them
+there.
+
+### Finding people
+
+- **People you may know** — friends of your friends, with how many friends you
+  have in common. Add them without leaving the panel.
+- Suggestions never name your mutual friends, only count them: who somebody
+  else is friends with is their business, not something Kickback publishes.
+
+### Inviting people
+
+- **Invite a friend** — one link, yours, that keeps working. Copy it and send
+  it however you like.
+- Whoever joins through your link is credited to you automatically, once they
+  sign in, become your friend, and actually start watching something.
+- The panel tells you how many friends have joined through your link.
+
+### Badges
+
+- Bringing friends to Kickback earns permanent badges at 1, 5, 10, 15 and 25.
+- Earned badges appear in your account panel, and you choose which one to show
+  — or none at all.
+- Kickback badges are Kickback's own. Nothing here is a Twitch badge, and
+  nothing implies Twitch granted it.
+
+### Social Gravity
+
+- A destination with two or more friends now reads **"3 friends"** and carries
+  an accent edge, so a gathering looks different from one person at a glance.
+  A single friend is still a destination, still joinable, and still shows who
+  is there.
+
+---
+
+## 0.5.0 — Multi-Destination Presence *(internal build, superseded by 0.6.0)*
 
 > **Not on the Chrome Web Store.** This version exists only as a local
 > unpacked build for owner smoke testing. The Store still carries **0.4.1**,
