@@ -27,7 +27,12 @@ const watching = (channel: string): Activity => ({
  * appear in the store listing screenshots, so they are a product decision and
  * they stay fixed. Nothing here should ever pick a channel at random again.
  */
-const CHANNELS = {
+/*
+ * Exported so nothing has to keep a second copy. The store screenshots name
+ * these too, in scripts/store-screenshots.mjs, and a third hand-typed copy in
+ * the demo client is exactly how a screenshot ends up on the wrong streamer.
+ */
+export const CHANNELS = {
   gathering: 'theburntpeanut',
   elsewhere: 'summit1g',
   third: 'gingy',

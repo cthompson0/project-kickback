@@ -7,11 +7,13 @@ import type {
   KickbackClient,
   KickbackState,
 } from './types'
-import { mockPresenceService } from '../mock/presenceService'
+import { CHANNELS, mockPresenceService } from '../mock/presenceService'
 import { FRIEND_IDS } from '../mock/social'
 import { getUser } from '../mock/users'
 import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
+import type { RoomMember } from '../core/streamRoom'
+import type { RoomMessage } from '../core/roomMessages'
 import { watchChannel } from '../platforms/twitch/navigation'
 
 /**
@@ -102,6 +104,63 @@ const DEMO_MESSAGES: ChatMessage[] = [
   chat(17, 'u_matt', 'Matt', ':fire:'),
 ]
 
+/**
+ * The Stream Room on the gathering channel.
+ *
+ * WHY THIS EXISTS
+ *
+ * The third store screenshot is meant to say "watching together", and without
+ * this the panel had no room to show: `sessionAvailable` needs peers or members
+ * on the channel the viewer is on, and demo mode supplies state directly rather
+ * than deriving it from presence the way the worker does. So the screenshot fell
+ * back to group chat, which is a different feature telling a different story.
+ *
+ * The people are the three the seed already puts on the gathering, so the room
+ * agrees with the Gravity card in screenshot 2 - the same friends, one step
+ * later. Kenji is a hop-2 member: he is NOT in FRIEND_IDS, so he is somebody
+ * reached through Jake, which is real product behaviour (a room is a connected
+ * component, not a friend list) and worth one row of the picture.
+ *
+ * Fixed timestamps, like DEMO_MESSAGES, so a screenshot taken today can be
+ * compared against one taken last week.
+ */
+const ROOM_CHANNEL = CHANNELS.gathering
+
+/** Twelve minutes ago, so the whole conversation sits inside the 30m window. */
+const ROOM_EPOCH = Date.now() - 12 * 60_000
+
+const ROOM_MEMBERS: RoomMember[] = [
+  { userId: 'u_jake', hops: 1, viaUserId: null },
+  { userId: 'u_matt', hops: 1, viaUserId: null },
+  { userId: 'u_chris', hops: 1, viaUserId: null },
+  { userId: 'u_kenji', hops: 2, viaUserId: 'u_jake' },
+]
+
+/** The peers the client can see directly - the three friends, not Kenji. */
+const ROOM_PEERS = ['u_jake', 'u_matt', 'u_chris']
+
+const roomChat = (index: number, senderId: string, body: string): RoomMessage => ({
+  id: `demo-room-${index}`,
+  senderId,
+  channel: ROOM_CHANNEL,
+  body,
+  at: ROOM_EPOCH + index * 60_000,
+  // Zero is what history reads back as; these are not messages that just
+  // arrived, and the activity window would otherwise treat them as live.
+  receivedAt: 0,
+})
+
+const ROOM_MESSAGES: RoomMessage[] = [
+  roomChat(1, 'u_chris', 'this is the run he was talking about'),
+  roomChat(2, 'u_jake', 'no chance he clears it first try'),
+  roomChat(3, 'u_matt', 'he has been practising all week'),
+  roomChat(4, 'u_kenji', 'first time seeing this, what is the record'),
+  roomChat(5, 'u_chris', 'four minutes and change'),
+  roomChat(6, 'u_jake', ':pog:'),
+  roomChat(7, 'u_matt', ':pog:'),
+  roomChat(8, 'u_chris', ':pog:'),
+]
+
 const offlinePresence = (userId: string): Presence => ({
   userId,
   status: 'offline',
@@ -150,6 +209,11 @@ export function createDemoClient(): KickbackClient {
     groups: [DEMO_GROUP],
     groupMembers: { [DEMO_GROUP_ID]: demoMembers(mockPresenceService.getPresences()) },
     groupMessages: { [DEMO_GROUP_ID]: DEMO_MESSAGES },
+    // The room on the gathering channel. Keyed by channel, so it only appears
+    // when the viewer is actually there - which is what screenshot 3 stages.
+    roomMembers: { [ROOM_CHANNEL]: ROOM_MEMBERS },
+    roomPeers: { [ROOM_CHANNEL]: ROOM_PEERS },
+    roomMessages: ROOM_MESSAGES,
     demo: true,
   }
 

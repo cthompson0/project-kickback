@@ -202,21 +202,20 @@ function closeAnyCard() {
   return true
 }
 
-function openTab(label) {
+/**
+ * Open the Stream Room tab.
+ *
+ * It is labelled with the STREAMER's name rather than "Room" - deliberately, in
+ * the product - so it cannot be found by its text the way the fixed tabs can.
+ * The class is what identifies it.
+ */
+function openSessionTab() {
   const root = document.getElementById('kickback-host')?.shadowRoot ?? null
-  const tab = [...(root?.querySelectorAll('.kb-tab') ?? [])].find((element) =>
-    element.textContent.trim().toLowerCase().startsWith(label),
-  )
+  const tab = root?.querySelector('.kb-tab-session')
   tab?.click()
   return Boolean(tab)
 }
 
-function openFirstGroup() {
-  const root = document.getElementById('kickback-host')?.shadowRoot ?? null
-  const card = root?.querySelector('.kb-group-card')
-  card?.click()
-  return Boolean(card)
-}
 
 /** Whether the channel page behind the panel is actually streaming. */
 function readLiveState() {
@@ -312,10 +311,24 @@ async function main() {
         file: 'store-03-together.png',
         channel: CHANNELS.gathering,
         prepare: async (page) => {
-          await page.evaluate(openTab, 'groups')
-          await wait(700)
-          await page.evaluate(openFirstGroup)
-          await wait(900)
+          /*
+           * The roster stays COLLAPSED on purpose.
+           *
+           * Expanded it lists everyone including the friend-of-a-friend, which
+           * is a lovely detail and takes most of the panel - the conversation
+           * then gets a sliver and reads as cut off. Collapsed, the summary row
+           * still says WATCHING TOGETHER with the faces beside it, and the chat
+           * gets the room it needs. The screenshot has to say "watching
+           * together" at a glance, not reward reading.
+           */
+          const opened = await page.evaluate(openSessionTab)
+          await wait(1_200)
+          if (!opened) {
+            // Loudly, rather than quietly shipping the wrong story: without the
+            // room the panel falls back to Friends and screenshot 3 stops being
+            // about watching together at all.
+            console.log('   WARNING  no Stream Room tab - is the demo fixture seeded?')
+          }
         },
       }),
     ])
