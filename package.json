@@ -36,7 +36,12 @@
     "e2e:actors": "node scripts/firefox-e2e/identify-actors.mjs",
     "e2e:proofs": "node scripts/firefox-e2e/mutation-proofs.mjs",
     "package:source": "node scripts/package-source.mjs",
-    "package:amo": "node scripts/package-firefox.mjs --amo && node scripts/package-source.mjs"
+    "package:amo": "node scripts/package-firefox.mjs --amo && node scripts/package-source.mjs",
+    "brand:icons": "node scripts/render-icons.mjs",
+    "brand:svg": "node scripts/render-brand.mjs",
+    "brand": "npm run brand:svg && npm run brand:icons",
+    "verify:brand": "node scripts/render-brand.mjs --check && node scripts/render-icons.mjs --check",
+    "brand:social": "node scripts/render-social.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

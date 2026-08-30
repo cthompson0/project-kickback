@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { VIOLET as BRAND_ACCENT } from '../../../assets/brand/geometry.mjs'
 import { avatarTint } from '../avatarTint'
 import { EMOTES, isEmoteOnly, parseMessage } from '../../core/emotes'
 import type { ComboAnnotation } from '../../core/combos'
@@ -347,7 +348,7 @@ export function MessageList({
                     username: message.displayName,
                     displayName: message.displayName,
                     avatarUrl: message.avatarUrl,
-                    accentColor: '#ff8452',
+                    accentColor: BRAND_ACCENT,
                   }
                 }
                 presence={known?.presence ?? null}

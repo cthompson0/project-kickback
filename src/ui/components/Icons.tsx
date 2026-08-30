@@ -1,30 +1,48 @@
 /** Small inline icon set. Watchside's own mark - no Twitch assets are used. */
 
+import { MARK, variantFor } from '../../../assets/brand/geometry.mjs'
+
 /**
- * The Watchside mark: two people leaning together to form a W.
+ * The Watchside mark: a speech bubble with a face in it - two eyes, and a W
+ * for a mouth.
  *
- * The geometry is the same as assets/brand/watchside-mark.svg, which is what
- * the toolbar icons are rasterised from - one shape, two renderers, so the
- * panel header and the browser toolbar can never drift apart. Keep them in
- * step by hand; there is deliberately no build step generating this from the
- * SVG, because a component that cannot be read is worse than one that must be
- * remembered.
+ * THE GEOMETRY IS NOT HERE.
  *
- * The orange and purple strokes are each half a person; the white centre is
- * what completes the letter. Neither side is a W on its own, which is the
- * whole idea.
+ * It lives in assets/brand/geometry.mjs, which is also what the toolbar icons
+ * are rasterised from and what the .svg files are generated from. This
+ * component maps over the same arrays rather than restating them.
+ *
+ * That is a change from how this used to work. The paths were typed out here
+ * a second time, with a comment asking whoever edited the SVG to remember to
+ * edit this too - and two definitions of one shape with nothing binding them
+ * drift the first time somebody forgets. Now the panel header and the browser
+ * toolbar cannot disagree, because there is only one shape.
  */
 export function WatchsideMark({ size = 18 }: { size?: number }) {
+  // 18px and under is the size band the solid variant exists for; see
+  // SMALL_UP_TO in the geometry module.
+  const mark = MARK[variantFor(size)]
+
   return (
     <svg width={size} height={size} viewBox="0 0 128 128" aria-hidden="true">
-      <rect width="128" height="128" rx="28" fill="#0F172A" />
-      <g fill="none" strokeWidth="15" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M27 44 L45 92" stroke="#FF8A00" />
-        <path d="M45 92 L64 56 L83 92" stroke="#FFFFFF" />
-        <path d="M83 92 L101 44" stroke="#6366F1" />
-      </g>
-      <circle cx="27" cy="26" r="11" fill="#FF8A00" />
-      <circle cx="101" cy="26" r="11" fill="#6366F1" />
+      <rect width="128" height="128" rx={mark.radius} fill={mark.ground} />
+      {mark.fills.map((fill) => (
+        <path key={fill.id} d={fill.d} fill={fill.color} />
+      ))}
+      {mark.strokes.map((stroke) => (
+        <path
+          key={stroke.id}
+          d={stroke.d}
+          fill="none"
+          stroke={stroke.color}
+          strokeWidth={stroke.width}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      ))}
+      {mark.circles.map((circle) => (
+        <circle key={circle.id} cx={circle.cx} cy={circle.cy} r={circle.r} fill={circle.fill} />
+      ))}
     </svg>
   )
 }

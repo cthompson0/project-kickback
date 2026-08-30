@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { VIOLET as BRAND_ACCENT } from '../../assets/brand/geometry.mjs'
 import { ChannelLabel, ChannelNameProvider, useChannelName } from './ChannelNames'
 import { AnalyticsProvider } from './Analytics'
 import { describePresence } from '../core/personPresence'
@@ -524,7 +525,7 @@ export function KickbackPanel({
         username: identity.twitchLogin,
         displayName: identity.displayName,
         avatarUrl: identity.avatarUrl,
-        accentColor: '#ff8452',
+        accentColor: BRAND_ACCENT,
       })
     }
     return people
@@ -607,7 +608,7 @@ export function KickbackPanel({
                 username: identity.twitchLogin ?? identity.displayName,
                 displayName: identity.displayName,
                 avatarUrl: identity.avatarUrl,
-                accentColor: '#ff8452',
+                accentColor: BRAND_ACCENT,
               }}
               size={22}
               showDot={false}

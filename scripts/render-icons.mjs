@@ -1,27 +1,33 @@
 /**
- * Rasterise the canonical Watchside mark into the extension's icon sizes.
+ * Rasterise the canonical Watchside mark into every size the brand needs.
  *
- * The mark lives in assets/brand/watchside-mark.svg as real geometry. Chrome
- * cannot use an SVG for an extension icon, so this renders that one source at
- * each required size through the same browser engine that will later display
- * the result - which is the only renderer whose opinion matters.
+ * The mark is DATA, in assets/brand/geometry.mjs. Chrome cannot use an SVG for
+ * an extension icon, so this renders that one source at each required size
+ * through the same browser engine that will later display the result - which is
+ * the only renderer whose opinion matters.
  *
- * Deterministic: same SVG in, same bytes out. Nothing is traced, sampled or
- * hand-touched, so the mark can be edited in one place forever.
+ * Deterministic: same geometry in, same bytes out. Nothing is traced, sampled
+ * or hand-touched, so the mark can be edited in one place forever.
  *
  *   node scripts/render-icons.mjs [--check]
  *
  * --check re-renders into memory and compares against what is committed,
- * failing if they have drifted. That is what CI and `npm run verify:brand`
- * want; the bare form writes the files.
+ * failing if they have drifted. That is what `npm run verify:brand` runs; the
+ * bare form writes the files.
+ *
+ * TWO SOURCES, ONE PER SIZE BAND
+ *
+ * geometry.mjs picks the variant: the solid silhouette at 16, the full mark
+ * with its face from 32 up. That split exists because it was measured - see
+ * SMALL_UP_TO there - and this script simply asks which one a size wants
+ * rather than knowing anything about it.
  */
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { launch } from './cdp.mjs'
+import { ICON_SIZES, iconPath, markSvg, variantFor } from '../assets/brand/geometry.mjs'
 
-const SOURCE = 'assets/brand/watchside-mark.svg'
-const SIZES = [16, 32, 48, 128]
-const OUT = (size) => `public/icons/icon-${size}.png`
+const OUT = iconPath
 
 const check = process.argv.includes('--check')
 
@@ -41,12 +47,12 @@ function pageFor(svg, size) {
 }
 
 async function main() {
-  const svg = readFileSync(resolve(SOURCE), 'utf8')
-  const browser = await launch({ width: 400, height: 400 })
+  const browser = await launch({ width: 1200, height: 1200 })
   const rendered = new Map()
 
   try {
-    for (const size of SIZES) {
+    for (const size of ICON_SIZES) {
+      const svg = markSvg(variantFor(size), { size })
       const page = await browser.newPage(pageFor(svg, size))
       await page.waitForLoad()
       await page.setViewport(size, size)
@@ -66,7 +72,7 @@ async function main() {
   }
 
   let drift = 0
-  for (const size of SIZES) {
+  for (const size of ICON_SIZES) {
     const path = resolve(OUT(size))
     const next = rendered.get(size)
     if (check) {
@@ -78,24 +84,25 @@ async function main() {
       }
       const same = current !== null && current.equals(next)
       if (!same) drift += 1
-      console.log((same ? 'ok    ' : 'DRIFT ') + OUT(size))
+      console.log(
+        (same ? 'ok    ' : 'DRIFT ') + OUT(size).padEnd(34) + variantFor(size) + ' mark',
+      )
       continue
     }
     mkdirSync(dirname(path), { recursive: true })
     writeFileSync(path, next)
-    console.log('wrote ' + OUT(size) + '  ' + next.length + ' bytes')
+    console.log(
+      'wrote ' + OUT(size).padEnd(34) + variantFor(size) + ' mark  ' + next.length + ' bytes',
+    )
   }
 
   if (check && drift) {
     console.error(
-      '\n' + drift + ' icon(s) do not match ' + SOURCE + '. Run: node scripts/render-icons.mjs',
+      '\n' + drift + ' icon(s) do not match assets/brand/geometry.mjs. Run: npm run brand:icons',
     )
     process.exit(1)
   }
-  if (check) console.log('\nAll icons match ' + SOURCE + '.')
+  if (check) console.log('\nAll ' + ICON_SIZES.length + ' icons match assets/brand/geometry.mjs.')
 }
 
-main().catch((error) => {
-  console.error(error)
-  process.exit(1)
-})
+await main()

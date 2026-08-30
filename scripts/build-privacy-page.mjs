@@ -187,12 +187,12 @@ const page = `<!doctype html>
     <style>
       :root {
         color-scheme: dark;
-        --bg: #101014;
-        --surface: #17171d;
-        --text: #efeff1;
-        --dim: #a6a6b0;
+        --bg: #0b0b0e;
+        --surface: #131318;
+        --text: #f5f5f7;
+        --dim: #9c9ca8;
         --line: rgba(255, 255, 255, 0.1);
-        --accent: #ff8452;
+        --accent: #a855f7;
       }
 
       * { box-sizing: border-box; }
@@ -304,7 +304,7 @@ const page = `<!doctype html>
 
       tbody tr:last-child td { border-bottom: 0; }
 
-      .table-note { margin: 0 0 24px; color: #74747f; font-size: 0.8rem; }
+      .table-note { margin: 0 0 24px; color: #6b6b78; font-size: 0.8rem; }
 
       @media (max-width: 640px) {
         body { padding: 32px 16px 64px; }

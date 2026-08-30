@@ -12,11 +12,23 @@
  * streaming - so they share this function and nothing else.
  */
 
+/*
+ * Eight hues that are distinguishable from each other AND from the brand.
+ *
+ * The second constraint arrived with the violet identity. This palette used to
+ * contain #c98bff, a light violet, which sat close enough to the accent that a
+ * person with no picture read as a Watchside element rather than as a person -
+ * exactly the confusion an identity colour exists to prevent. It is now lime,
+ * which nothing else in the product uses.
+ *
+ * The rest were left alone. They are person colours, not brand colours, and
+ * variety is the whole point; #ff8452 is warm, and that is fine on a face.
+ */
 const PALETTE = [
   '#ff8452',
   '#54b8ff',
   '#2ee6a8',
-  '#c98bff',
+  '#b6e356',
   '#ffd45e',
   '#ff5f8f',
   '#7de2d1',

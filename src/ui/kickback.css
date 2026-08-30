@@ -7,7 +7,7 @@
  */
 
 .kb-root {
-  --kb-bg: rgba(21, 21, 25, 0.97);
+  --kb-bg: rgba(19, 19, 24, 0.97);
   /*
    * For surfaces that float over Watchside's OWN content, not over Twitch.
    *
@@ -19,27 +19,75 @@
    * translucency - it reads as broken rendering. So popovers get an opaque
    * surface, one step lighter than the panel so it still reads as layered.
    */
-  --kb-bg-popover: #1e1e24;
+  --kb-bg-popover: #1a1a21;
   --kb-bg-raised: rgba(255, 255, 255, 0.04);
   --kb-bg-hover: rgba(255, 255, 255, 0.07);
   --kb-line: rgba(255, 255, 255, 0.09);
-  --kb-text: #efeff1;
-  --kb-dim: #a6a6b0;
-  --kb-faint: #74747f;
+  --kb-text: #f5f5f7;
+  --kb-dim: #9c9ca8;
+  --kb-faint: #6b6b78;
   /*
-   * The brand accents, shared with the mark in components/Icons.tsx and with
-   * assets/brand/watchside-mark.svg: orange on one side, indigo on the other.
-   * Every gradient in this file runs between exactly these two, so the panel
-   * and the icon in the toolbar are recognisably the same product.
+   * THE BRAND ACCENTS.
+   *
+   * Violet, from assets/brand/geometry.mjs - the mark, the toolbar icon and
+   * this panel all read the same two values, so they cannot drift apart.
+   *
+   * Deliberately NOT #9146FF. That is Twitch's registered brand purple, and
+   * Watchside is the social layer FOR Twitch rather than a Twitch product;
+   * wearing their colour would say the opposite, and it is a trademark
+   * exposure on two store reviews. #A855F7 is one step off it and reads as
+   * ours.
+   *
+   * Every gradient in this file runs between exactly these two.
    */
-  --kb-accent: #FF8A00;
-  /* A live broadcast, and nothing else. See .kb-live-dot. */
+  --kb-accent: #a855f7;
+  /*
+   * The accent again, as channels.
+   *
+   * The sheet needs the accent at fourteen different alphas - borders, washes,
+   * focus rings. Written as literal rgba() those were fourteen hard-coded
+   * copies of the brand colour that a rebrand has to find one at a time. This
+   * is the same colour, once, in the form alpha needs.
+   */
+  --kb-accent-rgb: 168, 85, 247;
+  --kb-accent-2: #6d28d9;
+  /* Quiet borders and inactive chips that still want to be brand-coloured. */
+  --kb-accent-dim: #3b1d63;
+  /*
+   * Text on top of the accent gradient.
+   *
+   * Was a near-black warm brown, which worked on orange and fails on violet -
+   * the dark end of the gradient (#6d28d9) is far too dark to carry dark text.
+   * White, as the brand direction sets it.
+   */
+  --kb-on-accent: #ffffff;
+  /*
+   * SEMANTIC, NOT BRAND. These carry meaning - a live broadcast, somebody
+   * watching with you - so they survived the rebrand untouched. Re-hueing them
+   * to match the accent would be a functional regression dressed as polish.
+   */
   --kb-live: #e91916;
-  --kb-accent-2: #6366F1;
   --kb-here: #2ee6a8;
   --kb-online: #6fd18c;
   --kb-offline: #5c5c66;
+  /*
+   * A radius SCALE rather than one value. The brand direction is built on
+   * rounded surfaces at more than one weight, and without names for them the
+   * numbers get typed into components by hand.
+   */
+  --kb-radius-sm: 8px;
   --kb-radius: 12px;
+  --kb-radius-lg: 18px;
+  /* One gradient definition. Everything that gradients points here. */
+  --kb-gradient: linear-gradient(135deg, var(--kb-accent), var(--kb-accent-2));
+  /*
+   * ONE glow token, and one only.
+   *
+   * "Restrained neon" is a promise that cannot be kept if every component can
+   * invent its own shadow. Having exactly one means overuse shows up in a grep
+   * rather than in the product.
+   */
+  --kb-glow: 0 0 20px rgba(168, 85, 247, 0.35);
   --kb-shadow: 0 10px 34px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.4);
 
   position: absolute;
@@ -82,7 +130,7 @@
   justify-content: center;
   width: 42px;
   height: 42px;
-  border-radius: 14px;
+  border-radius: 16px;
   background: var(--kb-bg);
   border: 1px solid var(--kb-line);
   box-shadow: var(--kb-shadow);
@@ -92,7 +140,7 @@
 
 .kb-launcher:hover {
   transform: translateY(-1px);
-  border-color: rgba(255, 132, 82, 0.5);
+  border-color: var(--kb-accent);
 }
 
 .kb-launcher-badge {
@@ -128,7 +176,7 @@
   max-height: var(--kb-h, 720px);
   background: var(--kb-bg);
   border: 1px solid var(--kb-line);
-  border-radius: var(--kb-radius);
+  border-radius: var(--kb-radius-lg);
   box-shadow: var(--kb-shadow);
   backdrop-filter: blur(14px);
   overflow: hidden;
@@ -259,7 +307,7 @@
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  background: var(--kb-gradient);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -419,7 +467,7 @@
   bottom: -1px;
   height: 2px;
   border-radius: 2px;
-  background: linear-gradient(90deg, var(--kb-accent), var(--kb-accent-2));
+  background: var(--kb-gradient);
 }
 
 /*
@@ -631,8 +679,8 @@
   font-size: 10px;
   font-weight: 800;
   letter-spacing: 0.08em;
-  color: #1a0d06;
-  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  color: var(--kb-on-accent);
+  background: var(--kb-gradient);
   opacity: 0.92;
   transition: transform 0.12s ease, opacity 0.12s ease, box-shadow 0.12s ease;
 }
@@ -640,7 +688,7 @@
 .kb-join:hover {
   opacity: 1;
   transform: translateY(-1px);
-  box-shadow: 0 3px 12px rgba(255, 100, 100, 0.28);
+  box-shadow: var(--kb-glow);
 }
 
 .kb-join:active {
@@ -713,8 +761,8 @@
   margin-top: 8px;
   padding: 6px 7px;
   border-radius: 8px;
-  background: rgba(255, 132, 82, 0.1);
-  border: 1px solid rgba(255, 132, 82, 0.22);
+  background: rgba(var(--kb-accent-rgb), 0.1);
+  border: 1px solid rgba(var(--kb-accent-rgb), 0.22);
 }
 
 .kb-gathering-here {
@@ -802,7 +850,7 @@
 .kb-hint {
   justify-content: space-between;
   color: var(--kb-dim);
-  background: rgba(255, 132, 82, 0.07);
+  background: rgba(var(--kb-accent-rgb), 0.07);
 }
 
 .kb-hint-text {
@@ -875,7 +923,7 @@
 }
 
 .kb-feedback-text:focus {
-  border-color: rgba(255, 132, 82, 0.55);
+  border-color: rgba(var(--kb-accent-rgb), 0.55);
 }
 
 .kb-feedback-text::placeholder {
@@ -906,7 +954,7 @@
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.1em;
-  color: #1a0d06;
+  color: var(--kb-on-accent);
   background: var(--kb-accent);
 }
 
@@ -959,14 +1007,14 @@
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.02em;
-  color: #1a0d06;
-  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  color: var(--kb-on-accent);
+  background: var(--kb-gradient);
   transition: transform 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease;
 }
 
 .kb-signin-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 4px 16px rgba(255, 100, 100, 0.25);
+  box-shadow: 0 4px 16px rgba(var(--kb-accent-rgb), 0.25);
 }
 
 .kb-signin-btn:disabled {
@@ -1134,8 +1182,8 @@
 .kb-add-btn:hover,
 .kb-add-btn-active {
   color: var(--kb-text);
-  border-color: rgba(255, 132, 82, 0.5);
-  background: rgba(255, 132, 82, 0.12);
+  border-color: rgba(var(--kb-accent-rgb), 0.5);
+  background: rgba(var(--kb-accent-rgb), 0.12);
 }
 
 .kb-tab-badge {
@@ -1148,7 +1196,7 @@
   padding: 0 4px;
   border-radius: 8px;
   background: var(--kb-accent);
-  color: #1a0d06;
+  color: var(--kb-on-accent);
   font-size: 9.5px;
   font-weight: 800;
   vertical-align: middle;
@@ -1156,7 +1204,7 @@
 
 .kb-launcher-badge-request {
   background: var(--kb-accent);
-  color: #1a0d06;
+  color: var(--kb-on-accent);
 }
 
 .kb-search {
@@ -1178,7 +1226,7 @@
 }
 
 .kb-search:focus {
-  border-color: rgba(255, 132, 82, 0.55);
+  border-color: rgba(var(--kb-accent-rgb), 0.55);
   background: var(--kb-bg-hover);
 }
 
@@ -1199,12 +1247,12 @@
 }
 
 .kb-row-request {
-  background: rgba(255, 132, 82, 0.07);
+  background: rgba(var(--kb-accent-rgb), 0.07);
   box-shadow: inset 2px 0 0 var(--kb-accent);
 }
 
 .kb-row-request:hover {
-  background: rgba(255, 132, 82, 0.11);
+  background: rgba(var(--kb-accent-rgb), 0.11);
 }
 
 .kb-ghost-btn-inline {
@@ -1323,8 +1371,8 @@
 }
 
 .kb-presence-option-active {
-  color: #1a0d06;
-  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  color: var(--kb-on-accent);
+  background: var(--kb-gradient);
 }
 
 .kb-presence-option:disabled {
@@ -1364,7 +1412,7 @@
 }
 
 .kb-toggle-on {
-  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  background: var(--kb-gradient);
 }
 
 .kb-toggle-knob {
@@ -1541,8 +1589,8 @@
   border-radius: 999px;
   font-size: 11px;
   font-weight: 800;
-  color: #1a0d06;
-  background: linear-gradient(100deg, var(--kb-accent), var(--kb-accent-2));
+  color: var(--kb-on-accent);
+  background: var(--kb-gradient);
   flex: none;
 }
 
@@ -1588,10 +1636,10 @@
   border-radius: 8px;
   background: linear-gradient(
     100deg,
-    rgba(255, 132, 82, 0.18),
+    rgba(var(--kb-accent-rgb), 0.18),
     rgba(255, 79, 139, 0.14)
   );
-  border: 1px solid rgba(255, 132, 82, 0.38);
+  border: 1px solid rgba(var(--kb-accent-rgb), 0.38);
   animation: kb-combo-pulse 0.28s ease-out;
 }
 
@@ -1670,7 +1718,7 @@
 }
 
 .kb-composer-input:focus {
-  border-color: rgba(255, 132, 82, 0.55);
+  border-color: rgba(var(--kb-accent-rgb), 0.55);
 }
 
 .kb-composer-input::placeholder {
@@ -1724,7 +1772,7 @@
 }
 
 .kb-emote-search:focus {
-  border-color: rgba(255, 132, 82, 0.55);
+  border-color: rgba(var(--kb-accent-rgb), 0.55);
 }
 
 .kb-emote-search::placeholder {
@@ -1846,8 +1894,8 @@
 }
 
 .kb-icon-choice-on {
-  background: rgba(255, 132, 82, 0.22);
-  box-shadow: inset 0 0 0 1px rgba(255, 132, 82, 0.55);
+  background: rgba(var(--kb-accent-rgb), 0.22);
+  box-shadow: inset 0 0 0 1px rgba(var(--kb-accent-rgb), 0.55);
 }
 
 .kb-icon-picker-actions {
@@ -1969,7 +2017,7 @@
   border-radius: 10px;
   /* Opaque, deliberately. See --kb-bg-popover. */
   background: var(--kb-bg-popover);
-  border: 1px solid rgba(255, 132, 82, 0.32);
+  border: 1px solid rgba(var(--kb-accent-rgb), 0.32);
   box-shadow: var(--kb-shadow);
   animation: kb-pop 0.14s ease-out;
 }
@@ -2169,7 +2217,7 @@ a.kb-ghost-btn {
 }
 
 .kb-relation-btn:hover {
-  background: rgba(255, 132, 82, 0.2);
+  background: rgba(var(--kb-accent-rgb), 0.2);
   color: var(--kb-text);
 }
 
@@ -2248,8 +2296,8 @@ a.kb-ghost-btn {
  * recognise moves into the map rather than being replaced by a new one.
  */
 .kb-gravity-card-strong {
-  background: rgba(255, 132, 82, 0.1);
-  border-color: rgba(255, 132, 82, 0.24);
+  background: rgba(var(--kb-accent-rgb), 0.1);
+  border-color: rgba(var(--kb-accent-rgb), 0.24);
 }
 
 /* Where you already are. Green, like every other "with you" surface. */
@@ -2802,7 +2850,7 @@ a.kb-ghost-btn {
 }
 
 .kb-gravity-card-strong .kb-gravity-count {
-  background: rgba(255, 132, 82, 0.26);
+  background: rgba(var(--kb-accent-rgb), 0.26);
 }
 
 .kb-gravity-card-here .kb-gravity-count {
@@ -2984,7 +3032,7 @@ a.kb-ghost-btn {
   padding: 0 3px;
   border-radius: 7px;
   background: var(--kb-accent);
-  color: #1a0d06;
+  color: var(--kb-on-accent);
   font-size: 9px;
   font-weight: 800;
   font-variant-numeric: tabular-nums;
@@ -3045,7 +3093,7 @@ a.kb-ghost-btn {
  * joinable, and still shows who is there. See socialGravity.ts.
  */
 .kb-gravity-card-strong {
-  border-left: 2px solid rgba(255, 132, 82, 0.55);
+  border-left: 2px solid rgba(var(--kb-accent-rgb), 0.55);
 }
 
 /*
@@ -3106,9 +3154,9 @@ a.kb-ghost-btn {
   width: 100%;
   margin-top: 6px;
   padding: 7px 10px;
-  border: 1px solid rgba(255, 132, 82, 0.35);
+  border: 1px solid rgba(var(--kb-accent-rgb), 0.35);
   border-radius: 6px;
-  background: rgba(255, 132, 82, 0.12);
+  background: rgba(var(--kb-accent-rgb), 0.12);
   color: var(--kb-text);
   font-size: 12px;
   font-weight: 600;
@@ -3116,7 +3164,7 @@ a.kb-ghost-btn {
 }
 
 .kb-invite-copy:hover {
-  background: rgba(255, 132, 82, 0.2);
+  background: rgba(var(--kb-accent-rgb), 0.2);
 }
 
 .kb-invite-count {
@@ -3163,13 +3211,13 @@ a.kb-ghost-btn {
 }
 
 .kb-badge:hover {
-  border-color: rgba(255, 132, 82, 0.35);
+  border-color: rgba(var(--kb-accent-rgb), 0.35);
 }
 
 /* The one being shown. Same accent every other Watchside signal uses. */
 .kb-badge-on {
-  border-color: rgba(255, 132, 82, 0.55);
-  background: rgba(255, 132, 82, 0.14);
+  border-color: rgba(var(--kb-accent-rgb), 0.55);
+  background: rgba(var(--kb-accent-rgb), 0.14);
   color: var(--kb-text);
 }
 
