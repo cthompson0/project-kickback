@@ -62,7 +62,20 @@ export const COPY = {
   wordmark: 'watchside',
   primary: "See who's watching. Join together.",
   secondary: 'The social layer for Twitch.',
-  domain: 'watchside.app',
+  /*
+   * NO DOMAIN, deliberately.
+   *
+   * The brand board mocks up 'watchside.app', but nothing in this repository
+   * establishes that we own or control it, and a public asset that prints an
+   * unowned address is either a dead link or an advert for somebody else. The
+   * templates therefore print no URL at all rather than guessing one.
+   *
+   * The addresses we demonstrably control today are the Chrome Web Store
+   * listing and anoteros-labs.github.io/watchside/. Either could go here once
+   * that is a decision somebody has made rather than an assumption a template
+   * inherited from a mock.
+   */
+  domain: null,
 }
 
 /**
