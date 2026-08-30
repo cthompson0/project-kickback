@@ -199,9 +199,6 @@ On **Chrome**, those three diagnostic signals are still recorded. They carry a
 call site and an error code from fixed lists — never a message, a URL, an
 exception text or a stack trace — exactly as the analytics section describes.
 
-Watchside requests **no access to sites other than Twitch**, and cannot read any
-other page you visit.
-
 ## Your choices
 
 - **Hide your activity or go invisible** — account panel, at any time.

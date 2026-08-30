@@ -419,8 +419,9 @@ else is required.
    `REVIEWER-BUILD.md`.
 5. **Listing metadata** (listed only): name, summary, description, category,
    icon, screenshots. The Chrome listing copy transfers.
-6. **Privacy policy URL.** Republish the Pages privacy page from the updated
-   `docs/PRIVACY.md` first — the §6 changes are not live until you do.
+6. ~~**Privacy policy URL.** Republish the Pages privacy page.~~ **DONE — §17.**
+   The policy URL for the listing is
+   `https://anoteros-labs.github.io/watchside/privacy/`.
 7. **Reviewer notes.** Suggested text:
    > Watchside is a Twitch overlay. Sign-in is Twitch OAuth via Supabase with
    > **no Twitch scopes requested**. The backend is a single Supabase project,
@@ -443,10 +444,10 @@ drives it), Android compatibility (desktop-only by omission), a paid account.
 | Reviewer build environment | Ours is Windows + Node 24.13.1; theirs is Ubuntu + Node 24.14.0. The build is lockfile-pinned and the ZIP timestamps are fixed, so any Node 24.x should match. **Not verified on Ubuntu** — the residual reproducibility risk, and the likeliest cause of a "does not match" review note. |
 | Supabase redirect URL | The Gecko redirect is registered (F3) and sign-in works on real Firefox. Unaffected by the narrowing. |
 | Android warning | Cosmetic; §9. |
-| Privacy page not republished | Owner step 6. **Blocks submission** if a listed policy URL is required. |
+| ~~Privacy page not republished~~ | **Cleared — §17.** Published and verified live. |
 
-No blocker prevents producing the artifacts; the only pre-submission blocker is
-republishing the privacy page.
+No blocker prevents producing the artifacts, and the privacy page is now
+published (§17). **There is no remaining pre-submission blocker.**
 
 ## 14. F7 prerequisites
 
@@ -737,7 +738,120 @@ for byte, its data declaration is mapped from the code rather than asserted, and
 the one open question from §5.3 is now closed in the direction that collects
 less.
 
-The only remaining blocker is republishing the privacy page (§12.6). Everything
-else on the §12 checklist is owner-side AMO mechanics.
+The privacy page is published and verified live (§17), so **nothing is
+outstanding on our side**. Everything remaining on the §12 checklist is
+owner-side AMO mechanics.
 
 F7 and M3 remain unstarted. Nothing has been submitted to Mozilla.
+
+---
+
+# 17. Privacy page published (2026-08-29)
+
+The last outstanding item in §12 is done. It was an ordinary commit and push to
+an existing repository — no credential decision, no new mechanism, nothing
+invented.
+
+## 17.1 Where it went
+
+| | |
+| --- | --- |
+| Pages repository | `Anoteros-Labs/anoteros-labs.github.io` |
+| Local checkout | `c:/Users/sk8bo/Projects/anoteros-pages` — found by inspection, already cloned, on `main`, clean and in sync |
+| Destination | `watchside/privacy/index.html` |
+| Public URL | **https://anoteros-labs.github.io/watchside/privacy/** — unchanged |
+| Commit | `64d170f` |
+| Push | `f2881a4..64d170f  main -> main`, normal push |
+| Diff | **one file, 22 insertions, 4 deletions.** No other Pages file touched. |
+
+The same one-directory-per-page layout and the same ordinary-push workflow the
+invite page used in `0.6.0-final-release-blockers-2026-08-28.md` §23.
+
+## 17.2 How it was rendered
+
+```
+node scripts/build-privacy-page.mjs \
+  <pages>/watchside/privacy/index.html ../../ "Anoteros Labs"
+```
+
+The two trailing arguments are **not** the script's defaults (`../` and
+`Watchside`). They were read back out of the page already published — its back
+link is `<a class="back" href="../../">← Anoteros Labs</a>` — rather than
+guessed, and the resulting diff touching only content confirms they were right.
+A wrong back-href would have shown up as structural churn.
+
+## 17.3 A defect found by publishing
+
+The generated diff showed one sentence twice:
+
+> Watchside requests **no access to sites other than Twitch**, and cannot read
+> any other page you visit.
+
+Introduced in §16.8, when the new "What Firefox tells you at install" section
+was inserted ahead of that closing line and a copy was left at the end of it.
+The duplicate was removed from `docs/PRIVACY.md` and the page re-rendered. That
+is a repair of an accidental duplication, not a change of substance: the
+sentence still appears once, where it belongs, after the permissions list.
+
+Worth recording because it is the argument for rendering rather than
+transcribing — the defect was in the source and only became visible when the
+output was diffed.
+
+## 17.4 Fidelity check
+
+The renderer handles exactly the constructs the policy uses and refuses others,
+so its own comment calls for a word-level check by the caller. Run:
+
+| | |
+| --- | --- |
+| Policy words | 2062 |
+| Page words | 2499 |
+| Missing from the page | **2** — `1.` and `2.` |
+
+Both are ordered-list markers, which the renderer turns into a real `<ol>`, so
+the digits become list numbering instead of literal text. Verified by reading
+the generated `<ol>`. **No policy text was dropped.**
+
+## 17.5 Verified on the live page
+
+Fetched from the public URL after the Pages build completed. The first fetch
+served the previous build (16,275 bytes) — the same behaviour recorded for the
+invite page — and the next was current.
+
+**The served bytes are identical to the pushed file** (`cmp`, 19,739 bytes).
+Content confirmed on the live page:
+
+| Requirement | Live |
+| --- | --- |
+| Firefox collects no technicalAndInteraction telemetry | yes — "Technical and interaction data: Firefox collects none" |
+| Firefox sends no error reports | yes |
+| No secondary consent prompt or toggle | yes — "no consent prompt and no analytics switch" |
+| Firefox feedback omits browser information | yes |
+| Device/browser claim accurate | yes — "no device information on any browser, and no browser information on Firefox" |
+| Required data and product analytics disclosed | yes — the install-time table |
+| 7TV receives the channel name | yes |
+| Chrome still records the three diagnostics | yes |
+| Duplicate sentence gone | 1 occurrence |
+| Stale Kickback branding | **0 matches** |
+| Title / back link | `Privacy Policy — Watchside` · `← Anoteros Labs` |
+
+Sibling routes `/watchside/support/` and `/` returned 200 throughout.
+
+## 17.6 What was not touched
+
+Neither AMO artifact was rebuilt or modified:
+
+- `releases/Watchside-AMO-Candidate-v0.6.0-r2.zip` — `5635e114…`
+- `releases/Watchside-AMO-Source-v0.6.0-r2.zip` — `fe541412…`
+
+`docs/` is not part of the source archive, so the `PRIVACY.md` repair does not
+invalidate either one and neither needed regenerating.
+
+Chrome untouched: no build, no submission, no publication.
+
+## 17.7 Status
+
+**There is no remaining pre-submission blocker.** Everything left in §12 is
+owner-side AMO mechanics: developer account, channel choice, uploading the r2
+pair, listing metadata, and the reviewer note. The privacy policy URL to give
+AMO is `https://anoteros-labs.github.io/watchside/privacy/`.
