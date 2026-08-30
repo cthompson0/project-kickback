@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { User } from '../../core/types'
 import { avatarTint } from '../avatarTint'
+import { AVATAR_SIZE } from '../avatarSizes'
 
 export type AvatarState = 'offline' | 'online' | 'here'
 
@@ -18,7 +19,7 @@ function colorFor(user: User): string {
 }
 
 /** Tinted initial, upgraded to the real profile image when one is available. */
-export function Avatar({ user, size = 30, state = 'offline', showDot = true }: AvatarProps) {
+export function Avatar({ user, size = AVATAR_SIZE.row, state = 'offline', showDot = true }: AvatarProps) {
   const [imageFailed, setImageFailed] = useState(false)
   const showImage = Boolean(user.avatarUrl) && !imageFailed
   const color = colorFor(user)

@@ -14,6 +14,7 @@ import type { Friend, KickbackClient } from '../../client/types'
 import { useChannelName } from '../ChannelNames'
 import { useAnalytics } from '../Analytics'
 import { Avatar } from './Avatar'
+import { AVATAR_SIZE } from '../avatarSizes'
 import { ActiveComboBar, Composer, MessageList } from './Conversation'
 import { UserCard } from './UserCard'
 import type { UserCardContext } from './UserCard'
@@ -281,7 +282,7 @@ export function StreamSession({
           {ordered.slice(0, 4).map((member) => {
             const friend = byId.get(member.userId)
             return friend ? (
-              <Avatar key={member.userId} user={friend.user} size={18} showDot={false} />
+              <Avatar key={member.userId} user={friend.user} size={AVATAR_SIZE.stack} showDot={false} />
             ) : (
               <span key={member.userId} className="kb-room-unknown" aria-hidden="true">
                 ?
@@ -316,7 +317,7 @@ export function StreamSession({
                   }
                 >
                   {friend ? (
-                    <Avatar user={friend.user} size={22} showDot={false} />
+                    <Avatar user={friend.user} size={AVATAR_SIZE.person} showDot={false} />
                   ) : (
                     <span className="kb-room-unknown" aria-hidden="true">
                       ?

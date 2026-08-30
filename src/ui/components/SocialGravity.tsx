@@ -14,6 +14,7 @@ import { withoutMutedSenders } from '../../core/mute'
 import { EmoteImage } from './EmoteImage'
 import { useChannelName } from '../ChannelNames'
 import { Avatar } from './Avatar'
+import { AVATAR_SIZE } from '../avatarSizes'
 import { avatarTint } from '../avatarTint'
 import { JoinButton } from './JoinButton'
 import { PersonRow } from './PersonRow'
@@ -140,9 +141,9 @@ function ChannelAvatar({
     <div
       className="kb-avatar kb-gravity-avatar"
       style={{
-        width: 22,
-        height: 22,
-        fontSize: 9,
+        width: AVATAR_SIZE.person,
+        height: AVATAR_SIZE.person,
+        fontSize: Math.round(AVATAR_SIZE.person * 0.42),
         background: `linear-gradient(140deg, ${tint}, ${tint}b0)`,
       }}
       title={name}
@@ -155,8 +156,8 @@ function ChannelAvatar({
           alt=""
           loading="lazy"
           decoding="async"
-          width={22}
-          height={22}
+          width={AVATAR_SIZE.person}
+          height={AVATAR_SIZE.person}
           onError={() => setFailed(true)}
         />
       )}
@@ -193,7 +194,7 @@ function GravityPerson({
         title={`About ${friend.user.displayName}`}
         onClick={onToggle}
       >
-        <Avatar user={friend.user} size={20} showDot={false} />
+        <Avatar user={friend.user} size={AVATAR_SIZE.person} showDot={false} />
         <span className="kb-cluster-name">{friend.user.displayName}</span>
       </button>
 

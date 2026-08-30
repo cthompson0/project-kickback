@@ -4,6 +4,7 @@ import type { MemberCluster } from '../../core/groupPresence'
 import type { Activity } from '../../core/types'
 import type { GroupMember, KickbackClient } from '../../client/types'
 import { Avatar } from './Avatar'
+import { AVATAR_SIZE } from '../avatarSizes'
 import { JoinButton } from './JoinButton'
 import { UserCard } from './UserCard'
 import type { UserCardContext } from './UserCard'
@@ -114,7 +115,7 @@ export function GroupPresence({
                   setOpenCardId((open) => (open === member.user.id ? null : member.user.id))
                 }
               >
-                <Avatar user={member.user} size={20} showDot={false} />
+                <Avatar user={member.user} size={AVATAR_SIZE.person} showDot={false} />
                 <span className="kb-cluster-name">{member.user.displayName}</span>
                 {member.role === 'owner' && <span className="kb-role">owner</span>}
               </button>

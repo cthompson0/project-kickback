@@ -7,6 +7,7 @@ import type { KickbackClient } from '../client/types'
 import type { RoomMember } from '../core/streamRoom'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
+import { AVATAR_SIZE } from './avatarSizes'
 import { FriendsTab } from './components/FriendsTab'
 import { SocialGravity } from './components/SocialGravity'
 import { StreamSession } from './components/StreamSession'
@@ -554,7 +555,7 @@ export function KickbackPanel({
           setCollapsed(false)
         }}
       >
-        <WatchsideMark size={22} />
+        <WatchsideMark size={24} />
         {/* Unseen, actionable things only. A friend changing channel is not
             news; a friend request or a gathering forming is. */}
         {view.unread.length > 0 && (
@@ -587,7 +588,7 @@ export function KickbackPanel({
       style={position}
     >
       <div className="kb-header" onPointerDown={beginDrag}>
-        <WatchsideMark />
+        <WatchsideMark size={24} />
         <span className="kb-wordmark">watchside</span>
         {IS_DEMO && view.demo && <span className="kb-demo-badge">DEMO</span>}
         <span className="kb-header-spacer" />
@@ -610,7 +611,7 @@ export function KickbackPanel({
                 avatarUrl: identity.avatarUrl,
                 accentColor: BRAND_ACCENT,
               }}
-              size={22}
+              size={AVATAR_SIZE.person}
               showDot={false}
             />
           </button>
@@ -723,7 +724,7 @@ export function KickbackPanel({
             <div className="kb-here-banner">
               <div className="kb-avatar-stack">
                 {friendsHere.slice(0, 4).map((friend) => (
-                  <Avatar key={friend.user.id} user={friend.user} size={20} showDot={false} />
+                  <Avatar key={friend.user.id} user={friend.user} size={AVATAR_SIZE.stack} showDot={false} />
                 ))}
               </div>
               <span className="kb-here-banner-text">

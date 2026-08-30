@@ -4,6 +4,7 @@ import { channelUrl } from '../../platforms/twitch/channels'
 import type { Activity, Presence, User } from '../../core/types'
 import type { KickbackClient } from '../../client/types'
 import { Avatar } from './Avatar'
+import { AVATAR_SIZE } from '../avatarSizes'
 import { JoinButton } from './JoinButton'
 import { useChannelName } from '../ChannelNames'
 
@@ -244,7 +245,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
   return (
     <div className="kb-usercard" ref={cardRef} data-kb-nodrag role="dialog">
       <div className="kb-usercard-head">
-        <Avatar user={user} size={30} showDot={false} />
+        <Avatar user={user} size={AVATAR_SIZE.row} showDot={false} />
         <div className="kb-usercard-id">
           {/* Twitch's own capitalisation, never derived from the login. */}
           <div className="kb-usercard-name">{user.displayName}</div>

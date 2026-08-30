@@ -18,7 +18,7 @@ import { BackIcon, WatchsideMark } from './Icons'
 export function SignInCard({ onSignIn, busy }: { onSignIn: () => void; busy: boolean }) {
   return (
     <div className="kb-signin">
-      <WatchsideMark size={34} />
+      <WatchsideMark size={36} />
       <div className="kb-signin-title">Watchside</div>
       <div className="kb-signin-sub">See who&rsquo;s around.</div>
       <button type="button" className="kb-signin-btn" onClick={onSignIn} disabled={busy}>

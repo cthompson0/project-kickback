@@ -7,6 +7,7 @@ import { socialGravity } from '../../src/core/socialGravity'
 import { STALE_TOLERANCE_MS } from '../../src/core/twitchMetadata'
 import type { ChannelMetadata } from '../../src/core/twitchMetadata'
 import { avatarTint } from '../../src/ui/avatarTint'
+import { AVATAR_SIZE } from '../../src/ui/avatarSizes'
 import type { Friend, KickbackClient } from '../../src/client/types'
 import type { Activity, Presence } from '../../src/core/types'
 
@@ -224,7 +225,9 @@ describe('when nothing told us', () => {
     // same x whether the box holds a picture or a monogram.
     const size = (html: string) =>
       head(html).match(/kb-gravity-avatar"[^>]*style="([^"]*)"/)?.[1]
-    expect(size(plain)).toContain('width:22px')
+    // Against the scale, not a literal: the point is that both render at the
+    // shared person size, not that the person size is any particular number.
+    expect(size(plain)).toContain(`width:${AVATAR_SIZE.person}px`)
     expect(size(rich)).toBe(size(plain))
   })
 

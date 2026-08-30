@@ -571,8 +571,12 @@
   position: absolute;
   right: -1px;
   bottom: -1px;
-  width: 9px;
-  height: 9px;
+  /* 8 rather than 9 so the dot plus its 2px ring is a 12px box: even, and a
+     whole number of device pixels at every display scale, which is what keeps
+     a circle this small from rasterising lopsided. Same reasoning as the
+     avatar scale in src/ui/avatarSizes.ts. */
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   border: 2px solid #17171b;
   background: var(--kb-offline);
