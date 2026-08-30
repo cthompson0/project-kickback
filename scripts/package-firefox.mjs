@@ -73,6 +73,25 @@ const BETA = process.argv.includes('--beta')
 const AMO = process.argv.includes('--amo')
 
 /**
+ * An optional revision label for pre-submission candidates.
+ *
+ *   WATCHSIDE_AMO_REV=r2 npm run package:amo
+ *
+ * A candidate is not a release: it may be rebuilt several times before anything
+ * is uploaded, and each rebuild is a different decision about what we are
+ * asking Mozilla to sign. Overwriting the previous one would erase the record
+ * of what changed and why, so a superseded candidate keeps its name and the new
+ * one is labelled.
+ *
+ * Read from the environment rather than argv because npm forwards extra
+ * arguments only to the last command in a chained script, and this has to reach
+ * both the packager and the source archive.
+ */
+const REVISION = (process.env.WATCHSIDE_AMO_REV ?? '').trim()
+const REV_SUFFIX = REVISION ? `-${REVISION}` : ''
+
+
+/**
  * A fixed timestamp for every archive entry.
  *
  * Without this the ZIP is not reproducible: writeZip defaults to the wall clock,
@@ -267,7 +286,7 @@ async function main() {
   const zipPath = join(
     RELEASES,
     AMO
-      ? `Watchside-AMO-Candidate-v${version}.zip`
+      ? `Watchside-AMO-Candidate-v${version}${REV_SUFFIX}.zip`
       : BETA
         ? `Watchside-Firefox-Beta-v${version}.zip`
         : `Watchside-Firefox-v${version}.zip`,

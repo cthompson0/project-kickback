@@ -2,7 +2,8 @@
 
 ## 1. Executive verdict
 
-**GO, with one owner decision recorded and not taken here.**
+**GO.** The one open decision is now resolved - see §16, which supersedes §5.3
+and §9 on the artifacts.
 
 Watchside has one deliberate, unsigned, AMO-submittable release candidate, an
 accompanying source archive that has been **proved** to rebuild it byte for byte,
@@ -184,8 +185,9 @@ The two honest options:
   analytics backend — but it is a real behaviour change that reduces analytics
   completeness on Firefox by an unknown fraction.
 
-This is a product decision with a business consequence, so it is reported rather
-than taken. `tests/extension/firefoxPackage.test.ts` fails if
+**RESOLVED in §16: option A, and more.** Firefox now collects none of it, and
+the boundary turned out to be three events rather than one. This is a product
+decision with a business consequence, so it was reported rather than taken here. `tests/extension/firefoxPackage.test.ts` fails if
 `technicalAndInteraction` is added without the gate, so option B cannot be
 half-done by accident.
 
@@ -472,3 +474,270 @@ the new `scripts/package-source.mjs`, tests, the E2E scenarios, and
 `docs/PRIVACY.md`.
 
 Nothing was submitted to Mozilla. F7 and M3 remain unstarted.
+
+---
+
+# 16. Owner decision on `technicalAndInteraction` — RESOLVED (2026-08-29)
+
+§5.3 left one question open. It is now decided.
+
+## 16.1 The decision
+
+**Watchside collects no Mozilla `technicalAndInteraction` data on Firefox.**
+
+Not declared as optional, not requested at runtime, not collected. There is no
+second consent prompt, no analytics toggle, and no setting to manage — because
+there is nothing to consent to.
+
+The reasoning is worth stating plainly, because "we collect less" is easy to say
+and usually costs something. Mozilla permits that category only behind an
+optional permission, and an optional permission is a promise: a second question
+at install and a user choice to honour forever after. The alternative to asking
+is not collecting. Watchside took the second, and the price is paid on the
+Firefox side of error reporting rather than by users being asked another
+question.
+
+**Everything else is unchanged.** The required declaration established in §5 is
+exactly as it was, and every product and funnel measurement still runs on both
+engines.
+
+## 16.2 Classification — all 46 events
+
+The boundary was drawn from the taxonomy, not from convenience.
+`technicalAndInteraction` is *"device and browser info, extension usage and
+settings data, crash and error reports."* Watchside collects **no device or
+browser information at all** in analytics — the envelope carries an app version,
+an environment label and a session id, all properties of the BUILD — so the
+question reduces to one test:
+
+> Is this event a report about our software's health, or a record of something a
+> person did?
+
+| Event family | Purpose | Mozilla category | Req/Opt | Firefox | Chrome | Rationale |
+| --- | --- | --- | --- | --- | --- | --- |
+| `extension_session_started` · `extension_session_ended` | session frame; the denominator of every funnel | websiteActivity | required | **sends** | sends | Bounded by the person being active on Twitch; `duration_ms` measures how long they were. Reading it as "extension usage" would gate the denominator and bias every rate computed against it. |
+| `authenticated_session_started` | friends/groups at sign-in | authenticationInfo | required | **sends** | sends | Account state. |
+| `friend_search` · `friend_request_*` · `friend_removed` · `group_invite_*` | social graph actions | websiteActivity | required | **sends** | sends | Actions a person took. The search query itself is never recorded. |
+| `friend_presence_impression` · `gathering_impression` · `gravity_cluster_impression` | **Gravity exposure** | browsingActivity | required | **sends** | sends | Carries the channel. The core of the product thesis. |
+| `join_clicked` · `join_arrived` | **JOIN, its source/surface, and arrival** | browsingActivity | required | **sends** | sends | A click and its outcome. |
+| `watching_together_started` · `watching_together_ended` | **shared-watch behaviour and duration** | browsingActivity | required | **sends** | sends | What the person watched, with whom, for how long. |
+| `post_social_retention_ended` | **post-social linger** | browsingActivity | required | **sends** | sends | Continued viewing after a shared watch. |
+| `gathering_notification_shown` · `_clicked` | notification funnel | browsingActivity | required | **sends** | sends | Shown and acted on. |
+| `destinations_published` | how many streams are open | browsingActivity | required | **sends** | sends | Buckets, never the channel list. |
+| `automatic_room_entered` · `_opened` · `_left` | Stream Room lifecycle | browsingActivity | required | **sends** | sends | Channel-bound room activity. |
+| `automatic_room_message_sent` · `_reaction` · `_combo` · `combo_formed` · `combo_broken` · `group_message_sent` | that a message or reaction happened | personalCommunications | required | **sends** | sends | Bucket and flag only, never a body — but still a record that a communication occurred. |
+| `group_created` · `group_opened` · `user_blocked` · `user_unblocked` · `feedback_submitted` | product actions | websiteActivity | required | **sends** | sends | `feedback_submitted` carries the category only; what was written goes to `submit_feedback`, never through analytics. |
+| `friend_suggestion_*` · `invite_link_*` · `invite_claimed` · `referral_succeeded` · `badge_awarded` · `badge_displayed` | **referrals and the growth funnel** | websiteActivity | required | **sends** | sends | Acquisition measurement. Counts, buckets and fixed vocabularies. |
+| **`client_error`** | a caught failure, as a call site and a code | **technicalAndInteraction** | optional-only | **SUPPRESSED** | sends | Nobody did this on purpose. It is an error report, which is the category verbatim. |
+| **`realtime_status_changed`** | a subscription changed state | **technicalAndInteraction** | optional-only | **SUPPRESSED** | sends | Transport health, not behaviour. |
+| **`group_message_send_failed`** | a group message was refused | **technicalAndInteraction** | optional-only | **SUPPRESSED** | sends | The nearest thing to a borderline case — a person did try to send something — but the event carries a `FailureCode` and nothing else, and what it measures is whether our messaging works. The SUCCESSFUL send is `group_message_sent`, which is product data and is not gated, so what Firefox loses is reliability visibility rather than any part of the funnel. |
+
+### The STOP condition was checked and not triggered
+
+No Gravity, JOIN, discovery, shared-watch or growth event falls into
+`technicalAndInteraction`. Every one of them records something a person did, and
+lands in `websiteActivity` or `browsingActivity` — both of which Mozilla permits
+as **required**, and both of which Watchside already declares. Nothing
+strategically important needed to become optional, so nothing was suppressed and
+no owner escalation was needed.
+
+## 16.3 The suppression boundary
+
+**Three events, one check, one place.**
+
+`src/background/analytics.ts`, inside `track()`, immediately after the existing
+`enabled` guard:
+
+```ts
+if (deps.collectTechnical === false && isTechnicalAndInteraction(request.name)) return
+```
+
+Why there and nowhere else:
+
+- **It is the one place every event already passes through.** A per-call-site
+  check is a rule somebody eventually forgets, and product code stays free of
+  engine awareness entirely.
+- **It fails closed.** The drop happens *before* the queue, so a suppressed
+  event cannot be revived by a later flush, by the retry path that pushes a
+  failed batch back on the front, or by anything that inspects the queue.
+  Nothing is held, so nothing survives a worker restart.
+- **It consults the classification, not a hand-kept list.**
+  `EVENT_DATA_CATEGORY` is a `Record<AnalyticsEventName, MozillaDataCategory>`,
+  so **an event cannot be added without being classified — that is a compile
+  error** — and a new diagnostic event is suppressed the moment it is.
+
+The engine is named exactly once, in `src/background/index.ts`:
+
+```ts
+collectTechnical: !IS_GECKO,
+```
+
+`IS_GECKO` is now exported from the browser adapter for this one purpose. The
+adapter exists to make the engine invisible to feature code; this is the single
+named exception, and a test asserts the worker contains exactly two references
+to it — the import and the one use.
+
+### One place outside analytics
+
+Feedback attached `browser: browserName()`, which reads the user agent. That is
+"device and browser info" — the first thing Mozilla lists under the category —
+so on Firefox **the field is omitted**. It is dropped rather than faked:
+`submit_feedback` runs its context through `jsonb_strip_nulls`, so an absent key
+is simply absent, and **no schema change was needed**. Everything else a report
+needs — version, environment, channel, friend count, sync health — is unchanged,
+so feedback from Firefox is still answerable.
+
+This was found by auditing rather than assumed: it would otherwise have made the
+privacy policy's claim about browser information false.
+
+## 16.4 What was NOT done
+
+- No optional declaration in the manifest.
+- No `permissions.request({ data_collection: … })` anywhere — asserted against
+  the built bundles, which contain the string `data_collection` nowhere.
+- No consent prompt, no settings screen, no analytics toggle.
+- No synthetic or replacement events when telemetry is suppressed. A suppressed
+  event leaves no trace at all; it is not counted, bucketed or stand-in-logged.
+- No change to any event name, property or semantic.
+- No OAuth scope change, no hosted schema change, no new permission.
+- No product behaviour changes because diagnostics are absent — the code paths
+  that call `noteFailure` still run and still recover; only the report is
+  dropped.
+
+## 16.5 Regression coverage
+
+`tests/extension/firefoxTelemetryBoundary.test.ts`, 14 tests.
+
+| Requirement | Test |
+| --- | --- |
+| A — Firefox suppresses `client_error` | nothing queued, nothing sent after a flush |
+| B — no other technical event escapes | every member of `TECHNICAL_AND_INTERACTION_EVENTS`, all dropped |
+| B — fails closed | a suppressed and a product event tracked together; two flushes; only the product event ever sends |
+| C — core funnel unaffected | all 43 non-technical events sent under the Firefox flag |
+| D — the strategic set, named individually | Gravity, JOIN, arrival, shared watch, linger, sessions, growth — asserted **not** technical, and asserted to send. Written out by name so that reclassifying JOIN cannot be made to pass by editing one list. |
+| E — Chromium `client_error` unchanged | queued and sent |
+| F — Chromium unchanged overall | all 46 events sent; absent and `true` flags behave identically |
+| G — manifest declares no optional collection | `optional` undefined; the string `technicalAndInteraction` absent from the declaration; required list still the F6 four |
+| H — nothing requests the permission | `data_collection` and `permissions.request` absent from both built bundles |
+| I — classification and wiring cannot drift | every event has a category; the technical set is exactly three; the worker wires `collectTechnical: !IS_GECKO` in one place; the recorder consults `isTechnicalAndInteraction` |
+| — | analytics source contains no `navigator.`, `userAgent`, `screen.` or `deviceMemory` |
+
+One assertion was wrong on the first pass and is worth recording: it required the
+string `technicalAndInteraction` to be absent from the Firefox bundle. It is
+present — as the classification literal that does the suppressing. Asserting on
+the word rather than on the permissions API would have failed for the one reason
+that means everything is working.
+
+## 16.6 Verification
+
+| Check | Result |
+| --- | --- |
+| `npm test` | **2300 passed / 89 files** |
+| `tsc -b --force` · `eslint .` | clean |
+| `verify:firefox` · `verify:store` | pass |
+| `verify:firefox:e2e` | **5/5 scenarios, 135s** |
+| Seed fingerprints | `490abc069b69176b` / `230347d30f6355fa` — unchanged |
+
+## 16.7 Artifacts — revision r2
+
+The §9 candidate was built before this decision, so it is **superseded**. It was
+never uploaded. Per the instruction to avoid ambiguity, the new artifacts are
+revisioned rather than overwriting it, and `WATCHSIDE_AMO_REV` now labels a
+pre-submission candidate.
+
+| | File | SHA256 |
+| --- | --- | --- |
+| **Candidate (current)** | `releases/Watchside-AMO-Candidate-v0.6.0-r2.zip` | `5635e11472e8de3fe812fa0f099a58bd9605597274beb0a7bc16e61d60dd4d40` |
+| **Source (current)** | `releases/Watchside-AMO-Source-v0.6.0-r2.zip` | `fe541412e05129e991c121a00c620814749f41fd20187ce4f215e10edf8ba1bb` |
+| Candidate (r1, superseded) | `releases/Watchside-AMO-Candidate-v0.6.0.zip` | `6a2365fd…` — retained, do not upload |
+| Source (r1, superseded) | `releases/Watchside-AMO-Source-v0.6.0.zip` | retained, do not upload |
+
+**Upload r2.**
+
+### Reproducibility, re-proved
+
+Extracted clean, then following `REVIEWER-BUILD.md` literally:
+
+```
+unzip Watchside-AMO-Source-v0.6.0-r2.zip
+cp .env.amo .env.local
+npm ci
+npm run package:firefox
+```
+
+| | |
+| --- | --- |
+| Rebuilt SHA256 | `5635e11472e8de3fe812fa0f099a58bd9605597274beb0a7bc16e61d60dd4d40` |
+| r2 candidate SHA256 | `5635e11472e8de3fe812fa0f099a58bd9605597274beb0a7bc16e61d60dd4d40` |
+| `diff -r` of unpacked contents | **empty** |
+
+The README also names the r2 candidate and its hash, which the first build of it
+did not — caught by reading the generated file rather than trusting the template.
+
+### Validator
+
+`web-ext lint` against the **extracted upload candidate** itself:
+
+**0 errors, 0 notices, 3 warnings** — the same three as §9, unchanged by this
+work and each still documented rather than suppressed:
+
+| Warning | Verdict |
+| --- | --- |
+| `KEY_FIREFOX_ANDROID_UNSUPPORTED_BY_MIN_VERSION` ×1 | Describes a configuration that does not exist: omitting `gecko_android` makes the add-on desktop-only. |
+| `UNSAFE_VAR_ASSIGNMENT` ×2 | Inside React's `dangerouslySetInnerHTML` branch, which Watchside never uses — asserted by test. |
+
+`MISSING_DATA_COLLECTION_PERMISSIONS` remains resolved: the required declaration
+is present and unchanged.
+
+## 16.8 Privacy
+
+`docs/PRIVACY.md` updated, and three claims were made more accurate rather than
+merely added to:
+
+1. **New section, "Technical and interaction data: Firefox collects none."** It
+   says what is not collected, names the three signals, says they are dropped
+   inside the extension and never queued or retried, and states plainly that
+   **there is no consent prompt and no analytics switch** — because there is
+   nothing to switch. It does not imply an opt-out exists.
+2. **The feedback section corrected.** It previously said feedback attaches the
+   browser name and version. It now says that happens on Chrome and that the
+   field is omitted on Firefox.
+3. **The device-information claim corrected.** A draft of this section said
+   Watchside had never collected browser information on any browser. That was
+   false — feedback did. It now reads: no device information on any browser, and
+   no browser information on Firefox.
+
+The 7TV wording was also made precise in the introduction, matching §6: the
+request carries the channel name and nothing that identifies the user.
+
+**The published page still needs republishing.** `scripts/build-privacy-page.mjs`
+renders `docs/PRIVACY.md` and takes the output path as its first argument,
+writing into the Pages site checkout — which is not this repository. There is no
+credential or deployment mechanism here, and none was invented. It remains the
+owner action in §12.6.
+
+## 16.9 Chrome
+
+**Untouched, and verified.**
+
+- `releases/Watchside-Store-v0.6.0.zip` — `150e3c5b9319d3cc…`, unchanged.
+- Chrome behaviour is byte-for-byte the same: `collectTechnical` defaults to
+  collecting, and the Chromium build passes `!IS_GECKO === true`. Tests assert
+  that an absent flag and `true` behave identically.
+- No Chrome build, package, submission or publication.
+- Extension ID, permissions, manifest `key`, OAuth scopes: unchanged.
+- WS-F5-01 remains queued for the next coherent Chrome release.
+
+## 16.10 Final F6 verdict
+
+**READY TO SUBMIT.**
+
+The candidate is validator-clean, its source archive provably rebuilds it byte
+for byte, its data declaration is mapped from the code rather than asserted, and
+the one open question from §5.3 is now closed in the direction that collects
+less.
+
+The only remaining blocker is republishing the privacy page (§12.6). Everything
+else on the §12 checklist is owner-side AMO mechanics.
+
+F7 and M3 remain unstarted. Nothing has been submitted to Mozilla.

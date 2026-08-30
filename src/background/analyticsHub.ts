@@ -69,6 +69,8 @@ export interface AnalyticsHubDeps {
   environment: AnalyticsEnvironment
   appVersion: string | null
   enabled: boolean
+  /** See AnalyticsRecorderDeps. Passed straight through; the hub decides nothing. */
+  collectTechnical?: boolean
   sessionStore: SessionStore
   attributionStore: AttributionStore
   /**
@@ -141,6 +143,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
     environment: deps.environment,
     appVersion: deps.appVersion,
     enabled: deps.enabled,
+    collectTechnical: deps.collectTechnical,
     sessionId: () => session.currentId(),
     canSend: deps.canSend,
     now,

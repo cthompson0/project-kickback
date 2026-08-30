@@ -490,6 +490,160 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
 
 export const ANALYTICS_EVENT_NAMES = Object.keys(EVENT_PROPERTIES) as AnalyticsEventName[]
 
+/**
+ * Mozilla's data-collection taxonomy, as it applies to Watchside.
+ *
+ * These are the five categories any Watchside event can fall into. Four of them
+ * are declared REQUIRED in the Firefox manifest, because the product cannot do
+ * what it says it does without them - see scripts/manifest.mjs.
+ *
+ * The fifth, `technicalAndInteraction`, Mozilla permits ONLY as optional, which
+ * means asking the user separately and honouring a refusal. Watchside does not
+ * ask: F6's owner decision is that Firefox collects none of it. So this type
+ * exists to identify that family precisely, and the analytics boundary drops it
+ * on Gecko.
+ */
+export type MozillaDataCategory =
+  | 'authenticationInfo'
+  | 'browsingActivity'
+  | 'personalCommunications'
+  | 'websiteActivity'
+  | 'technicalAndInteraction'
+
+/**
+ * What each event actually collects, in Mozilla's words.
+ *
+ * A `Record` over every event name on purpose: adding an event without
+ * classifying it is a COMPILE ERROR, not a silent omission. That is the whole
+ * safety property here - a future diagnostic event cannot quietly start
+ * transmitting from Firefox because somebody forgot a list.
+ *
+ * HOW THE BOUNDARY WAS DRAWN
+ *
+ * `technicalAndInteraction` is "device and browser info, extension usage and
+ * settings data, crash and error reports". Watchside collects NO device or
+ * browser information at all - the envelope carries an app version, an
+ * environment label and a session id, and nothing about the machine - so the
+ * question reduces to: is this event a report about our software's health, or a
+ * record of something the person did?
+ *
+ *   something the person did   -> websiteActivity / browsingActivity / etc.
+ *   our software misbehaving   -> technicalAndInteraction
+ *
+ * That line puts three events on the technical side and leaves every product
+ * and funnel measurement where it was. Gravity exposure, JOIN and its source,
+ * arrival, shared watches, post-social linger, the growth loop and session
+ * framing are all records of user activity, and they stay exactly as they are
+ * on both engines.
+ */
+export const EVENT_DATA_CATEGORY: Record<AnalyticsEventName, MozillaDataCategory> = {
+  // ---------------------------------------------------------------- lifecycle
+  /*
+   * The session frame, and the denominator of nearly every funnel.
+   *
+   * Website activity, not "extension usage": a Watchside session is bounded by
+   * the person being active on Twitch, and `duration_ms` measures how long they
+   * were. Reading it as technical data would gate the denominator and quietly
+   * bias every rate computed against it.
+   */
+  extension_session_started: 'websiteActivity',
+  extension_session_ended: 'websiteActivity',
+  authenticated_session_started: 'authenticationInfo',
+
+  // ------------------------------------------------------------- social graph
+  friend_search: 'websiteActivity',
+  friend_request_sent: 'websiteActivity',
+  friend_request_accepted: 'websiteActivity',
+  friend_removed: 'websiteActivity',
+  group_invite_sent: 'websiteActivity',
+  group_invite_accepted: 'websiteActivity',
+
+  // ------------------------------------------- gravity, exposure and arrival
+  /* All channel-bearing: the envelope carries destination_channel. */
+  friend_presence_impression: 'browsingActivity',
+  gathering_impression: 'browsingActivity',
+  gravity_cluster_impression: 'browsingActivity',
+  join_clicked: 'browsingActivity',
+  join_arrived: 'browsingActivity',
+  watching_together_started: 'browsingActivity',
+  watching_together_ended: 'browsingActivity',
+  post_social_retention_ended: 'browsingActivity',
+  gathering_notification_shown: 'browsingActivity',
+  gathering_notification_clicked: 'browsingActivity',
+  destinations_published: 'browsingActivity',
+
+  // -------------------------------------------------------------- the room
+  automatic_room_entered: 'browsingActivity',
+  automatic_room_opened: 'browsingActivity',
+  automatic_room_left: 'browsingActivity',
+  /* A bucket and a flag, never a body - but it is still a record that a message
+   * happened, which is what personalCommunications describes. Already required. */
+  automatic_room_message_sent: 'personalCommunications',
+  automatic_room_reaction: 'personalCommunications',
+  automatic_room_combo: 'personalCommunications',
+  combo_formed: 'personalCommunications',
+  combo_broken: 'personalCommunications',
+
+  // -------------------------------------------------------------- groups
+  group_created: 'websiteActivity',
+  group_opened: 'websiteActivity',
+  group_message_sent: 'personalCommunications',
+
+  // -------------------------------------------------------------- safety
+  user_blocked: 'websiteActivity',
+  user_unblocked: 'websiteActivity',
+  /* The category only. What the person wrote goes to submit_feedback, which is
+   * a different table with different rules, and never through analytics. */
+  feedback_submitted: 'websiteActivity',
+
+  // ---------------------------------------------------------- the growth loop
+  friend_suggestion_impression: 'websiteActivity',
+  friend_suggestion_add_clicked: 'websiteActivity',
+  friend_suggestion_request_created: 'websiteActivity',
+  invite_link_created: 'websiteActivity',
+  invite_link_shared: 'websiteActivity',
+  invite_claimed: 'websiteActivity',
+  referral_succeeded: 'websiteActivity',
+  badge_awarded: 'websiteActivity',
+  badge_displayed: 'websiteActivity',
+
+  // ----------------------------------------------------------- DIAGNOSTICS
+  /*
+   * The three events that are reports about Watchside rather than records of
+   * the person using it. On Firefox these are never sent.
+   */
+  /** A caught failure, as a call site and a code. Nobody did this on purpose. */
+  client_error: 'technicalAndInteraction',
+  /** A realtime subscription changed state. Transport health, not behaviour. */
+  realtime_status_changed: 'technicalAndInteraction',
+  /*
+   * A group message was refused.
+   *
+   * The nearest thing to a borderline case, because a person did try to send
+   * something - but the event carries a FailureCode and nothing else, and what
+   * it measures is whether our messaging works. That is an error report. The
+   * SUCCESSFUL send is `group_message_sent`, which is product data and is not
+   * gated, so what Firefox loses here is reliability visibility rather than any
+   * part of the funnel.
+   */
+  group_message_send_failed: 'technicalAndInteraction',
+}
+
+/**
+ * The events Firefox must never transmit.
+ *
+ * Derived from the classification rather than written out again, so the two
+ * cannot disagree.
+ */
+export const TECHNICAL_AND_INTERACTION_EVENTS: readonly AnalyticsEventName[] =
+  ANALYTICS_EVENT_NAMES.filter((name) => EVENT_DATA_CATEGORY[name] === 'technicalAndInteraction')
+
+/** Does this event collect what Mozilla classifies as optional technical data? */
+export function isTechnicalAndInteraction(name: AnalyticsEventName): boolean {
+  return EVENT_DATA_CATEGORY[name] === 'technicalAndInteraction'
+}
+
+
 /** What one event looks like on the wire, and in the database. */
 export interface AnalyticsEvent {
   event_name: AnalyticsEventName

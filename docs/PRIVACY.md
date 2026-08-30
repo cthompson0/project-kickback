@@ -30,9 +30,9 @@ Two places, and nowhere else:
 
 Watchside also reads **public emote metadata** from 7TV (`7tv.io`) and displays
 emote images from `cdn.7tv.app`, so that chat shows the emotes you already see
-on Twitch. These requests ask for a channel's public emote set. **No information
-about you is sent to 7TV** — not your identity, not who your friends are, not
-what you type.
+on Twitch. These requests carry **the channel name**, so that channel's emote set can be
+looked up, and nothing else. **No information about you is sent to 7TV** — not
+your identity, not who your friends are, not what you type.
 
 ## What Watchside handles
 
@@ -91,6 +91,8 @@ built so that it *cannot* carry personal content:
   Watchside actually sends people anywhere. It is a channel, not a URL, and only
   for channels Watchside itself surfaced or you acted on. **Watchside does not
   record your browsing generally, on Twitch or anywhere else.**
+- **On Firefox, diagnostic events are not recorded at all.** See "Technical and
+  interaction data" below.
 - Events are labelled with the build they came from, so beta data can be
   deleted separately from anything else.
 
@@ -98,9 +100,12 @@ built so that it *cannot* carry personal content:
 
 If you send feedback from the account panel, we receive **what you wrote**, plus
 a small set of diagnostics assembled by the extension: the Watchside version, the
-build, your browser name and major version (e.g. "Chrome 141"), which Watchside
+build, which Watchside
 tab was open, the Twitch channel you were on, how many friends you have, whether
-a stream session existed, and whether the realtime connection was healthy.
+a stream session existed, and whether the realtime connection was healthy. On
+Chrome it also includes your browser name and major version (e.g. "Chrome 141");
+**on Firefox that field is omitted**, because it is browser information and
+Watchside collects none of that on Firefox.
 
 That is the complete list, and it is enforced by the server, which rebuilds it
 field by field and discards anything else. **Feedback never carries tokens,
@@ -168,6 +173,31 @@ Watchside does **not** declare *personally identifying information*: no email
 address, phone number, postal address, demographics or biometrics is collected
 anywhere. Your Twitch handle, display name and avatar are your own public Twitch
 profile, and they are covered by *authentication information*.
+
+### Technical and interaction data: Firefox collects none
+
+Firefox has a fifth category, *technical and interaction data* — device and
+browser information, and crash and error reports. Mozilla only allows it as an
+**optional** permission, which would mean asking you a second question at
+install.
+
+**We would rather not collect it than ask.** On Firefox, Watchside sends no
+error reports at all: three diagnostic signals that the Chrome extension does
+record — a caught error, a realtime connection changing state, and a group
+message being refused — are dropped inside the extension and never reach our
+server. They are not queued, not retried, and not sent later.
+
+So there is **no consent prompt and no analytics switch** in Watchside for
+Firefox, because there is nothing to consent to or switch off. Everything else
+on this page still applies: the data listed above is what the add-on needs to do
+what it does, and Firefox asks you about it once, at install.
+
+Watchside collects no device information on any browser, and no browser
+information on Firefox.
+
+On **Chrome**, those three diagnostic signals are still recorded. They carry a
+call site and an error code from fixed lists — never a message, a URL, an
+exception text or a stack trace — exactly as the analytics section describes.
 
 Watchside requests **no access to sites other than Twitch**, and cannot read any
 other page you visit.

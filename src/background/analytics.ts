@@ -32,7 +32,7 @@
  * reaches the network.
  */
 
-import { buildEvent } from '../core/analytics'
+import { buildEvent, isTechnicalAndInteraction } from '../core/analytics'
 import type {
   AnalyticsEnvironment,
   AnalyticsEvent,
@@ -51,6 +51,14 @@ export interface AnalyticsRecorderDeps {
   appVersion: string | null
   /** False in the demo build and in tests. Nothing is queued or sent. */
   enabled: boolean
+  /**
+   * Whether this engine may collect Mozilla's optional technicalAndInteraction
+   * data. False on Firefox, by owner decision - see the F6 report.
+   *
+   * A boolean rather than a browser check, because the recorder has no business
+   * knowing which engine it is on. The one place that does know passes it in.
+   */
+  collectTechnical?: boolean
   /** The session an event belongs to, read at track time. */
   sessionId: () => string | null
   /** False until there is a signed-in user; events before that are dropped. */
@@ -141,6 +149,26 @@ export function createAnalyticsRecorder(deps: AnalyticsRecorderDeps): AnalyticsR
     track(request): void {
       // One check, at the top. There is no path past here when disabled.
       if (!deps.enabled) return
+
+      /*
+       * THE FIREFOX DIAGNOSTIC BOUNDARY.
+       *
+       * Mozilla permits technicalAndInteraction data only as an OPTIONAL
+       * permission, which would mean a second consent prompt and a setting to
+       * honour. Watchside declines that trade: on Firefox this family is never
+       * collected, so there is nothing to ask about and nothing to manage.
+       *
+       * It sits HERE, at the one place every event already passes through,
+       * rather than at the call sites. A per-call-site rule is one somebody
+       * eventually forgets; this cannot be bypassed by product code, and the
+       * classification it consults is a Record over every event name, so a new
+       * diagnostic event is suppressed the moment it is classified - and cannot
+       * be added at all without being classified.
+       *
+       * Fails closed. The drop happens BEFORE the queue, so there is nothing
+       * for a later flush or a retry to send, and nothing survives a restart.
+       */
+      if (deps.collectTechnical === false && isTechnicalAndInteraction(request.name)) return
 
       const event = buildEvent(request, {
         environment: deps.environment,

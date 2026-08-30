@@ -34,11 +34,30 @@
  */
 import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join, relative } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import { writeZip } from './zip.mjs'
 import { JWT_LITERAL, step, walk } from './package-shared.mjs'
 
 const RELEASES = 'releases'
+
+/**
+ * An optional revision label for pre-submission candidates.
+ *
+ *   WATCHSIDE_AMO_REV=r2 npm run package:amo
+ *
+ * A candidate is not a release: it may be rebuilt several times before anything
+ * is uploaded, and each rebuild is a different decision about what we are
+ * asking Mozilla to sign. Overwriting the previous one would erase the record
+ * of what changed and why, so a superseded candidate keeps its name and the new
+ * one is labelled.
+ *
+ * Read from the environment rather than argv because npm forwards extra
+ * arguments only to the last command in a chained script, and this has to reach
+ * both the packager and the source archive.
+ */
+const REVISION = (process.env.WATCHSIDE_AMO_REV ?? '').trim()
+const REV_SUFFIX = REVISION ? `-${REVISION}` : ''
+
 const DIST = 'dist-firefox'
 
 /** The same fixed stamp the extension archive uses; see package-firefox.mjs. */
@@ -193,7 +212,7 @@ VITE_KICKBACK_MODE=production
 `
 }
 
-function reviewerReadme({ version, sha256, origin }) {
+function reviewerReadme({ version, sha256, origin, candidateName }) {
   return `# Watchside ${version} — building the Firefox add-on from source
 
 This archive rebuilds the uploaded add-on exactly. Everything below has been run
@@ -203,7 +222,7 @@ end to end; there are no manual steps and nothing is fetched except npm packages
 
 | | |
 | --- | --- |
-| Uploaded file | \`Watchside-AMO-Candidate-v${version}.zip\` |
+| Uploaded file | \`${candidateName}\` |
 | SHA256 | \`${sha256}\` |
 | Built on | Windows 11, Node ${process.versions.node}, npm ${npmVersion()} |
 | Bundler | Vite (rollup) + esbuild, via \`npm run build\` |
@@ -242,7 +261,7 @@ dist-firefox/package/                        the same files, unpacked
 reviewing:
 
 \`\`\`sh
-unzip -o Watchside-AMO-Candidate-v${version}.zip -d /tmp/uploaded
+unzip -o ${candidateName} -d /tmp/uploaded
 diff -r /tmp/uploaded dist-firefox/package
 \`\`\`
 
@@ -362,7 +381,7 @@ function main() {
   console.log('  publishable key: present, client-safe prefix')
 
   const version = JSON.parse(readFileSync('package.json', 'utf8')).version
-  const candidate = join(RELEASES, `Watchside-AMO-Candidate-v${version}.zip`)
+  const candidate = join(RELEASES, `Watchside-AMO-Candidate-v${version}${REV_SUFFIX}.zip`)
   if (!existsSync(candidate)) {
     fail(`no ${candidate} - run npm run package:amo, which builds it first`)
     return report()
@@ -381,12 +400,12 @@ function main() {
 
   const generated = [
     { name: '.env.amo', body: reviewerEnv(values) },
-    { name: 'REVIEWER-BUILD.md', body: reviewerReadme({ version, sha256, origin: values.origin }) },
+    { name: 'REVIEWER-BUILD.md', body: reviewerReadme({ version, sha256, origin: values.origin, candidateName: basename(candidate) }) },
   ]
 
   step('Writing the archive')
   mkdirSync(RELEASES, { recursive: true })
-  const out = join(RELEASES, `Watchside-AMO-Source-v${version}.zip`)
+  const out = join(RELEASES, `Watchside-AMO-Source-v${version}${REV_SUFFIX}.zip`)
 
   writeZip(
     out,

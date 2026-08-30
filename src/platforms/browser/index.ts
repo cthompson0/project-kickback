@@ -43,10 +43,19 @@ export { createGeckoApi } from './gecko'
  * shipping target, and a build with no flag set should produce the shipping
  * product, not a broken one.
  */
-const TARGET: BrowserTarget =
+export const BROWSER_TARGET: BrowserTarget =
   (import.meta.env.VITE_WATCHSIDE_BROWSER as BrowserTarget | undefined) ?? 'chromium'
 
-const IS_GECKO = TARGET === 'gecko'
+/**
+ * Which engine this bundle was built for.
+ *
+ * Exported because one product decision turns on it and nothing else should:
+ * Firefox does not collect Mozilla’s optional technicalAndInteraction data, so
+ * the analytics boundary suppresses that family on Gecko. Everything else in
+ * this file exists to make the engine INVISIBLE to feature code; this is the
+ * single, named exception, and it is consumed in exactly one place.
+ */
+export const IS_GECKO = BROWSER_TARGET === 'gecko'
 
 /*
  * One picked const per namespace, not one picked object.

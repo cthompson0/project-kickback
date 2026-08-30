@@ -1,4 +1,4 @@
-import { ext } from '../platforms/browser'
+import { IS_GECKO, ext } from '../platforms/browser'
 import type { ExtensionPort } from '../platforms/browser'
 import { createAuthService } from './auth'
 import { createFriendsService } from './friends'
@@ -507,6 +507,19 @@ const analytics = createAnalyticsHub({
   environment: ANALYTICS_ENVIRONMENT,
   appVersion: __KICKBACK_VERSION__,
   enabled: ANALYTICS_ENABLED,
+  /*
+   * Firefox collects no technicalAndInteraction data. See the F6 report.
+   *
+   * Mozilla allows that family only behind an OPTIONAL permission, and an
+   * optional permission is a second consent prompt plus a setting to honour.
+   * Watchside would rather not collect the data than ask for it, so on Gecko
+   * the diagnostic events are dropped at the recorder and never queued.
+   *
+   * This is the ONLY engine-dependent product decision in the worker, and it is
+   * expressed once, here, rather than as a browser check anywhere near a call
+   * site. Chromium is unaffected: the flag is true and nothing changes.
+   */
+  collectTechnical: !IS_GECKO,
   sessionStore: createStoredValue<SessionRecord>(
     storageArea,
     'kickback:analytics:session',
@@ -1726,7 +1739,24 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
       context: {
         app_version: __KICKBACK_VERSION__,
         environment: ANALYTICS_ENVIRONMENT,
-        browser: browserName(),
+        /*
+         * The browser string is omitted on Firefox, and this is the only place
+         * outside analytics where that decision reaches.
+         *
+         * `browserName()` reads the user agent, which is "device and browser
+         * info" - the first thing Mozilla lists under technicalAndInteraction,
+         * the category Watchside does not collect on Firefox. It arrives here
+         * attached to a support message somebody chose to send, which is a
+         * softer case than telemetry, but the promise was categorical and this
+         * is what keeping it looks like.
+         *
+         * The field is dropped rather than faked: `submit_feedback` runs its
+         * context through `jsonb_strip_nulls`, so an absent key is simply
+         * absent. Everything else the owner needs to answer a report - version,
+         * environment, channel, friend count, sync health - is unchanged, so
+         * feedback from Firefox is still answerable.
+         */
+        ...(IS_GECKO ? {} : { browser: browserName() }),
         surface: String(input.surface ?? 'friends'),
         collapsed: input.collapsed === true,
         /*
