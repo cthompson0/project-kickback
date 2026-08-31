@@ -150,9 +150,48 @@ describe('no Twitch relationship data is collected here', () => {
     expect(ANALYTICS_EVENT_NAMES).not.toContain('creator_followed')
   })
 
-  it('leaves the privacy policy making no claim about follows or subscriptions', () => {
-    // Describing collection we do not perform is as wrong as the reverse.
-    expect(POLICY).not.toContain('channels you follow')
+  /**
+   * TURNED OFF DELIBERATELY, AT THE GATE IT WAS WRITTEN FOR.
+   *
+   * This used to assert the policy made NO claim about follows, because
+   * describing collection we do not perform is as wrong as the reverse. Slice D
+   * makes the follow check real, so the same principle now demands the opposite
+   * assertion: the policy must describe it, and must still describe nothing
+   * else.
+   *
+   * The subscription half is unchanged and always will be.
+   */
+  it('describes the follow check it now performs, and nothing beyond it', () => {
+    // The collection, in the policy, in plain words.
+    expect(POLICY).toContain('Did this person already follow this creator?')
+    expect(POLICY).toContain('user:read:follows')
+
+    // Still no claim about subscriptions - Watchside has nothing to do with
+    // them, and naming them would invite the reader to wonder why.
     expect(POLICY).not.toContain('subscription')
+
+    // And still no claim to read the follow LIST, which is the overclaim this
+    // whole design exists to avoid: one creator is asked about, not a list.
+    expect(POLICY).not.toContain('channels you follow')
+    expect(POLICY).toContain('does **not** read the list of creators you follow')
+  })
+
+  /** The claims that would be untrue, or that overstate what is measured. */
+  it('claims no causal or forward-looking follow measurement', () => {
+    expect(POLICY).toContain('does **not** watch whether you follow someone afterwards')
+    expect(POLICY).toContain('claim that Watchside caused any follow')
+    expect(POLICY).toContain('does **not** go back over JOINs you made in the past')
+  })
+
+  /**
+   * The deletion asymmetry, stated where a user can find it.
+   *
+   * Twitch-derived answers go when the Twitch connection goes; Watchside's own
+   * record of its own product does not. Getting this backwards in either
+   * direction would be a false promise.
+   */
+  it('states the deletion asymmetry between Twitch-derived and Watchside-owned data', () => {
+    expect(POLICY).toContain('disconnect Watchside on Twitch and they are deleted')
+    expect(POLICY).toContain('is not\ndeleted by disconnecting Twitch')
   })
 })

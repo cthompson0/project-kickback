@@ -545,16 +545,23 @@ describe('the scope delta is exactly one', () => {
   })
 })
 
-describe('no production caller records anything yet', () => {
+describe('the permission path records nothing itself', () => {
   /**
-   * The permission being grantable does not make the measurement live. Nothing
-   * in the shipped extension calls the relationship action, so no observation
-   * can exist before the JOIN trigger and its public disclosure ship together.
+   * OPENED DELIBERATELY IN SLICE D, AND ONLY BY ONE DOOR.
+   *
+   * This used to assert that nothing anywhere invoked the relationship action.
+   * The JOIN trigger and its public disclosure shipped together in Slice D, so
+   * one caller now exists - in the backend module, reached only through the
+   * JOIN eligibility gate.
+   *
+   * What this still guarantees is that none of the AUTHORIZATION surfaces
+   * measure anything. Granting a permission is not a measurement, and an OAuth
+   * round trip must never write an observation: there is no JOIN behind it, so
+   * there is nothing a baseline could honestly be "at".
    */
-  it('nothing in the extension invokes the relationship action', () => {
+  it('nothing in the permission or UI path invokes the relationship action', () => {
     for (const file of [
       'src/background/auth.ts',
-      'src/background/supabaseBackend.ts',
       'src/background/index.ts',
       'src/ui/components/AuthStates.tsx',
       'src/ui/KickbackPanel.tsx',

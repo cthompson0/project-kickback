@@ -37,6 +37,7 @@ import { isRandomisedArm } from '../core/experiment'
 import type { ExperimentArm } from '../core/experiment'
 import type { StoredValue } from './storedValue'
 import { normalizeChannel } from '../core/analytics'
+import type { MeasurementReadiness } from '../client/types'
 import type {
   AnalyticsEnvironment,
   AnalyticsEventMap,
@@ -66,6 +67,70 @@ export interface ExposureReport {
     /** Whether Twitch said the destination was streaming when it was shown. */
     live?: LiveState
   }>
+}
+
+/**
+ * Whether an eligible JOIN may have its follow baseline measured, and if not,
+ * why not.
+ *
+ * Pure, and deliberately separate from the code that acts on it, because every
+ * one of these refusals is a rule somebody could weaken without noticing. The
+ * reasons are for tests and for the report; nothing user-facing is ever built
+ * from them, and nothing is retried later on the strength of one.
+ */
+export type MeasurementDecision =
+  | { measure: true }
+  | {
+      measure: false
+      reason:
+        | 'not_navigated'
+        | 'no_attribution'
+        | 'not_socially_initiated'
+        | 'not_ready'
+        | 'unacknowledged'
+    }
+
+/**
+ * THE ELIGIBILITY GATE FOR THE FIRST PRODUCTION FOLLOW BASELINE.
+ *
+ * Five conditions, in the order that makes each refusal mean one thing:
+ *
+ *  1. the click actually navigated - a JOIN on the channel you are already
+ *     watching is a real click that goes nowhere, and it mints no attribution
+ *  2. an attribution was minted - this is the canonical social-JOIN identity,
+ *     and there is no second definition of one anywhere
+ *  3. somebody else was there - M3D measures SOCIALLY initiated discovery, and
+ *     a JOIN nobody else was part of is a real JOIN outside this population
+ *  4. the server says `ready` - any other readiness means no measurement, no
+ *     prompt, no OAuth, and no user-visible anything
+ *  5. the canonical join_clicked has been ACKNOWLEDGED by the server
+ *
+ * The fifth is the one Slice B left open, and it is the reason this function
+ * takes a queue depth. The recorder re-queues a batch it failed to send, so a
+ * drained queue after a flush is a positive signal that the write landed, and a
+ * non-empty one means it did not. Measuring anyway would ask the server to bind
+ * an attribution whose JOIN has not arrived - which the server would correctly
+ * refuse as `unknown_attribution`, but "the server will catch it" is not a
+ * reason for the client to try.
+ *
+ * Every refusal is FINAL for that JOIN. Nothing here schedules a retry, and
+ * nothing anywhere backfills: if the permission arrives five minutes later, it
+ * says nothing about whether this viewer followed this creator at this JOIN.
+ */
+export function decideMeasurement(input: {
+  navigated: boolean
+  attributionId: string | null
+  socialCount: number
+  readiness: MeasurementReadiness | null
+  /** Events still queued after the JOIN flush. Zero means the write landed. */
+  pendingEvents: number
+}): MeasurementDecision {
+  if (!input.navigated) return { measure: false, reason: 'not_navigated' }
+  if (!input.attributionId) return { measure: false, reason: 'no_attribution' }
+  if (!(input.socialCount > 0)) return { measure: false, reason: 'not_socially_initiated' }
+  if (input.readiness !== 'ready') return { measure: false, reason: 'not_ready' }
+  if (input.pendingEvents > 0) return { measure: false, reason: 'unacknowledged' }
+  return { measure: true }
 }
 
 export interface AnalyticsHubDeps {
@@ -105,6 +170,27 @@ export interface AnalyticsHubDeps {
    * ends up recorded against another's.
    */
   selfId: () => string | null
+  /**
+   * What the SERVER last said about measuring this actor.
+   *
+   * Read rather than remembered, because it changes underneath us - a
+   * credential can be revoked on Twitch between one JOIN and the next. Null
+   * means "we could not ask", which is not the same as "not permitted" and is
+   * treated as not-ready either way.
+   */
+  measurementReadiness?: () => MeasurementReadiness | null
+  /**
+   * Records the follow baseline for one eligible JOIN.
+   *
+   * Best-effort by construction: it is called AFTER the canonical join_clicked
+   * has landed, it is never awaited by anything the user is waiting on, and its
+   * failure is invisible to them. The JOIN has already happened - the browser
+   * navigated to Twitch before this module was even told about the click.
+   */
+  measureRelationship?: (input: {
+    broadcasterLogin: string
+    attributionId: string
+  }) => Promise<void>
   now?: () => number
   onError?: (context: string, error: unknown) => void
 }
@@ -763,6 +849,41 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
         // The navigation is about to tear the tab down; get this out now
         // rather than hoping the worker survives to the next flush.
         await recorder.flush()
+
+        /*
+         * M3D: the follow baseline, strictly after the JOIN is durable.
+         *
+         * ORDERING. This runs after `flush()` resolved, and it is gated on the
+         * queue having drained - so the canonical join_clicked the server will
+         * be asked to bind has already been accepted by that server. Nothing
+         * here sleeps, widens a window, or hopes.
+         *
+         * NOT AWAITED. Deliberately detached from the serial chain rather than
+         * held inside it. A Twitch round trip inside this queue would sit in
+         * front of `noteChannel`, whose arrival timestamp is taken when it is
+         * processed - so awaiting here would inflate `join_arrived.elapsed_ms`
+         * on every measured JOIN. Measurement must not distort the product's
+         * own numbers any more than it distorts the product.
+         *
+         * The user is not waiting on any of this. The browser navigated to
+         * Twitch in the content script before this message was even posted.
+         */
+        const decision = decideMeasurement({
+          navigated: input.navigated,
+          attributionId: minted?.id ?? null,
+          socialCount: input.socialCount,
+          readiness: deps.measurementReadiness?.() ?? null,
+          pendingEvents: recorder.pending(),
+        })
+        if (!decision.measure || !deps.measureRelationship) return
+
+        void deps
+          .measureRelationship({ broadcasterLogin: channel, attributionId: minted!.id })
+          // Swallowed on purpose. A failed baseline is a JOIN with no
+          // observation, which is the honest outcome; it is never a user-facing
+          // error and never a reason to try again later under a column that
+          // says "at join".
+          .catch((error) => report('analytics.measureRelationship', error))
       }, 'analytics.recordJoin')
     },
 

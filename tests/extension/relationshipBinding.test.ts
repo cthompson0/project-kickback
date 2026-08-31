@@ -232,30 +232,46 @@ describe('nothing in the product calls this yet', () => {
   }
 
   /**
-   * SLICE B RELEASE BLOCKER.
+   * THE SLICE B RELEASE BLOCKER, RELEASED DELIBERATELY IN SLICE D.
    *
-   * The scope is not requested, no permission has been asked for, and the
-   * privacy policy does not describe follow measurement. So no production path
-   * may invoke the relationship action - a single caller would start collecting
-   * a Twitch-derived fact about people who were never told.
+   * This used to assert there was NO caller, because the scope was not
+   * requested, no permission had been asked for, and the privacy policy did not
+   * describe follow measurement. All three are now true in the other direction,
+   * so the gate opens - and it opens to exactly one caller, not to "any".
    *
-   * Written to fail loudly when the JOIN trigger is added deliberately, so
-   * turning it off is a decision somebody makes at that gate.
+   * Every additional invocation site would be another place the eligibility
+   * gate could be bypassed, and that gate is the only thing standing between
+   * "the channel your friends are watching" and "who you follow".
+   *
+   * A CORRECTION WORTH RECORDING. The Slice B version of this test read
+   * `/action:s*'relationship'/` - a missing backslash, so it matched the
+   * literal text `action:s*'relationship'` and could never have fired. It was
+   * decorative for two slices. What actually held the line was a plain
+   * substring check in followPermission.test.tsx. The regex is fixed here, and
+   * is now asserted to work rather than assumed to.
    */
-  it('has no client path invoking the relationship action', () => {
-    // The invocation shape specifically. The Test Lab has an unrelated
-    // 'relationship' field for simulated friendships, which is not this.
-    const callers = walk('src').filter((path) =>
-      /action:s*'relationship'/.test(readFileSync(path, 'utf8')),
-    )
-    expect(callers).toEqual([])
+  const CALLER = /action:\s*'relationship'/
+
+  it('matches a real invocation, so this gate can actually fire', () => {
+    // The bug that made this test decorative for two slices.
+    expect(CALLER.test("body: { action: 'relationship', broadcaster_login: x }")).toBe(true)
+    // The Test Lab has an unrelated 'relationship' field for simulated
+    // friendships, which is not this and must not be caught.
+    expect(CALLER.test("const relationship = { relationship: 'friend' }")).toBe(false)
   })
 
-  it('still requests no Twitch scope', () => {
+  it('has exactly one production path invoking the relationship action', () => {
+    const callers = walk('src').filter((path) => CALLER.test(readFileSync(path, 'utf8')))
+    expect(callers).toEqual(['src/background/supabaseBackend.ts'])
+  })
+
+  it('requests no Twitch scope from the backend module', () => {
+    // Scope construction lives in auth.ts and nowhere else. This module carries
+    // whatever it is handed and decides nothing.
     const source = readFileSync('src/background/supabaseBackend.ts', 'utf8')
     expect(source).not.toContain('user:read:follows')
     expect(source).not.toContain('user:read:subscriptions')
-    expect(source).not.toMatch(/scopes\s*:/)
+    expect(source).not.toContain('user:read:emotes')
   })
 
   it('mentions no subscription scope anywhere in the server code', () => {

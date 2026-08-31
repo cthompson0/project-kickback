@@ -6012,3 +6012,555 @@ minted, `socialCount > 0`), the M3D analytics views, and the **public privacy
 disclosure, which must ship atomically with the first production observation**.
 The no-caller test is to be turned off deliberately at that point, and never
 quietly.
+
+---
+
+# M3D SLICE D — the eligible JOIN trigger
+
+*Appended 2026-08-31. §1–§245 stand unchanged.*
+
+## 246. Slice D verdict
+
+## **DETERMINISTIC WORK COMPLETE — NOT YET GO**
+
+Every deterministic gate passes, the privacy disclosure is **live**, and the
+production trigger is built, wired and shipped in the local build. What has not
+happened is the one thing that matters: **a real socially attributed JOIN has
+not yet been performed, so no production observation exists.** §259 is the whole
+remaining item.
+
+Production observations at the time of writing: **0**, read from production.
+
+**M3D as a whole remains NOT GO.** Slice D establishes trustworthy raw baseline
+collection. It publishes no metric and computes no rate; that is Slice E.
+
+## 247. Accepted precondition
+
+Slice C is **GO** at `2b71bd3`, on the production evidence recorded at §239–§244:
+`has_follows_scope: true`, `readiness: ready`, credential upgraded in place,
+observations 0, callers 0, custody intact, subscriptions and emotes absent.
+Re-read at the start of this slice and unchanged.
+
+Nothing in Slice C was reopened. No consent-screen behaviour, migration UX,
+discoverability, additional scope, second account or reauthorization work was
+touched.
+
+## 248. Starting state
+
+| | |
+| --- | --- |
+| commit | `2b71bd3` |
+| hosted schema | 33 |
+| production observations | 0 |
+| production relationship callers | 0 |
+| tests | 2,627 / 104 files |
+| mutations | 25/25 |
+| known debt | analytics 6 · presence 0 · layout 0 · lab 11 |
+
+## 249. The canonical JOIN trigger
+
+No second definition of a social JOIN was invented. The trigger consumes the
+existing `join_clicked` + `attribution_id` model, and fires from exactly one
+place: `recordJoin` in `analyticsHub.ts`, immediately after the canonical event
+has been flushed.
+
+Eligibility is a **pure function**, `decideMeasurement`, deliberately separated
+from the code that acts on it so every refusal is testable and mutable in
+isolation:
+
+```ts
+if (!navigated)                 return 'not_navigated'
+if (!attributionId)             return 'no_attribution'
+if (!(socialCount > 0))         return 'not_socially_initiated'
+if (readiness !== 'ready')      return 'not_ready'
+if (pendingEvents > 0)          return 'unacknowledged'
+return { measure: true }
+```
+
+Five conditions in an order that makes each refusal mean one thing. Every one of
+them is **final for that JOIN**: nothing schedules a retry and nothing backfills.
+
+## 250. Actual event/action ordering
+
+The ordering was traced through the real code rather than reasoned about.
+
+```
+CONTENT SCRIPT  click → joinChannel(channel)          ← the browser navigates HERE
+                     → analytics.recordJoin(...)      ← one-way port message, nothing awaited
+                       (the tab may be torn down at any point after this)
+
+SERVICE WORKER  serial task:
+                  await session.touch()
+                  await attribution.click()           ← mints attribution_id
+                  recorder.track(join_clicked)
+                  await recorder.flush()              ← analytics_track RPC
+                  decideMeasurement(...)              ← gate, including the ack check
+                  void measureRelationship(...)       ← detached; the queue moves on
+
+SERVER          relationship action re-verifies actor, attribution, destination,
+                social count and window, independently.
+```
+
+Navigation happens in a **different context, before the worker is told anything**.
+There is no expression anywhere in the click handler that a Twitch API call could
+be inserted in front of.
+
+## 251. Durable attribution acknowledgement
+
+**This is the question Slice B deliberately left open, and it needed the actual
+behaviour rather than an assumption.**
+
+`await recorder.flush()` alone is **not** an acknowledgement. Reading
+`analytics.ts`: `flush()` awaits `run()`, and `run()` **swallows** a failed send —
+it re-queues the batch, sets a backoff and returns normally. It also returns
+early when another send is already in flight or when `canSend()` is false. A
+resolved `flush()` therefore says nothing about whether the write landed.
+
+The positive signal is the **queue depth after the flush**. A batch that failed
+is put back; a batch that succeeded is gone. So `recorder.pending() === 0` after
+`flush()` is a real acknowledgement that the canonical `join_clicked` reached
+`analytics_track`.
+
+It is deliberately **conservative in the safe direction**:
+
+| Situation | `pending()` | Behaviour |
+| --- | --- | --- |
+| write succeeded | 0 | measure |
+| write failed, batch re-queued | > 0 | **skip** |
+| another flush in flight, ours not sent | > 0 | **skip** |
+| signed out, nothing sendable | > 0 | **skip** |
+| batch split by `maxBatch`, ours may have gone | > 0 | **skip** (conservative) |
+| event dropped before the queue | 0 | server refuses `unknown_attribution` |
+
+Only the last row can reach the server without a JOIN behind it, and the server
+independently refuses it. **Client acknowledgement and server verification are
+two different checks, not one wearing two hats.**
+
+None of the forbidden shortcuts were used: no sleep, no widened window, no
+weakened binding, no trusted client identity, and navigation waits on nothing.
+
+## 252. Non-blocking navigation
+
+JOIN wins, structurally rather than by promise.
+
+* `joinChannel(channel)` is called **first**, and its return value decides
+  everything after it.
+* The recording is a one-way port message. The click handler contains no
+  `await`, no `.then(`, and no `async` — asserted against the source with
+  comments stripped, since the comment explaining the rule would otherwise match
+  it.
+* The measurement is **detached from the hub's serial chain** (`void`, not
+  `await`). This is not stylistic: held inside the chain, a Twitch round trip
+  would sit in front of `noteChannel`, whose arrival timestamp is taken **when it
+  is processed** — so every measured JOIN would report an inflated
+  `join_arrived.elapsed_ms`. Measurement must not distort the product's own
+  numbers any more than it distorts the product. Mutation-proven.
+* A failed measurement produces no state change, no port message, no
+  notification and no user-visible anything. It is reported to the error log and
+  nowhere else.
+* Tested: with the relationship action throwing outright, the JOIN is still
+  recorded with its attribution, and the arrival still matches it.
+
+## 253. Eligibility, readiness and the backfill prohibition
+
+**Measured:** a JOIN that navigated, minted an attribution, had `socialCount > 0`,
+resolved `ready`, and was acknowledged.
+
+**Not measured, ever:** direct Twitch navigation, typing a channel, a Gravity
+card that was shown but not clicked, ordinary presence, opening Watchside, a
+refresh, an arrival without a canonical click, or a JOIN nobody else was part of.
+Each is covered by its own test.
+
+**Readiness gating.** Only `ready` permits. `needs_follow_permission`,
+`needs_reauthorization`, `temporarily_unavailable` and `null` all skip — and skip
+**identically**, with the same reason, so nothing downstream can distinguish "no
+permission" from "we could not ask".
+
+When a JOIN is skipped: the JOIN proceeds normally, no OAuth, no permission UI,
+no user-facing error, and **no observation of any kind**.
+
+**The backfill prohibition, tested end to end:** a JOIN skipped for
+`needs_follow_permission`, then permission granted, then five minutes advanced —
+still zero observations. A *new* JOIN is measured, because it is a new question.
+If the permission arrives later, that says nothing about whether this viewer
+followed this creator at *that* JOIN.
+
+## 254. Relationship-action integration
+
+Nothing was duplicated or forked. Credential loading, refresh, rotation, the
+Twitch relationship call, login → broadcaster-id resolution, viewer identity,
+actor binding, attribution binding, broadcaster binding, observation writing,
+idempotency and readiness all remain in the Slice B action, untouched.
+
+The production caller is one function, `recordRelationship`, and it sends
+**exactly two fields**:
+
+```
+action: 'relationship'
+broadcaster_login
+attribution_id
+```
+
+No actor id, user id, viewer id, credential reference, scope list, token, or
+follow state. The actor is read from the verified session's JWT server-side.
+Asserted by shape (`Object.keys(...)` deep-equals the two names) and by content
+(the serialised request contains none of the forbidden substrings), and
+mutation-proven by adding an `actor_id`.
+
+Exactly **one** production caller exists, in `supabaseBackend.ts`, and a test
+pins that. Every additional invocation site would be another place the
+eligibility gate could be bypassed.
+
+## 255. Actor and broadcaster binding
+
+Unweakened, and re-proven with the production caller present. The server still
+requires the authenticated actor to own the referenced `join_clicked`, and
+`join_context_for_attribution` remains scoped to the actor in its own WHERE
+clause. `destination_mismatch` still refuses a genuine JOIN quoted against a
+different creator.
+
+**A correction worth recording.** The Slice B "release blocker" that asserted no
+production caller existed read:
+
+```js
+/action:s*'relationship'/      // missing backslash
+```
+
+It matched the literal text `action:s*'relationship'` and **could never have
+fired**. It was decorative for two slices. What actually held the line was a
+plain substring check in `followPermission.test.tsx`. The regex is fixed, and is
+now asserted to work — one test proves it matches a real invocation and does not
+match the Test Lab's unrelated `relationship` field — rather than being assumed
+to.
+
+## 256. Client privacy boundary
+
+The client never learns the answer, and now has nowhere to put one.
+
+`recordRelationship` destructures **only** `{ error }`. The response body is
+discarded: there is no variable holding it, no branch reading it, and no caller
+that could do anything with it. If the server ever leaked a follow result, it
+would arrive nowhere. Mutation-proven by making the client read `state`.
+
+No file under `src/` contains `relationship_present`, `following_at_join` or
+`followsBroadcaster` — asserted by walking the tree, not by naming files.
+
+## 257. Idempotency and failure semantics
+
+**Idempotency** is unchanged and remains the database's job: the partial unique
+index on `(actor_id, attribution_id)`. A duplicate for the same attribution is
+refused; a later independent JOIN to the same creator with a new attribution is
+a legitimate new observation. No client-side deduplication was added — the
+client does not know what exists, which is the correct amount for it to know.
+
+**Failure semantics**, preserved and re-proven with the real caller wired:
+
+| Twitch says | Recorded |
+| --- | --- |
+| success, `data` empty | `relationship_present = false` — **a valid observation** |
+| success, `data` non-empty | `relationship_present = true` — a valid observation |
+| timeout, network error, HTTP error, malformed body, missing scope, credential unavailable, refresh rejected, decrypt failure, unknown broadcaster, attribution/actor/destination mismatch, server error | **nothing at all** |
+
+**Failure never collapses into "not following."** The column is nullable
+precisely so an absent answer is absent rather than false, and the mutation that
+turns a failed lookup into `false` is DETECTED.
+
+## 258. The 120-second window — assessment
+
+**Verdict: unchanged at 120 s, and explicitly PROVISIONAL pending telemetry.**
+
+Actual latency on the path the server measures — from `join_clicked.occurred_at`
+to the relationship request arriving:
+
+| Step | Order of magnitude |
+| --- | --- |
+| port message to the worker | sub-millisecond |
+| `session.touch()`, `attribution.click()` | extension storage, single-digit ms |
+| `analytics_track` RPC | tens to low hundreds of ms |
+| Edge Function invoke, including a cold start | up to a few hundred ms |
+| **typical total** | **well under 2 s** |
+| bad network, cold function | perhaps 10–15 s |
+
+So 120 s is roughly **two orders of magnitude** of headroom over the expected
+case.
+
+The window also has to absorb **client/server clock skew**, which is a real
+consumer of it: `occurred_at` comes from the browser's clock and the server
+compares it against its own. The window is symmetric — a JOIN too far in the
+future is refused as readily as one too far in the past — so skew in either
+direction eats into the same budget. 120 s tolerates roughly two minutes of skew
+before eligible JOINs start being refused, and a refusal is a *missing*
+observation, never a wrong one.
+
+**Replay / misattribution risk: low, and not what the window is protecting.** A
+replay of the same attribution is idempotent at the database. A different
+attribution requires a genuine `join_clicked` owned by the same authenticated
+actor, aimed at the same creator. Narrowing the window would not meaningfully
+change that; the window's real job is **semantic** — keeping the column's name
+honest.
+
+**No evidence justifies a change**, and it was deliberately not changed because
+another number felt cleaner. It was not widened, and could not have been: the
+ordering race was solved by acknowledgement, not by making the race unlikely.
+
+What would settle it is the distribution of server-observed
+`now − occurred_at` at relationship requests. That is telemetry, and telemetry
+is Slice E.
+
+## 259. Real JOIN acceptance — OUTSTANDING
+
+**No production observation exists.** Nothing was fabricated and nothing was
+simulated.
+
+An eligible JOIN needs a friend visibly watching a channel. Eligibility is
+`socialCount > 0`, which is satisfied by **any friend row**, not only a Gravity
+cluster — `PersonRow` and `UserCard` pass `socialCount: 1`, and a Gravity card
+passes the cluster size. So the cheapest legitimate social JOIN is:
+
+> a second existing beta account signed in and watching any Twitch channel, and
+> the owner clicking **JOIN** on that person in Watchside.
+
+No new Twitch account, no OAuth, no weakening of the test, and no substituting
+arbitrary creator navigation.
+
+**Owner action, after reloading the extension:** click **JOIN** on a friend who
+is showing as watching, and say when Twitch opens.
+
+Then verified server-side, shape only:
+
+- a real `join_clicked` exists, owned by the owner, with the right destination
+- exactly one `creator_relationship_observation` for that attribution
+- `relationship_present` is **NON-NULL** — and its value is **never printed**
+- a repeat does not create a second observation
+- no credential material anywhere
+- the public privacy page is current
+
+Terminal wording will be **relationship baseline recorded: YES/NO**, and nothing
+about the owner's actual follow state.
+
+## 260. Privacy disclosure
+
+`docs/PRIVACY.md` now describes the collection in plain language, and the public
+page was regenerated from it and **published**.
+
+Added: a data-table row, and a section — *"The one check Watchside makes with
+it"* — that states the question asked, when it is asked, when it is not, which
+permission it needs, and how it ends. The paragraph that said *"nothing is read
+from it and nothing is measured with it"* is gone.
+
+**A pre-existing inaccuracy was found and fixed.** That paragraph also claimed
+Watchside *"asks Twitch for no permission beyond the basic one you already
+granted at sign-in"* — which Slice C made untrue when it added
+`user:read:follows` to the initial authorization. No collection had begun, and
+the public store build predates the scope, so nothing was collected undisclosed;
+but the sentence was wrong from Slice C onward and is recorded here rather than
+quietly corrected.
+
+The disclosure deliberately **refuses the overclaims**: no reading of the follow
+list, no later follows, no causal claim, no subscriptions, no purchases, no
+Bits, no chat, no arbitrary browsing, no backfill. It states the deletion
+asymmetry plainly — Twitch-derived answers go when the Twitch connection goes;
+Watchside's own record of its own product does not.
+
+Two drafting notes. A markdown blockquote rendered as a literal `&gt;` on the
+published page, because the generator refuses constructs it does not recognise;
+it was rewritten as a bold line rather than teaching the generator a construct
+for one sentence. And the enumeration *"nothing about subscriptions, payments,
+Bits, or emotes"* was **removed** — §150 established that naming data types
+Watchside has nothing to do with invites the reader to wonder why they were
+mentioned, and the existing test enforcing that was left standing.
+
+Verified word-for-word: every word of the policy appears on the published page,
+the only differences being ordered-list markers the generator renders as `<ol>`.
+
+## 261. Privacy / collection deployment order
+
+**Privacy went first, and this is checkable rather than remembered.**
+
+| Order | Event | Status |
+| --- | --- | --- |
+| 1 | policy rewritten, page regenerated | done |
+| 2 | page committed and pushed to Pages | `eec93be` |
+| 3 | **live page fetched and confirmed to contain the disclosure** | confirmed |
+| 4 | trigger committed here | after 3 |
+| 5 | collection actually possible | only when the owner reloads (§259) |
+
+There is no window in which collection could occur while the disclosure omitted
+it: the extension is not uploaded to any store, so the only build that can
+collect is the owner's local one, reloaded at step 5.
+
+**The deterministic guard.** A test couples the two so neither can move without
+the other: *if any file under `src/` invokes the relationship action, the policy
+must contain both the question it asks and the permission it needs.* Removing
+the disclosure while a caller exists fails. Adding a second caller before
+writing about it fails. The mutation that deletes the disclosure line is
+DETECTED.
+
+## 262. G6, deauthorization and account deletion
+
+Unchanged in behaviour, and now proven against a **fuller** Watchside-owned
+trail than before — the deauthorization test previously asserted one surviving
+event, which would have passed even if deauthorization had deleted the dwell and
+invented something else.
+
+| Event | Observations | Credential | Watchside analytics |
+| --- | --- | --- | --- |
+| Twitch deauthorization | **deleted** | **deleted** | **preserved** — `join_clicked`, `join_arrived`, `watching_together_ended`, `channel_dwell_ended`, each named individually |
+| Account deletion | deleted | deleted first | deleted (D-A) |
+| Sign-out | kept | kept | kept |
+
+Two new mutation levers cover the asymmetry from both sides: one that stops
+deleting the Twitch-derived observations, and one that also deletes the
+Watchside-owned JOIN funnel. Both DETECTED.
+
+**Scope loss.** Unchanged from §174 and deliberately so: the credential's
+recorded `scopes`, and a `403` at use, each produce `needs_follow_permission`,
+no observation, and no destruction. Transient Twitch errors, timeouts and
+network failures are **never** interpreted as revocation — they produce no
+observation and nothing else. No destructive scope-loss trigger was invented.
+The narrow question of whether confirmed scope removal should delete existing
+observations is not answered here, because it does not block collection: with
+observations now possible it becomes a real policy decision, and it is recorded
+as an open item (§268) rather than improvised.
+
+## 263. Schema and migration status
+
+**No migration was created. Hosted schema remains 33.**
+
+The trigger required no schema change: `creator_relationship_observations`, the
+partial unique index and `join_context_for_attribution` were all built in `0033`
+for exactly this. No second relationship table exists, and no empty or
+ceremonial migration was added.
+
+## 264. Chrome impact
+
+| | |
+| --- | --- |
+| permissions | `identity`, `storage`, `alarms`, `notifications` — **unchanged** |
+| host permissions | `*.supabase.co`, `7tv.io`, `cdn.7tv.app` — **unchanged** |
+| `api.twitch.tv` host permission | **not present, and not needed** |
+| version | 0.7.0, **not bumped** |
+| Store upload | **none** |
+| packaging / release artefacts | **untouched** |
+
+No new permission was needed because the relationship call goes to the Supabase
+Edge Function, on a host the extension already had. Watchside talks to Twitch's
+API only from the server, with a credential the browser never holds. Asserted
+against `public/manifest.json`, including an explicit assertion that the Twitch
+API host is absent.
+
+## 265. Firefox impact
+
+| | |
+| --- | --- |
+| data categories | `authenticationInfo`, `browsingActivity`, `personalCommunications`, `websiteActivity` — **exactly unchanged** |
+| `technicalAndInteraction` | **NO** |
+| `financialAndPaymentInfo` | **NO** |
+| permissions | unchanged |
+| upload | **none** — the pending v0.6 review is untouched |
+
+`verify:firefox` is clean and the build reproducible. The follow baseline adds
+no category: it is a fact about a JOIN destination, which is already
+`browsingActivity`, and it is not an analytics event property at all — it lives
+in its own table.
+
+## 266. Deterministic tests
+
+**2,661 passing / 105 files, 0 failures.** `tsc -b` clean, `eslint` clean.
+
+New suite: `tests/extension/joinRelationshipTrigger.test.ts` — **30 tests**.
+
+| # | Requirement | Covered by |
+| --- | --- | --- |
+| 1 | canonical socially attributed JOIN schedules M3D | schedules exactly one measurement, with the JOIN's own attribution |
+| 2 | arbitrary Twitch navigation does not | ordinary Twitch navigation, arrival and presence |
+| 3 | Gravity exposure without JOIN does not | a Gravity card that was shown but never joined |
+| 4 | JOIN navigation is not blocked | navigates before recording, and awaits nothing in the click handler |
+| 5 | join_clicked durable before the action depends on it | refuses when the JOIN write has not been acknowledged; a JOIN whose canonical event has not been accepted |
+| 6 | correct attribution reaches the action | asserts equality with the canonical event's `attribution_id` |
+| 7 | correct broadcaster reaches the action | same test |
+| 8 | client sends no actor/user/viewer/credential id | sends only the creator and the attribution, and nothing else at all |
+| 9 | ready permits | permits measurement when the server says ready |
+| 10–12 | needs_follow_permission / needs_reauthorization / unavailable skip | skips every other state, without distinguishing between them |
+| 13 | skipped measurement never blocks JOIN | any JOIN at all, when the permission was never granted |
+| 14 | never backfilled | a JOIN that was skipped, even after permission arrives |
+| 15 | duplicate attribution idempotent | `relationshipObservation` — refuses a second observation |
+| 16 | later independent JOIN may observe again | `relationshipObservation` — allows a later independent opportunity |
+| 17–20 | true / empty-is-false / failure / malformed | `followBaseline` + `relationshipObservation`, unchanged and re-run |
+| 21–23 | attribution, broadcaster and actor mismatch | `relationshipBinding`, unchanged |
+| 24–26 | no follow boolean, no raw response, no token/scope | discards the server response; has no follow state anywhere in the client |
+| 27 | failure not user-facing | surfaces no measurement error to the user |
+| 28 | failure does not prevent navigation | records the JOIN and survives the measurement failing outright |
+| 29–30 | no OAuth, no permission UI in the JOIN path | never mentions measurement, permission or OAuth in the JOIN path |
+| 31–32 | no subscription, no emote scope | the Twitch scope set is unchanged by any of this |
+| 33–35 | deauth removes observations, keeps JOIN / dwell / shared-watch | `relationshipObservation`, extended to the full funnel |
+| 36 | account deletion removes both | `relationshipObservation` |
+| 37 | sign-out removes neither | `relationshipObservation` |
+| 38 | Chrome permissions unchanged | adds no Chrome permission and no host permission |
+| 39 | Firefox categories unchanged | `dwellDisclosure` + `verify:firefox` |
+| 40 | disclosure matches live collection | describes the follow check it now performs, and nothing beyond it |
+| 41 | collection cannot precede disclosure | a production relationship caller requires the policy to describe it |
+| 42 | no historical backfill | a JOIN that was skipped, even after permission arrives |
+
+## 267. Mutation proofs
+
+`npm run test:destruction` — **34 of 34 DETECTED** (was 25; nine added).
+
+| New lever | Caught by |
+| --- | --- |
+| `trigger: make the analytics queue wait for the Twitch round trip` | does not hold the analytics queue while it measures |
+| `trigger: measure before the JOIN write is acknowledged` | refuses when the JOIN write has not been acknowledged |
+| `trigger: measure without the permission the server confirmed` | skips every other state, without distinguishing between them |
+| `trigger: measure JOINs nobody else was part of` | refuses a JOIN nobody else was part of |
+| `trigger: read the relationship response in the client` | discards the server response rather than reading it |
+| `trigger: send an actor id with the relationship request` | sends the two approved fields under the two approved names |
+| `privacy: collect without disclosing the follow check` | a production relationship caller requires the policy to describe it |
+| `g6: keep the Twitch-derived observations on deauthorization` | Twitch deauthorization deletes them and keeps Watchside analytics |
+| `g6: also delete the Watchside-owned JOIN funnel on deauthorization` | keeps the dwell and shared-watch records specifically |
+
+Existing levers for API-failure-becomes-false, empty-response-discarded,
+duplicate attribution, and actor/broadcaster binding were re-run unchanged and
+remain DETECTED with the production caller present.
+
+The harness ran once, uninterrupted, and `git status` before and after listed
+the same files. No mutation was left live.
+
+## 268. Known-debt delta and unresolved risks
+
+**Known debt is unchanged, and nothing was reclassified:**
+
+| Harness | Before | After |
+| --- | --- | --- |
+| analytics | 6 | **6** |
+| presence | 0 | **0** |
+| layout | 0 | **0** |
+| lab | 11 | **11** |
+
+Unresolved, and none of them blocking:
+
+1. **Confirmed scope removal does not delete existing observations.** Deliberate.
+   Deauthorization does; a scope narrowed without a full deauthorization is a
+   policy question that only became real now that observations can exist. Not
+   improvised (§262).
+2. **Acknowledgement is conservative, so some eligible JOINs will go
+   unmeasured** — a batch split, a concurrent flush, or a slow network all skip.
+   The bias is toward missing data rather than wrong data, but it is a bias, and
+   whether it correlates with anything (bad networks, long sessions) is
+   unmeasured.
+3. **Clock skew consumes the baseline window** (§258). Fails closed; unquantified.
+4. **The worker could be evicted mid-measurement.** The detached call keeps the
+   worker alive through an in-flight fetch in practice, but MV3 guarantees
+   nothing. Result: no observation. Honest, and invisible.
+5. **No telemetry on any of the above**, by design — that is Slice E.
+
+## 269. Slice E readiness
+
+Not started, per instruction. Slice D publishes no metric, computes no rate, and
+adds no view. The sentence *"X% of JOINs went to creators not already followed"*
+is not calculable from anything shipped here and must not be until the
+denominator's honesty — which items 2 and 3 above bear directly on — is
+understood.
+
+Slice E should begin with the coverage question, not the headline: of eligible
+JOINs, how many produced an observation, and is what is missing missing at
+random?

@@ -32,6 +32,11 @@ const PERMISSION_SUITE = 'tests/extension/followPermission.test.tsx'
 const MIGRATION = 'supabase/migrations/0032_destruction_paths.sql'
 const STORAGE = 'src/background/storage.ts'
 
+const HUB = 'src/background/analyticsHub.ts'
+const BACKEND = 'src/background/supabaseBackend.ts'
+const TRIGGER_SUITE = 'tests/extension/joinRelationshipTrigger.test.ts'
+const PRIVACY = 'docs/PRIVACY.md'
+
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
 const O7_SUITE = 'tests/extension/providerCredentialStripping.test.ts'
@@ -311,6 +316,118 @@ create policy twitch_credentials_read on public.twitch_credentials
     from: `  if (readiness !== 'needs_follow_permission') return null`,
     to: `  if (readiness === 'ready') return null`,
     expect: 'is offered to nobody whose authorization is actually broken',
+  },
+
+  // ------------------------ G6, now that real observations can exist (D)
+  {
+    // Deauthorization leaves the Twitch-derived observations behind. Before
+    // Slice D this deleted nothing because nothing existed; now it is the
+    // difference between a promise kept and a promise printed.
+    name: 'g6: keep the Twitch-derived observations on deauthorization',
+    file: MIGRATION,
+    suite: M3D_DB_SUITE,
+    from: `  delete from public.creator_relationship_observations where actor_id = p_actor;`,
+    to: `  -- deletion removed`,
+    expect: 'Twitch deauthorization deletes them and keeps Watchside analytics',
+  },
+  {
+    // Deauthorization takes Watchside's own record of its own product with it.
+    // The asymmetry is the promise: the Twitch-derived layer goes, the JOIN,
+    // the arrival, the shared watch and the dwell stay.
+    name: 'g6: also delete the Watchside-owned JOIN funnel on deauthorization',
+    file: MIGRATION,
+    suite: M3D_DB_SUITE,
+    from: `  delete from public.creator_relationship_observations where actor_id = p_actor;
+  get diagnostics v_observations = row_count;`,
+    to: `  delete from public.creator_relationship_observations where actor_id = p_actor;
+  get diagnostics v_observations = row_count;
+  delete from public.analytics_events where actor_id = p_actor;`,
+    expect: 'keeps the dwell and shared-watch records specifically',
+  },
+
+  // ------------------------------------------ the production JOIN trigger
+  {
+    // JOIN waits for the relationship result. Held inside the serial chain, a
+    // Twitch round trip sits in front of the arrival - so every measured JOIN
+    // reports an inflated join_arrived.elapsed_ms, and the measurement quietly
+    // corrupts the product's own numbers.
+    name: 'trigger: make the analytics queue wait for the Twitch round trip',
+    file: HUB,
+    suite: TRIGGER_SUITE,
+    from: `        void deps
+          .measureRelationship({ broadcasterLogin: channel, attributionId: minted!.id })`,
+    to: `        await deps
+          .measureRelationship({ broadcasterLogin: channel, attributionId: minted!.id })`,
+    expect: 'does not hold the analytics queue while it measures',
+  },
+  {
+    // The ordering guarantee Slice B left open. Measuring before the canonical
+    // join_clicked is acknowledged asks the server to bind an attribution whose
+    // JOIN has not arrived.
+    name: 'trigger: measure before the JOIN write is acknowledged',
+    file: HUB,
+    suite: TRIGGER_SUITE,
+    from: `  if (input.pendingEvents > 0) return { measure: false, reason: 'unacknowledged' }`,
+    to: `  if (false) return { measure: false, reason: 'unacknowledged' }`,
+    expect: 'refuses when the JOIN write has not been acknowledged',
+  },
+  {
+    // A non-ready state measures anyway. Everything downstream of this is a
+    // fabricated baseline for somebody who never granted the permission.
+    name: 'trigger: measure without the permission the server confirmed',
+    file: HUB,
+    suite: TRIGGER_SUITE,
+    from: `  if (input.readiness !== 'ready') return { measure: false, reason: 'not_ready' }`,
+    to: `  if (input.readiness === 'needs_reauthorization') return { measure: false, reason: 'not_ready' }`,
+    expect: 'skips every other state, without distinguishing between them',
+  },
+  {
+    // Arbitrary Twitch navigation becomes eligible. This is the single change
+    // that would turn "the channel your friends are watching" into "who you
+    // follow" - the exact claim the privacy policy refuses to make.
+    name: 'trigger: measure JOINs nobody else was part of',
+    file: HUB,
+    suite: TRIGGER_SUITE,
+    from: `  if (!(input.socialCount > 0)) return { measure: false, reason: 'not_socially_initiated' }`,
+    to: `  if (input.socialCount < 0) return { measure: false, reason: 'not_socially_initiated' }`,
+    expect: 'refuses a JOIN nobody else was part of',
+  },
+  {
+    // The client starts reading the server's answer. Today there is nowhere for
+    // a follow result to arrive; this builds the somewhere.
+    name: 'trigger: read the relationship response in the client',
+    file: BACKEND,
+    suite: TRIGGER_SUITE,
+    from: `  const { error } = await supabase.functions.invoke('twitch-credential', {
+    body: {
+      action: 'relationship',`,
+    to: `  const { data, error } = await supabase.functions.invoke('twitch-credential', {
+    body: {
+      action: 'relationship',
+      state: (data as { state?: string } | null)?.state,`,
+    expect: 'discards the server response rather than reading it',
+  },
+  {
+    // The client names the actor. The server would still read the JWT, but the
+    // shape is the thing: an actor field in this body is an invitation to trust
+    // it, and the whole binding rests on never having one.
+    name: 'trigger: send an actor id with the relationship request',
+    file: BACKEND,
+    suite: TRIGGER_SUITE,
+    from: `      attribution_id: input.attributionId,`,
+    to: `      attribution_id: input.attributionId,
+      actor_id: 'self',`,
+    expect: 'sends the two approved fields under the two approved names',
+  },
+  {
+    // Collection without disclosure. The caller stays; the policy stops
+    // describing it. This is the ordering the whole gate exists to enforce.
+    name: 'privacy: collect without disclosing the follow check',
+    file: PRIVACY,
+    suite: TRIGGER_SUITE,
+    from: `**Did this person already follow this creator?**`,
+    to: `> (nothing is asked)`,
+    expect: 'a production relationship caller requires the policy to describe it',
   },
 
   // ------------------------------------------------------------------- O7

@@ -210,10 +210,33 @@ describe('one baseline per attributed JOIN', () => {
 })
 
 describe('M3D rows obey the destruction paths that already existed', () => {
+  /**
+   * The full Watchside-owned trail behind one JOIN, not just the click.
+   *
+   * Slice D makes real observations possible, so "Twitch deauthorization keeps
+   * Watchside analytics" stops being a claim about one row and becomes a claim
+   * about the whole funnel a JOIN produces. Each of these is Watchside's own
+   * record of its own product, and none of it is Twitch-derived.
+   */
+  const WATCHSIDE_OWNED = [
+    'join_clicked',
+    'join_arrived',
+    'watching_together_ended',
+    'channel_dwell_ended',
+  ]
+
   beforeEach(async () => {
     for (const user of [alice, bob]) {
       await joinClicked(user, ATTRIBUTION_A, 'lirik', 2)
       await observe(user, ATTRIBUTION_A, true)
+      for (const name of WATCHSIDE_OWNED.slice(1)) {
+        await db.root(
+          `insert into public.analytics_events
+             (actor_id, environment, event_name, occurred_at, destination_channel, attribution_id, properties)
+           values ($1, 'production', $2, now(), 'lirik', $3, '{}'::jsonb)`,
+          [user.id, name, ATTRIBUTION_A],
+        )
+      }
     }
   })
 
@@ -227,8 +250,22 @@ describe('M3D rows obey the destruction paths that already existed', () => {
       [alice.id],
     )
     expect(Number(counts.obs)).toBe(0)
-    // The JOIN itself is Watchside's own observation and survives.
-    expect(Number(counts.events)).toBe(1)
+    // The whole Watchside-owned funnel survives, not merely the click.
+    expect(Number(counts.events)).toBe(WATCHSIDE_OWNED.length)
+  })
+
+  /**
+   * Named individually, because "the count is unchanged" would still pass if
+   * deauthorization deleted the dwell and invented something else.
+   */
+  it('keeps the dwell and shared-watch records specifically', async () => {
+    await db.root('select public.purge_twitch_derived($1)', [alice.id])
+
+    const rows = await db.root<{ event_name: string }>(
+      'select event_name from public.analytics_events where actor_id = $1 order by event_name',
+      [alice.id],
+    )
+    expect(rows.map((row) => row.event_name).sort()).toEqual([...WATCHSIDE_OWNED].sort())
   })
 
   it('leaves the other actor untouched', async () => {

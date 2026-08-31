@@ -54,6 +54,7 @@ your identity, not who your friends are, not what you type.
 | **How long you had each live stream open** | the streams open right now, and nothing else | yes | never | yes — see "Viewing time" below | each stretch is deleted from your device when it ends; the recorded length is kept as analytics |
 | **Analytics** | a session id | yes | never | — | see below |
 | **JOIN attribution** | a random id, for minutes | yes | never | yes, that is its purpose | the id is dropped after the window closes |
+| **Whether you already followed a creator you joined through a friend** | no | yes | never | yes, in aggregate only | until you disconnect Watchside on Twitch, or delete your account |
 | **Feedback you send** | no | yes | never | only the category | kept until it has been acted on |
 | **Diagnostics attached to feedback** | no | yes | never | no | with the feedback |
 
@@ -87,11 +88,56 @@ is the only way to ask later.
 - **Signing out does not remove it** — signing out ends a session, it does not
   withdraw a permission.
 
-**What Watchside is not doing with it yet.** Nothing is read from it and nothing
-is measured with it. The measurement it exists for is not built. Watchside asks
-Twitch for no permission beyond the basic one you already granted at sign-in, so
-there is nothing more it could read even if it tried. This page will say plainly
-what changed, before anything does.
+**What it is used for.** Exactly one thing, described in full in the next
+section.
+
+### The one check Watchside makes with it
+
+When you click **JOIN** in Watchside to watch a creator your friends are
+watching, and you have granted the Twitch permission described below, Watchside
+asks Twitch a single question at that moment:
+
+**Did this person already follow this creator?**
+
+The answer — yes or no — is recorded once against that JOIN, and is used only
+to produce aggregate figures about whether friends help people find creators
+they were not already watching.
+
+**When it happens, and when it does not.**
+
+- Only for a JOIN you clicked **in Watchside**, on a creator a friend was
+  watching. That is the whole population.
+- **Not** when you browse Twitch normally, type a channel name, follow a link,
+  or arrive any other way. Watchside asks nothing about those.
+- **Not** if you have not granted the permission. Watchside carries on working
+  and simply records nothing.
+- **Not** afterwards. If the check cannot be made at the moment you join, that
+  JOIN has no answer and never gets one later.
+
+**The permission.** This needs one Twitch permission,
+`user:read:follows`, which you are asked for on Twitch's own consent screen when
+you connect Watchside. It is optional: everything in Watchside works without it,
+and granting it never changes who you follow. It is the only Twitch permission
+Watchside asks for beyond signing you in.
+
+**What Watchside does not do with it.**
+
+- It does **not** read the list of creators you follow. It asks about one
+  creator, the one you just joined, and nothing else.
+- It does **not** watch whether you follow someone afterwards, and it does not
+  claim that Watchside caused any follow. It records only what was already true
+  at the moment you joined.
+- It does **not** go back over JOINs you made in the past.
+
+**How it ends.** These answers are Twitch-derived, so they follow the credential:
+**disconnect Watchside on Twitch and they are deleted**, along with the
+credential itself. Deleting your Watchside account deletes them too, with
+everything else. Signing out deletes neither.
+
+Your own Watchside activity — that you clicked JOIN, that you arrived, how long
+you watched — is Watchside's own record of its own product, and **is not
+deleted by disconnecting Twitch**. Deleting your Watchside account does delete
+it.
 
 ### Two kinds of chat, with two different lifetimes
 

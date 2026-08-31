@@ -90,6 +90,7 @@ import {
 } from './supabaseRealtime'
 import {
   createSupabaseAnalyticsBackend,
+  recordRelationship,
   createSupabaseMetadataBackend,
   createSupabaseRoomBackend,
   createSupabaseRoomMessageBackend,
@@ -562,6 +563,15 @@ const analytics = createAnalyticsHub({
   canSend: () => authState.status === 'signed_in',
   // Who a stored interval must belong to before it may be resumed or ended.
   selfId: () => authState.identity?.userId ?? null,
+  /*
+   * M3D. What the SERVER last said about measuring this actor.
+   *
+   * Read at each JOIN rather than captured once: a credential can be revoked on
+   * Twitch between one JOIN and the next, and `null` - "we could not ask" - must
+   * behave as not-ready rather than as permission.
+   */
+  measurementReadiness: () => authState.measurementReadiness,
+  measureRelationship: (input) => recordRelationship(supabase, input),
   onError: logError,
 })
 

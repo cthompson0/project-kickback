@@ -894,6 +894,44 @@ export function createSupabaseAnalyticsBackend(supabase: SupabaseClient): Analyt
   }
 }
 
+/**
+ * Asks the server to record whether this viewer already followed this creator,
+ * at this JOIN.
+ *
+ * WHAT THIS SENDS, AND WHAT IT DELIBERATELY DOES NOT
+ *
+ * Two fields: which creator, and which JOIN. That is the entire approved input
+ * surface. No actor id, no user id, no viewer id, no credential reference, no
+ * scope list, no token, and above all no follow state - the client has no
+ * opinion about the answer and no way to form one. The actor comes from the
+ * verified session's JWT, server-side, exactly as it does for every other
+ * action on this function.
+ *
+ * WHAT COMES BACK
+ *
+ * `recorded` or `unavailable`, and nothing else. Even that is discarded here:
+ * no caller could do anything useful with it, and a return value nobody reads
+ * is a return value nobody can accidentally start reading. If the server ever
+ * did leak the follow result, it would have nowhere to arrive.
+ *
+ * Errors are thrown for the caller to swallow. A baseline that could not be
+ * recorded is a JOIN with no observation, which is honest; it is never a
+ * user-facing failure, because the user's JOIN already succeeded.
+ */
+export async function recordRelationship(
+  supabase: SupabaseClient,
+  input: { broadcasterLogin: string; attributionId: string },
+): Promise<void> {
+  const { error } = await supabase.functions.invoke('twitch-credential', {
+    body: {
+      action: 'relationship',
+      broadcaster_login: input.broadcasterLogin,
+      attribution_id: input.attributionId,
+    },
+  })
+  if (error) throw new Error(describe(error))
+}
+
 // ============================================================= growth loop
 
 /** One person the caller might know, through people they already know. */
