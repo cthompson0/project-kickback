@@ -64,8 +64,11 @@ import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
 import { canWatchLiveTogether, watchTogetherState } from '../core/socialViewing'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
-import { isPersistedLifecycle } from './togetherStore'
+import { isPersistedLifecycle, isPersistedLifecycleOf } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
+import { isDwellState } from './channelDwell'
+import type { DwellState } from './channelDwell'
+import { resolveArm } from '../core/experiment'
 import type { SessionRecord } from './analyticsSession'
 import type { JoinAttribution } from './joinAttribution'
 import { describePresence } from '../core/personPresence'
@@ -540,6 +543,20 @@ const analytics = createAnalyticsHub({
     storageArea,
     'kickback:analytics:lifecycle',
     isPersistedLifecycle,
+  ),
+  /*
+   * The open dwell interval, for the same reason and under the same rules.
+   *
+   * A separate key rather than a field on the one above: the two intervals
+   * begin and end at different moments, so a single stored value would have to
+   * claim one "last moment we could vouch for" answer covering both, and would
+   * be wrong about one of them.
+   */
+  dwellStore: createStoredValue<PersistedLifecycle<DwellState>>(
+    storageArea,
+    'kickback:analytics:dwell',
+    (value): value is PersistedLifecycle<DwellState> =>
+      isPersistedLifecycleOf(value, isDwellState),
   ),
   // No actor, no events sent. They queue rather than being thrown away, so a
   // session that starts before auth resolves is not lost.
@@ -1527,6 +1544,18 @@ auth.subscribe((next) => {
       analytics.noteSignedIn({
         friendCount: friendsState.friends.length,
         groupCount: groupsState.groups.length,
+        /*
+         * Resolved here, RECORDED only if it is a real randomisation.
+         *
+         * The gate is in the hub rather than at this call site, so passing an
+         * arm from a beta build cannot leak one into the data - see
+         * noteSignedIn. This side simply answers "which arm is this user in",
+         * which is the same question the panel asks to decide what to render.
+         */
+        experimentArm: resolveArm({
+          userId: next.identity.userId,
+          environment: ANALYTICS_ENVIRONMENT,
+        }),
       })
     }
     // start() is idempotent for the same user and swaps cleanly for a new one.

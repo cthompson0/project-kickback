@@ -19,9 +19,11 @@
 
 begin;
 
--- Dependants first: the funnel reads the together view.
-drop view if exists public.analytics_join_funnel_v;
-drop view if exists public.analytics_together_v;
+-- Dependants first: the funnel reads the together view. CASCADE for the same
+-- reason 0014 uses it - a later migration may build on these, and the bundle
+-- has to survive being run twice.
+drop view if exists public.analytics_join_funnel_v cascade;
+drop view if exists public.analytics_together_v    cascade;
 
 -- ------------------------------------------------- shared watching, complete
 --

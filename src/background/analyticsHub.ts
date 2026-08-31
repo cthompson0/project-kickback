@@ -29,8 +29,12 @@ import {
 } from './exposure'
 import { opportunityKey } from '../core/socialGravity'
 import { createTogetherWatch } from './togetherWatch'
+import { createChannelDwell } from './channelDwell'
+import type { DwellState } from './channelDwell'
 import { isObservationLost, reconcileLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
+import { isRandomisedArm } from '../core/experiment'
+import type { ExperimentArm } from '../core/experiment'
 import type { StoredValue } from './storedValue'
 import { normalizeChannel } from '../core/analytics'
 import type {
@@ -81,6 +85,16 @@ export interface AnalyticsHubDeps {
    * most likely to be lost. See togetherStore.ts.
    */
   lifecycleStore: StoredValue<PersistedLifecycle>
+  /**
+   * Where the currently open DWELL interval lives between worker lives.
+   *
+   * Separate from lifecycleStore rather than folded into it: the two intervals
+   * have different lifetimes - dwell continues after the last friend leaves,
+   * and starts before the first one arrives - so one value could not describe
+   * both without one of them being wrong. Same recovery policy, same
+   * conservative rules; see channelDwell.ts and togetherStore.ts.
+   */
+  dwellStore: StoredValue<PersistedLifecycle<DwellState>>
   /** True once there is a signed-in user to attribute events to. */
   canSend: () => boolean
   /**
@@ -99,7 +113,17 @@ export interface AnalyticsHub {
   /** Any sign of life on Twitch: opens a session, or keeps the open one alive. */
   noteActive(): void
   /** A signed-in session now exists. Flushes whatever was waiting for an actor. */
-  noteSignedIn(counts: { friendCount: number; groupCount: number }): void
+  /**
+   * A signed-in session now exists.
+   *
+   * `experimentArm` is what the caller resolved. Whether it is RECORDED is
+   * decided here, not there - see the gate in the implementation.
+   */
+  noteSignedIn(counts: {
+    friendCount: number
+    groupCount: number
+    experimentArm?: ExperimentArm | null
+  }): void
   noteSignedOut(): void
 
   track<N extends AnalyticsEventName>(
@@ -137,6 +161,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
   const attribution = createJoinAttribution({ store: deps.attributionStore, now })
   const exposure = createExposureTracker({ now })
   const together = createTogetherWatch({ now })
+  const dwell = createChannelDwell({ now })
 
   const recorder = createAnalyticsRecorder({
     backend: deps.backend,
@@ -180,6 +205,21 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
   /** What was last written, so an unchanged interval is not rewritten. */
   let persistedJson: string | null = null
   let persistedAt = 0
+
+  /*
+   * The same four pieces of bookkeeping again, for the dwell interval.
+   *
+   * Deliberately parallel rather than shared. The two intervals open and close
+   * at different moments - dwell spans the whole visit, the shared watch only
+   * the part with somebody else in it - so a single set of these would have to
+   * describe two different "last moment we could vouch for" answers, and would
+   * get one of them wrong.
+   */
+  let dwellSessionId: string | null = null
+  let dwellRestored = false
+  let dwellSeenAt = 0
+  let dwellPersistedJson: string | null = null
+  let dwellPersistedAt = 0
 
   /*
    * Serialises the storage-backed work.
@@ -278,6 +318,111 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
     // The interval is over, so the pinned session goes with it. The next one
     // will pin whatever session is open when it starts.
     if (!together.current()) lifecycleSessionId = null
+  }
+
+  function emitDwell(events: ReturnType<typeof dwell.update>): void {
+    for (const event of events) {
+      record({
+        name: 'channel_dwell_ended',
+        properties: {
+          duration_ms: event.durationMs,
+          from_join: event.attributionId !== null,
+          had_social: event.hadSocial,
+          end_reason: event.reason,
+        },
+        channel: event.channel,
+        /*
+         * Carried when a JOIN legitimately covered this viewing, under the
+         * EXISTING attribution rules - nothing here widens them. An interval
+         * that opened without one never acquires one later, so organic viewing
+         * cannot be retroactively credited to a JOIN.
+         */
+        attributionId: event.attributionId,
+        sessionId: dwellSessionId,
+        /*
+         * The EFFECTIVE end. A frozen worker or an evicted one can put hours
+         * between when viewing stopped and when we noticed; dating the event
+         * to the detection would report every one of those hours as watching.
+         */
+        occurredAt: event.effectiveAt,
+      })
+    }
+
+    if (!dwell.current()) dwellSessionId = null
+  }
+
+  /** The dwell counterpart of persistLifecycle. Same throttle, same reasons. */
+  async function persistDwell(at: number): Promise<void> {
+    const state = dwell.snapshot()
+
+    if (!state) {
+      if (dwellPersistedJson !== null) {
+        await deps.dwellStore.write(null)
+        dwellPersistedJson = null
+      }
+      return
+    }
+
+    const userId = deps.selfId()
+    if (!userId) return
+
+    const json = JSON.stringify(state)
+    if (json === dwellPersistedJson && at - dwellPersistedAt < LAST_SEEN_WRITE_MS) return
+
+    await deps.dwellStore.write({
+      userId,
+      sessionId: dwellSessionId,
+      state,
+      lastSeenAt: dwellSeenAt,
+    })
+    dwellPersistedJson = json
+    dwellPersistedAt = at
+  }
+
+  /** The dwell counterpart of closeIfObservationLost. See that comment. */
+  function closeDwellIfObservationLost(at: number): void {
+    if (!dwell.current()) return
+    if (!isObservationLost(dwellSeenAt, at)) return
+
+    emitDwell(dwell.closeAt('observation_lost', dwellSeenAt, at))
+    dwellPersistedJson = null
+    void deps.dwellStore.write(null)
+  }
+
+  /**
+   * The dwell counterpart of ensureLifecycle.
+   *
+   * Reuses reconcileLifecycle itself rather than restating the policy: the
+   * question after a restart - is this the world we left, and when did we last
+   * honestly know anything - is identical for both intervals, and answering it
+   * twice would be two chances to answer it differently.
+   */
+  async function ensureDwell(channel: string | null, at: number): Promise<void> {
+    if (dwellRestored) return
+    dwellRestored = true
+
+    const stored = await deps.dwellStore.read()
+    const decision = reconcileLifecycle(stored, { userId: deps.selfId(), channel, now: at })
+
+    if (decision.action === 'discard') {
+      if (stored) await deps.dwellStore.write(null)
+      dwellPersistedJson = null
+      return
+    }
+
+    dwellSessionId = decision.lifecycle.sessionId
+    dwell.restore(decision.lifecycle.state)
+
+    if (decision.action === 'resume') {
+      dwellPersistedJson = JSON.stringify(decision.lifecycle.state)
+      dwellPersistedAt = decision.lifecycle.lastSeenAt
+      dwellSeenAt = decision.lifecycle.lastSeenAt
+      return
+    }
+
+    emitDwell(dwell.closeAt(decision.reason, decision.effectiveAt, at))
+    await deps.dwellStore.write(null)
+    dwellPersistedJson = null
   }
 
   /**
@@ -424,13 +569,33 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       }, 'analytics.noteActive')
     },
 
-    noteSignedIn({ friendCount, groupCount }): void {
+    noteSignedIn({ friendCount, groupCount, experimentArm }): void {
       if (off) return
       serial(async () => {
         await session.touch()
         recorder.track({
           name: 'authenticated_session_started',
-          properties: { friend_count: friendCount, group_count: groupCount },
+          properties: {
+            friend_count: friendCount,
+            group_count: groupCount,
+            /*
+             * THE ARM GATE, and it lives here rather than at the call site.
+             *
+             * Outside production every user is forced into `gravity`, so
+             * recording the arm there would file a CONSTANT as an experiment
+             * result - which is exactly how a fake causal claim reaches a deck.
+             * isRandomisedArm() is the existing function that answers "is this
+             * a real randomisation", and asking it here means a caller cannot
+             * leak a beta arm by passing one: the property is simply dropped.
+             *
+             * Absent, not 'gravity'. A missing property reads as missing in
+             * every query; a literal would have to be excluded by hand in each
+             * one, and eventually would not be.
+             */
+            ...(experimentArm && isRandomisedArm(deps.environment)
+              ? { experiment_arm: experimentArm }
+              : {}),
+          },
         })
         // Anything queued before there was an actor to attribute it to can go
         // now. Until this point the recorder was holding, not dropping.
@@ -448,15 +613,21 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * moment we could vouch for, not at the moment of the sign-out.
          */
         await ensureLifecycle(null, now())
+        await ensureDwell(null, now())
         /*
          * Before stop(), which closes at now(). Signing out after a long sleep
          * must not credit the sleep any more than a heartbeat tick would.
          */
         closeIfObservationLost(now())
+        closeDwellIfObservationLost(now())
         emitTogether(together.stop())
+        emitDwell(dwell.stop())
         await deps.lifecycleStore.write(null)
+        await deps.dwellStore.write(null)
         persistedJson = null
+        dwellPersistedJson = null
         lifecycleSessionId = null
+        dwellSessionId = null
         const closed = await session.close()
         if (closed) {
           recorder.track({
@@ -568,6 +739,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * no ordering to get wrong - this is the first place that needs it.
          */
         await ensureLifecycle(login, now())
+        await ensureDwell(login, now())
 
         /*
          * Then doubt it again, every time.
@@ -577,6 +749,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * the sleep. This is the tick that stops the gap being counted.
          */
         closeIfObservationLost(now())
+        closeDwellIfObservationLost(now())
 
         /*
          * A shared watch beginning on a channel a JOIN led to is that JOIN's
@@ -587,16 +760,37 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * somebody comes back inherits the attribution already held, so
          * looking one up again would be wrong as well as wasteful.
          */
-        if (login && together.wantsAttribution()) {
+        if (login && (together.wantsAttribution() || dwell.wantsAttribution())) {
           const credit = await attribution.forTogether(login)
-          if (credit) together.attribute(credit.id)
+          if (credit) {
+            if (together.wantsAttribution()) together.attribute(credit.id)
+            if (dwell.wantsAttribution()) dwell.attribute(credit.id)
+          }
         }
         emitTogether(together.update({ channel: login, otherCount }))
+
+        /*
+         * Dwell is driven AFTER the shared watch, from the same channel value
+         * in the same tick, and its social flag is read from the shared-watch
+         * machine's own state rather than from otherCount.
+         *
+         * That ordering is what makes had_social mean "a shared watch actually
+         * occurred" rather than "some friends were around". It also means the
+         * two can never disagree about what counts as watching: a shared watch
+         * exists only inside a dwell interval on the same channel.
+         *
+         * The flag is sticky inside channelDwell, so an interval whose social
+         * part ended an hour ago is still had_social - which is why this reads
+         * current() rather than trying to catch the moment it was open.
+         */
+        emitDwell(dwell.update({ channel: login, social: together.current() !== null }))
 
         // This tick is now the last moment we can vouch for, and the stored
         // copy is written from it - see persistLifecycle.
         if (together.current()) lifecycleSeenAt = now()
+        if (dwell.current()) dwellSeenAt = now()
         await persistLifecycle(now())
+        await persistDwell(now())
       }, 'analytics.noteTogether')
     },
 

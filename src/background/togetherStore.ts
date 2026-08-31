@@ -36,7 +36,19 @@
 
 import type { TogetherState } from './togetherWatch'
 
-export interface PersistedLifecycle {
+/**
+ * A stored open interval, whatever kind it is.
+ *
+ * Generic over the state it carries so the RECOVERY POLICY below has exactly
+ * one definition. Shared watching and channel dwell face the identical
+ * question after a worker restart - is this still the world we left, and if
+ * not, when did we last honestly know anything - and answering it twice would
+ * be two chances to answer it differently.
+ *
+ * The only thing the policy reads from the state is its channel, so that is
+ * all the constraint asks for.
+ */
+export interface PersistedLifecycle<S extends { channel: string } = TogetherState> {
   /**
    * Whose interval this is.
    *
@@ -53,7 +65,7 @@ export interface PersistedLifecycle {
    * shared watch into an unfinished start plus an orphan end.
    */
   sessionId: string | null
-  state: TogetherState
+  state: S
   /** The last moment we could vouch for the user being on that channel. */
   lastSeenAt: number
 }
@@ -90,16 +102,16 @@ export function isObservationLost(
   return now - lastSeenAt > resumeWindowMs
 }
 
-export type Reconciliation =
+export type Reconciliation<S extends { channel: string } = TogetherState> =
   /** The world is as we left it. Continue the interval; emit nothing. */
-  | { action: 'resume'; lifecycle: PersistedLifecycle }
+  | { action: 'resume'; lifecycle: PersistedLifecycle<S> }
   /**
    * The world moved on. Close the interval as of `effectiveAt` - the last
    * moment we could vouch for - having only found out now.
    */
   | {
       action: 'close'
-      lifecycle: PersistedLifecycle
+      lifecycle: PersistedLifecycle<S>
       effectiveAt: number
       reason: 'left_channel' | 'observation_lost'
     }
@@ -113,11 +125,11 @@ export type Reconciliation =
  * is one branch here, which is what makes them testable without a browser, a
  * worker or a clock.
  */
-export function reconcileLifecycle(
-  stored: PersistedLifecycle | null,
+export function reconcileLifecycle<S extends { channel: string } = TogetherState>(
+  stored: PersistedLifecycle<S> | null,
   world: { userId: string | null; channel: string | null; now: number },
   resumeWindowMs: number = RESUME_WINDOW_MS,
-): Reconciliation {
+): Reconciliation<S> {
   if (!stored) return { action: 'discard', why: 'nothing_stored' }
 
   // Nobody is signed in, so there is no actor to record against and no way to
@@ -176,7 +188,10 @@ export function reconcileLifecycle(
  * that does not pass reads as absent, which fails closed: no interval is
  * resumed and no event is emitted from a shape we do not understand.
  */
-export function isPersistedLifecycle(value: unknown): value is PersistedLifecycle {
+export function isPersistedLifecycleOf<S extends { channel: string }>(
+  value: unknown,
+  isState: (candidate: unknown) => candidate is S,
+): value is PersistedLifecycle<S> {
   if (typeof value !== 'object' || value === null) return false
   const record = value as Record<string, unknown>
 
@@ -184,8 +199,14 @@ export function isPersistedLifecycle(value: unknown): value is PersistedLifecycl
   if (record.sessionId !== null && typeof record.sessionId !== 'string') return false
   if (typeof record.lastSeenAt !== 'number' || !Number.isFinite(record.lastSeenAt)) return false
 
-  const state = record.state as Record<string, unknown> | undefined
-  if (typeof state !== 'object' || state === null) return false
+  return isState(record.state)
+}
+
+/** The shared-watch half: exactly the fields TogetherState declares. */
+export function isTogetherState(value: unknown): value is TogetherState {
+  if (typeof value !== 'object' || value === null) return false
+  const state = value as Record<string, unknown>
+
   if (typeof state.channel !== 'string' || state.channel === '') return false
   if (typeof state.startedAt !== 'number' || !Number.isFinite(state.startedAt)) return false
   if (typeof state.otherCountPeak !== 'number' || !Number.isFinite(state.otherCountPeak)) {
@@ -196,4 +217,8 @@ export function isPersistedLifecycle(value: unknown): value is PersistedLifecycl
   if (state.socialEndedAt !== null && typeof state.socialEndedAt !== 'number') return false
 
   return true
+}
+
+export function isPersistedLifecycle(value: unknown): value is PersistedLifecycle {
+  return isPersistedLifecycleOf(value, isTogetherState)
 }

@@ -44,6 +44,7 @@ function harness(options: { enabled?: boolean; environment?: 'private_beta' | 'p
       sessionStore: cell('session'),
       attributionStore: cell('join'),
       lifecycleStore: cell('lifecycle'),
+      dwellStore: cell('dwell'),
       canSend: () => signedIn,
       selfId: () => selfId,
       now: () => clock,
@@ -1646,6 +1647,324 @@ describe('social gravity analytics', () => {
 
       // One person is not an opportunity several viewers can act on.
       expect(h.named('join_clicked')[0].properties.opportunity_key).toBeUndefined()
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+
+/**
+ * Channel dwell, wired.
+ *
+ * channelDwell.test.ts proves the state machine. These prove the WIRING: that
+ * the event reaches the wire with the right duration, that a worker restart
+ * does not turn one evening into two, and that had_social is read from the
+ * shared-watch lifecycle rather than from a friend count.
+ */
+describe('channel dwell through the hub', () => {
+  it('emits one interval with the observed duration when the channel changes', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      await h.keepAlive(45_000, 'shroud', 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].destination_channel).toBe('lirik')
+      expect(dwell[0].properties.duration_ms).toBe(300_000)
+      expect(dwell[0].properties.end_reason).toBe('switched_channel')
+      expect(dwell[0].properties.had_social).toBe(false)
+      expect(dwell[0].properties.from_join).toBe(false)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('accrues nothing while there is no eligible live channel', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      // liveWatchChannel() returns null for an offline or unknown stream, so
+      // this is exactly what watching a dead channel looks like from here.
+      await h.keepAlive(600_000, null, 0)
+      await h.settle()
+
+      expect(h.named('channel_dwell_ended')).toHaveLength(0)
+    } finally {
+      h.restore()
+    }
+  })
+
+  /**
+   * One evening, not two.
+   *
+   * The failure this rules out is the one togetherStore was written for: an
+   * evicted worker forgets the open interval, so the end is never emitted and
+   * a second interval starts. For dwell that would DOUBLE the headline
+   * watch-time number rather than merely lose some of it.
+   */
+  it('does not double-count an interval across a worker restart', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      h.restartWorker()
+      await h.keepAlive(300_000, 'lirik', 0)
+      await h.keepAlive(45_000, null, 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      // Measured from the ORIGINAL start, across the restart.
+      expect(Number(dwell[0].properties.duration_ms)).toBeGreaterThanOrEqual(600_000)
+      expect(dwell[0].properties.end_reason).toBe('left_channel')
+    } finally {
+      h.restore()
+    }
+  })
+
+  /**
+   * The closed laptop.
+   *
+   * A gap longer than the resume window closes the interval at the last moment
+   * we could vouch for. The unobserved hours are detection lag, not viewing.
+   */
+  it('does not fabricate the period it could not observe', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(120_000, 'lirik', 0)
+
+      // Three hours with nothing running at all.
+      h.restartWorker()
+      h.advance(3 * 60 * 60 * 1000)
+      await h.keepAlive(45_000, 'lirik', 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].properties.end_reason).toBe('observation_lost')
+      // Two minutes of vouched viewing. Not three hours and two minutes.
+      expect(Number(dwell[0].properties.duration_ms)).toBeLessThanOrEqual(180_000)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('marks had_social from the shared watch, and keeps it after friends leave', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      // A friend is here for two minutes, then the viewer watches on alone.
+      await h.keepAlive(120_000, 'lirik', 1)
+      await h.keepAlive(600_000, 'lirik', 0)
+      await h.keepAlive(45_000, null, 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].properties.had_social).toBe(true)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('leaves had_social false for viewing nobody shared', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      await h.keepAlive(45_000, null, 0)
+      await h.settle()
+
+      expect(h.named('channel_dwell_ended')[0].properties.had_social).toBe(false)
+    } finally {
+      h.restore()
+    }
+  })
+
+  /** A dwell interval a JOIN produced carries that JOIN's attribution. */
+  it('attributes viewing that a JOIN led to', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      h.hub.recordJoin({
+        channel: 'lirik',
+        source: 'social_gravity',
+        socialCount: 2,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      await h.settle()
+      h.hub.noteChannel('lirik')
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      await h.keepAlive(45_000, null, 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].properties.from_join).toBe(true)
+      expect(dwell[0].attribution_id).not.toBeNull()
+
+      const click = h.named('join_clicked')[0]
+      expect(dwell[0].attribution_id).toBe(click.attribution_id)
+    } finally {
+      h.restore()
+    }
+  })
+
+  /**
+   * Attribution must not leak.
+   *
+   * Watching something else later is not the JOIN's outcome, and crediting it
+   * would inflate the one number Watchside would put in front of a partner.
+   */
+  it('does not attribute unrelated later viewing to an earlier JOIN', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      h.hub.recordJoin({
+        channel: 'lirik',
+        source: 'social_gravity',
+        socialCount: 2,
+        navigated: true,
+        alreadyOnTwitch: true,
+        alreadyOnDestination: false,
+      })
+      await h.settle()
+      h.hub.noteChannel('lirik')
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      // Somewhere else entirely, well after the attribution window.
+      await h.keepAlive(1_200_000, 'shroud', 0)
+      await h.keepAlive(45_000, null, 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      const shroud = dwell.find((event) => event.destination_channel === 'shroud')
+      expect(shroud).toBeDefined()
+      expect(shroud?.properties.from_join).toBe(false)
+      expect(shroud?.attribution_id).toBeNull()
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('closes the open interval when the session ends', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      h.hub.noteSignedOut()
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].properties.end_reason).toBe('session_ended')
+    } finally {
+      h.restore()
+    }
+  })
+
+  /**
+   * Dwell is the denominator, so it must never be SMALLER than the shared
+   * watch it contains. If this ever inverts, one of the two lifecycles has
+   * stopped meaning what the other means.
+   */
+  it('is never shorter than the shared watch inside it', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 2)
+      await h.keepAlive(45_000, null, 0)
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')[0]
+      const together = h.named('watching_together_ended')[0]
+      expect(dwell).toBeDefined()
+      expect(together).toBeDefined()
+      expect(Number(dwell.properties.duration_ms)).toBeGreaterThanOrEqual(
+        Number(together.properties.duration_ms),
+      )
+    } finally {
+      h.restore()
+    }
+  })
+})
+
+/**
+ * The experiment arm, and the gate that keeps a constant out of the data.
+ *
+ * Outside production every user is forced into `gravity`. Recording that
+ * would file a CONSTANT as an experiment result, which is how a fake causal
+ * claim reaches a deck - so the gate is asserted from both sides here.
+ */
+describe('experiment arm instrumentation', () => {
+  it('is absent in private beta even when an arm is passed', async () => {
+    const h = harness({ environment: 'private_beta' })
+    try {
+      h.hub.noteSignedIn({ friendCount: 3, groupCount: 1, experimentArm: 'gravity' })
+      await h.settle()
+
+      const [event] = h.named('authenticated_session_started')
+      expect(event).toBeDefined()
+      expect(event.properties.friend_count).toBe(3)
+      // Absent, not 'gravity'. A missing property reads as missing in every
+      // query; a literal would have to be excluded by hand in each one.
+      expect(event.properties).not.toHaveProperty('experiment_arm')
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('is recorded in production, where the assignment is real', async () => {
+    const h = harness({ environment: 'production' })
+    try {
+      h.hub.noteSignedIn({ friendCount: 5, groupCount: 0, experimentArm: 'flat' })
+      await h.settle()
+
+      const [event] = h.named('authenticated_session_started')
+      expect(event.properties.experiment_arm).toBe('flat')
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('is absent when the caller passes no arm at all', async () => {
+    const h = harness({ environment: 'production' })
+    try {
+      h.hub.noteSignedIn({ friendCount: 1, groupCount: 0 })
+      await h.settle()
+
+      const [event] = h.named('authenticated_session_started')
+      expect(event.properties).not.toHaveProperty('experiment_arm')
     } finally {
       h.restore()
     }

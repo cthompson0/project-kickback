@@ -21,6 +21,7 @@
  */
 
 import type { FeedbackCategory } from '../client/types'
+import type { ExperimentArm } from './experiment'
 import type {
   FailureCode,
   FailureContext,
@@ -78,7 +79,20 @@ export interface AnalyticsEventMap {
   // ---------------------------------------------------------------- lifecycle
   extension_session_started: Record<string, never>
   extension_session_ended: { duration_ms: number; end_reason: SessionEndReason }
-  authenticated_session_started: { friend_count: number; group_count: number }
+  /**
+   * A signed-in session began.
+   *
+   * `experiment_arm` is present ONLY when the assignment is a real
+   * randomisation - see isRandomisedArm(). In development and private beta
+   * everybody is forced into `gravity`, and recording that would file a
+   * constant as an experiment result, which is how a fake causal claim gets
+   * into a deck. Absent is therefore the correct value there, not 'gravity'.
+   */
+  authenticated_session_started: {
+    friend_count: number
+    group_count: number
+    experiment_arm?: ExperimentArm
+  }
 
   // ------------------------------------------------------------- social graph
   /** The query itself is never recorded - only whether it found anyone. */
@@ -211,6 +225,33 @@ export interface AnalyticsEventMap {
     /** How long after the fact this was worked out. Zero when immediate. */
     detection_delay_ms: number
   }
+  /**
+   * How long Watchside observed this user watching one LIVE channel.
+   *
+   * THE DENOMINATOR. Every other viewing measurement here is a socially
+   * selected subset - watching_together is time spent with a friend,
+   * post_social_retention is the tail after they left - so neither can say
+   * what share of somebody's viewing Watchside touched, and a future holdout
+   * would have nothing to compare because the control arm produces no shared
+   * watches at all.
+   *
+   * FOCUSED TAB ONLY. One interval at a time, fed the same eligible live
+   * channel that drives the shared watch, so three open tabs can never become
+   * three concurrent hours. See background/channelDwell.ts.
+   *
+   * There is deliberately no matching start event, for the same reason
+   * post_social_retention_ended has none: the interval is fully described by
+   * its end, and a second event would be a second chance to disagree.
+   */
+  channel_dwell_ended: {
+    duration_ms: number
+    /** True when an active JOIN attribution legitimately covered this viewing. */
+    from_join: boolean
+    /** True when a shared watch was open at any point during the interval. */
+    had_social: boolean
+    end_reason: DwellEndReason
+  }
+
   /**
    * The user stayed on a socially-attributed destination after the last person
    * they were watching with had gone - and has now left it too.
@@ -356,6 +397,26 @@ export type PostSocialEndReason =
   | 'rejoined'
   | 'session_ended'
   | 'observation_lost'
+/**
+ * Why an observed viewing interval stopped.
+ *
+ * `left_channel` covers navigating away, closing the tab, backgrounding every
+ * Twitch tab AND the stream ending, because from the worker those are the same
+ * observation - the eligible live destination went away. It is the same word
+ * the shared watch already uses for the same situation.
+ *
+ * `switched_channel` is the one case that IS distinguishable: one eligible
+ * destination handed straight over to another in a single tick. That is the
+ * ordinary shape of focused-tab-only measurement once somebody has two streams
+ * open, and folding it into `left_channel` would hide exactly the behaviour
+ * this measurement exists to describe.
+ */
+export type DwellEndReason =
+  | 'left_channel'
+  | 'switched_channel'
+  | 'session_ended'
+  | 'observation_lost'
+
 export type LengthBucket = 'short' | 'medium' | 'long'
 
 /**
@@ -416,7 +477,7 @@ export function lengthBucket(length: number): LengthBucket {
 export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   extension_session_started: [],
   extension_session_ended: ['duration_ms', 'end_reason'],
-  authenticated_session_started: ['friend_count', 'group_count'],
+  authenticated_session_started: ['friend_count', 'group_count', 'experiment_arm'],
 
   friend_search: ['result_count', 'matched_by'],
   friend_request_sent: ['outcome'],
@@ -458,6 +519,7 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'detection_delay_ms',
   ],
   post_social_retention_ended: ['duration_ms', 'from_join', 'end_reason'],
+  channel_dwell_ended: ['duration_ms', 'from_join', 'had_social', 'end_reason'],
 
   gathering_notification_shown: ['friend_count'],
   gathering_notification_clicked: ['friend_count'],
@@ -568,6 +630,16 @@ export const EVENT_DATA_CATEGORY: Record<AnalyticsEventName, MozillaDataCategory
   watching_together_started: 'browsingActivity',
   watching_together_ended: 'browsingActivity',
   post_social_retention_ended: 'browsingActivity',
+  /*
+   * How long somebody watched a channel.
+   *
+   * browsingActivity, the same as every other destination-bearing event: it is
+   * a record of what the person did on a website, not a report about our
+   * software's health. Already declared REQUIRED in the Firefox manifest, so
+   * this needs no manifest change - but it IS a new KIND of record, and
+   * docs/PRIVACY.md says so plainly rather than folding it in quietly.
+   */
+  channel_dwell_ended: 'browsingActivity',
   gathering_notification_shown: 'browsingActivity',
   gathering_notification_clicked: 'browsingActivity',
   destinations_published: 'browsingActivity',

@@ -592,6 +592,86 @@ after the social context dissolved — including by two seconds. **How long** is
 `post_social_duration`. A query that wants "meaningfully retained" should
 threshold on the duration; the boolean deliberately does not decide for you.
 
+## 8b. Channel dwell: observed viewing time
+
+The denominator. Added in M3C; see
+`docs/reports/m3a-m3c-measurement-foundation-2026-08-30.md`.
+
+`watching_together` and `post_social_retention` both measure socially selected
+slices of viewing, so neither can say what SHARE of somebody's watching
+Watchside touched - and a future holdout would have nothing to compare, because
+a control arm produces no shared watches at all. `channel_dwell_ended` is the
+whole interval.
+
+### What it measures, precisely
+
+> How long Watchside OBSERVED this user watching one live Twitch channel.
+
+Not how long a tab was open. Not how many tabs existed. Not how long the
+browser ran.
+
+### FOCUSED TAB ONLY
+
+Locked owner decision (M3B.1 D12). If Channel A is focused and B and C are open
+behind it, **only A accrues**. Switching focus to B closes A and opens B.
+
+This is **structural, not a check**. The machine holds one open interval and is
+fed `liveWatchChannel()` - the primary destination from the activity registry,
+which always prefers a visible tab, narrowed to channels Twitch says are live.
+There is nowhere to put a second interval.
+
+Why it matters: counting three background tabs as three concurrent hours is the
+one way this system could **invent** watch time rather than merely lose some,
+and invented watch time cannot be detected afterwards.
+
+### LIVE STREAMS ONLY
+
+The same `socialViewing.ts` rule the shared watch uses, asked in the same place
+(`liveWatchChannel()`). There is deliberately no second definition of
+"watching". `unknown` is not live, so a cold cache under-counts - the intended
+direction.
+
+### The end reasons
+
+| Reason | Meaning |
+|---|---|
+| `switched_channel` | one eligible live destination handed straight over to another in the same tick. The ordinary shape of focused-tab measurement once somebody has two streams open |
+| `left_channel` | the eligible live destination went away and nothing replaced it. Covers navigating away, closing the tab, backgrounding every Twitch tab **and the stream ending** - from the worker those are one observation, and claiming to tell them apart would be inventing detail |
+| `session_ended` | sign-out or session close |
+| `observation_lost` | the gap since the last vouched moment exceeded 5 minutes. The interval is closed at the last moment we could vouch for |
+
+### Detected end versus effective end
+
+Identical discipline to §8. `duration_ms` is measured to the **effective** end -
+the last moment we could vouch for - never to when a gap was noticed. A frozen
+worker or a closed laptop can put hours between the two, and every one of those
+hours would otherwise be reported as viewing.
+
+### `from_join` and `had_social`
+
+- **`from_join`** - an active JOIN attribution covered the interval, under the
+  existing rules in §7. Nothing about M3C widens the attribution lifetime, and
+  an interval that opened without an attribution never acquires one, so organic
+  viewing cannot be retroactively credited to a JOIN.
+- **`had_social`** - a shared watch was open at some point during the interval.
+  Read from the shared-watch lifecycle's own state, never from a friend count,
+  and **sticky**: a friend who watched for two minutes and left leaves the rest
+  of the evening still marked `had_social`, which is the truthful answer.
+
+### What is stored between worker lives
+
+One value, at `kickback:analytics:dwell`: the open interval only - channel,
+start, the sticky social flag, the attribution, and when we last saw the user.
+Deleted the moment the interval closes. Somebody who is not watching has
+nothing about their viewing stored anywhere. Same recovery policy as the shared
+watch, reusing `reconcileLifecycle` rather than restating it.
+
+### Relationship to the shared watch
+
+A shared watch always sits **inside** a dwell interval on the same channel,
+because both are driven from the same value in the same tick. `dwell ≥
+together` on a channel is asserted by test rather than assumed.
+
 ## 8a. Individual referral versus cluster referral
 
 A JOIN's social cause is not always a person.
@@ -606,12 +686,12 @@ anywhere records *which* friend was in a cluster, and nothing picks one to
 credit: when A sees "🔥 xQc · 3 friends" and joins, the social context gets the
 attribution, not Jake.
 
-`opportunity_key` is registered on `join_clicked` and
-`gravity_cluster_impression` and is **not set by anything yet**. A friend row is
-one person and needs no key; a Gravity cluster is a thing several people act on
+`opportunity_key` is set on **both** `join_clicked` and
+`gravity_cluster_impression`, by the same function with the same clock, so the
+two sides cannot disagree about what one gathering was. A friend row is one
+person and needs no key; a Gravity cluster is a thing several people act on
 separately, and "how many viewers did *one* gathering produce" needs them to
-agree on what one gathering was. It is reserved now, and its round-trip is
-tested, so that checkpoint sets a property rather than changing a contract.
+agree. `analytics_gravity_conversion_v` (0029) is what reads it - see §14.1.
 
 
 ## 9. Environments and test data
@@ -899,8 +979,8 @@ not computable now and must not be quoted.
 | 4 | **Post-Social Retention Rate** | ✅ now | share of shared watches with `post_social_retained` and a duration over your threshold |
 | 5 | **Post-Social Retention Duration** | ✅ now | `analytics_together_v.post_social_duration` |
 | 6 | **Social Follow Conversion** | 🚫 FUTURE | needs Twitch follow state; see §11b |
-| 7 | **Social Amplification** | ⚠️ partial | arrivals per destination per window are computable now; *per gathering* needs `opportunity_key`, which is reserved and unset until Social Gravity |
-| 8 | **Incremental Twitch Engagement** | 🚫 FUTURE | requires a randomised holdout **and** watch-time measurement Watchside does not have |
+| 7 | **Social Amplification** | ✅ now | `analytics_gravity_conversion_v` joins exposure to JOIN on `opportunity_key`, which **is** set on both sides. See §14.1 |
+| 8 | **Incremental Twitch Engagement** | ⚠️ partial | the watch-time denominator now exists (`channel_dwell_ended`, §8b). *Incremental* still requires a randomised holdout - the arm is instrumented (§14.5) but no experiment is running |
 | 9 | **Retention lift** | ⚠️ partial | D1/D7/D30 by cohort is computable; *lift* is a causal claim and needs an experiment |
 
 ## 11b. Twitch follow state: the future integration point
@@ -1038,3 +1118,169 @@ interpretation stays in the query, where it can be argued with.
 `npm run test:analytics` breaks each rule above in turn and asserts a specific
 test goes red. `npm run verify:analytics` checks the hosted schema is applied
 and that nothing in it is readable by a client.
+
+| M3A/M3C concern | File |
+|---|---|
+| Channel dwell state machine | `src/background/channelDwell.ts` |
+| M3A/M3C reporting views | `supabase/migrations/0029_m3_views.sql` |
+| Dwell + arm contract rows | `supabase/migrations/0030_m3_contract.sql` |
+
+---
+
+## 14. Metric definitions (reproducible)
+
+Owner decision M3B.1 **D13**: an external reviewer must be able to reproduce a
+number in a deck from a written definition. Every strategically important
+metric added by M3A/M3C is defined here - numerator, denominator, inclusions,
+exclusions - rather than only in SQL or TypeScript.
+
+**Every metric below is OBSERVATIONAL or ATTRIBUTED. None is causal.** See §12.
+
+**Global exclusions, applied by every view:** internal actors (via
+`analytics_reportable_events_v`). **Always filter `environment` explicitly** -
+it is deliberately never filtered for you.
+
+### 14.1 Gravity exposure → JOIN conversion
+
+**View:** `analytics_gravity_conversion_v` · **Grain:** one row per (viewer,
+opportunity), where an opportunity is `gravity:{channel}:{floor(now/30s)}`.
+
+- **Denominator** — rows. One viewer being shown one gathering in one 30s window.
+- **Numerator** — rows where `converted` (that viewer clicked JOIN on that same
+  opportunity key).
+- **Includes** — `gravity_cluster_impression` rows with a non-null
+  `opportunity_key`; `join_clicked` rows with `source = 'social_gravity'`.
+- **Excludes** — JOINs from any other surface; pre-Gravity impressions, which
+  carry no opportunity key.
+- **Valid from** — the first Social Gravity build that emitted
+  `opportunity_key` on both sides.
+- **Known censoring** — a gathering spanning a 30s window boundary is recorded
+  as two opportunities. Accepted, and documented in `socialGravity.ts`:
+  cross-viewer agreement is worth more than boundary continuity.
+- **Class** — observational conversion. **Not lift.** There is no control group
+  in this view.
+
+### 14.2 Growth funnel
+
+**View:** `analytics_growth_funnel_v` · **Grain:** one row per inviter.
+
+- **Stages** — `invites_created` → `invites_shared` → `claims_attributed` →
+  `friendships_formed` → `invitees_activated` → `referrals_succeeded`.
+- **Denominator for each stage** — the stage before it.
+- **Outcome stages come from server state** (`public.referrals`), which is
+  stamped by SECURITY DEFINER functions from server facts and cannot be
+  inflated by a modified client. `succeeded_at` uses 0026's definition.
+- **THERE IS NO INSTALL STAGE, AND THERE CANNOT BE.** `analytics_events.actor_id`
+  is `auth.uid()`, so no event exists before sign-in. Invite → install → auth is
+  structurally unmeasurable. A zero would read as "nobody installed" rather
+  than "we cannot see this", so the column is absent.
+- **Known censoring** — `referrals` has no environment column, so outcome
+  counts span environments.
+- **Class** — observational.
+
+### 14.3 Graph-size cohorts
+
+**View:** `analytics_graph_cohort_v` · **Grain:** one row per authenticated
+session.
+
+- **Cohort key** — `friend_bucket` from `friend_count` at that sign-in:
+  `0` · `1` · `2` · `3-4` · `5-9` · `10+`.
+- **Session grain is deliberate** — `friend_count` is recorded at each sign-in,
+  so a user who grew from 2 to 11 friends contributes to both cohorts at the
+  time each was true. Bucketing users by today's count would relabel their
+  whole history.
+- **Outcome columns** — `had_gathering_impression`, `had_join_click`,
+  `had_join_arrival`, `had_watching_together`, `session_observed_duration`.
+- **Class** — **observational, and the confound is not subtle.** Users with ten
+  friends are not users with two friends plus eight; they are more social,
+  earlier-adopting people. Nothing here shows that adding friends *causes*
+  engagement.
+
+### 14.4 Watchside return
+
+**View:** `analytics_return_v` · **Grain:** one row per (actor, environment,
+active day).
+
+- **Denominator** — rows on a given day, optionally split by
+  `had_social_interaction` (a `join_arrived` or `watching_together_started`
+  that day).
+- **Numerator** — rows where `returned_within_1d` / `_7d` / `_30d`: any
+  Watchside event on a later day inside the window.
+- **⚠ THIS IS RETURN TO WATCHSIDE, NOT RETURN TO TWITCH.** Every row requires
+  the extension installed, signed in and running. Someone watching on a phone,
+  in another profile, or after uninstalling is invisible, and an uninstall is
+  indistinguishable from having stopped watching Twitch. Never label this
+  `twitch_retention` or `return_to_twitch`.
+- **Known censoring** — the last 30 days cannot have a complete 30-day window.
+  Filter `day <= current_date - 30` before quoting `returned_within_30d`.
+- **Class** — observational **association**. The social/non-social split
+  compares different kinds of people.
+
+### 14.5 Experiment arm
+
+**Property:** `authenticated_session_started.experiment_arm`.
+
+- **Present only when `isRandomisedArm(environment)` is true** - i.e.
+  production. Absent in development and private beta, where every user is
+  forced into `gravity`.
+- **Absent means "not randomised"**, never "unknown arm".
+- **No experiment is running.** Recording the arm starts nothing and changes no
+  treatment. Any arm comparison from private-beta data would be comparing a
+  constant with itself.
+
+### 14.6 Observed channel dwell
+
+**Event:** `channel_dwell_ended` · **Grain:** one observed viewing interval.
+
+- **Definition** — how long Watchside observed the user watching one live
+  channel, focused tab only. See §8b.
+- **Total observed viewing** — `sum(duration_ms)`.
+- **Attributed viewing** — `sum(duration_ms) where from_join`.
+- **Socially-touched viewing** — `sum(duration_ms) where had_social`.
+- **Excludes** — background tabs (never accrue), non-live channels, and any
+  period after an observation gap over 5 minutes.
+- **Known censoring** — systematically **under**-counts: a live stream whose
+  metadata has not arrived loses the opening moments, and an eviction splits
+  one interval into two. It never over-counts.
+- **Class** — observed. `from_join` makes a subset **attributed**. Neither is
+  causal; incremental watch time needs the holdout in §12.
+
+### 14.7 Repeat creator viewing
+
+**View:** `analytics_creator_repeat_v` · **Grain:** one row per (actor,
+environment, creator) the actor ever arrived at through a Watchside JOIN.
+
+- **Denominator** — rows (creators reached through Watchside).
+- **Numerator** — rows where `later_organic_dwell_count > 0`: observed viewing
+  of that creator **after** the first attributed arrival, on intervals **not**
+  themselves covered by a JOIN attribution.
+- **Why "organic"** — viewing that a *later* JOIN produced is counted
+  separately (`later_dwell_count`), because calling a second Watchside-driven
+  visit "they came back on their own" would be the same error twice.
+- **Time to return** — `time_to_first_organic_return`.
+- **⚠ NOT "Twitch retention".** This is repeat *observed* viewing after a
+  Watchside-attributed visit. It sees only what Watchside sees.
+- **Known censoring** — empty until dwell data exists (§15). Rows exist for
+  historical JOINs with no later viewing; those are the denominator, not
+  missing data.
+- **Class** — observational.
+
+---
+
+## 15. Measurement start timestamps
+
+A metric is only as old as its instrumentation. Quoting a rate across a period
+where half the data did not exist yet is the easiest way to publish a wrong
+number.
+
+| Measurement | Data valid from |
+|---|---|
+| JOIN funnel, shared watch, post-social | already live; **durations before 2026-08-24 are an upper bound** (§8) |
+| `opportunity_key` on both sides | already live |
+| `analytics_gravity_conversion_v` and the other 0029 views | the moment 0029 is applied - they are views, so they see all history the events cover |
+| **`channel_dwell_ended`** | **the first production release carrying M3C.** There is no historical data and none can be reconstructed - nothing recorded viewing before this |
+| **`experiment_arm`** | the first **production** release carrying M3A slice 5. Never present in private beta |
+| `analytics_creator_repeat_v` | depends on dwell, so effectively the same date |
+
+**The dwell start timestamp must be recorded in the release notes of whichever
+version ships M3C**, and quoted beside any watch-time figure.

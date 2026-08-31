@@ -11,7 +11,9 @@ import { toPresence } from '../background/supabaseBackend'
 import { mergePresence, stampFriends } from '../background/presenceIndex'
 import { createAnalyticsHub } from '../background/analyticsHub'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from '../background/storedValue'
-import { isPersistedLifecycle } from '../background/togetherStore'
+import { isPersistedLifecycle, isPersistedLifecycleOf } from '../background/togetherStore'
+import { isDwellState } from '../background/channelDwell'
+import type { DwellState } from '../background/channelDwell'
 import type { PersistedLifecycle } from '../background/togetherStore'
 import type { SessionRecord } from '../background/analyticsSession'
 import type { JoinAttribution } from '../background/joinAttribution'
@@ -196,6 +198,12 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
       storage,
       'kickback:analytics:join',
       isJoinAttribution,
+    ),
+    dwellStore: createStoredValue<PersistedLifecycle<DwellState>>(
+      storage,
+      'lab:analytics:dwell',
+      (value): value is PersistedLifecycle<DwellState> =>
+        isPersistedLifecycleOf(value, isDwellState),
     ),
     lifecycleStore: createStoredValue<PersistedLifecycle>(
       storage,

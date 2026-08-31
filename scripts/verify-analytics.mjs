@@ -62,6 +62,12 @@ const VIEWS = [
   'analytics_together_v',
   'analytics_join_funnel_v',
   'analytics_actor_days_v',
+  // M3A/M3C, from 0029. Owner-only like the rest.
+  'analytics_gravity_conversion_v',
+  'analytics_growth_funnel_v',
+  'analytics_graph_cohort_v',
+  'analytics_return_v',
+  'analytics_creator_repeat_v',
 ]
 
 const FUNCTIONS = [
@@ -136,7 +142,7 @@ export async function verifyAnalyticsSchema({ quiet = false } = {}) {
   const exposed = []
 
   log('project      :', url)
-  log('checking     : migrations 0013 - 0016 against the hosted database\n')
+  log('checking     : migrations 0013 - 0030 against the hosted database\n')
 
   for (const relation of [...TABLES, ...VIEWS]) {
     let code

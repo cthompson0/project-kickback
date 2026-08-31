@@ -50,6 +50,7 @@ your identity, not who your friends are, not what you type.
 | **Mute** | **yes, only on your device** | **never** | no | no | until you unmute |
 | **Block** | no | yes | never — the other person is never told | that a block happened, with **no identifiers of either party** | until you unblock |
 | **Panel position and size** | **yes** | never | no | no | until you reset the layout |
+| **How long you watched a channel** | the currently open interval only | yes | never | yes — see "Viewing time" below | the open interval is deleted when it ends; the recorded duration is kept as analytics |
 | **Analytics** | a session id | yes | never | — | see below |
 | **JOIN attribution** | a random id, for minutes | yes | never | yes, that is its purpose | the id is dropped after the window closes |
 | **Feedback you send** | no | yes | never | only the category | kept until it has been acted on |
@@ -91,10 +92,59 @@ built so that it *cannot* carry personal content:
   Watchside actually sends people anywhere. It is a channel, not a URL, and only
   for channels Watchside itself surfaced or you acted on. **Watchside does not
   record your browsing generally, on Twitch or anywhere else.**
+- **Watchside records how long you watch a Twitch channel.** This is described
+  in full under "Viewing time" below.
 - **On Firefox, diagnostic events are not recorded at all.** See "Technical and
   interaction data" below.
 - Events are labelled with the build they came from, so beta data can be
   deleted separately from anything else.
+
+### Viewing time
+
+**Watchside records how long you watch a live Twitch channel.** When you are
+watching a channel, Watchside measures that stretch of time and records its
+length, together with the channel name.
+
+We are stating that plainly because it is a real change in what Watchside
+keeps. Until now Watchside recorded how long you watched *with a friend*; it
+now also records how long you watched.
+
+**Why.** Watchside's purpose is to bring people to streams together. We cannot
+tell whether that works without knowing whether it leads to people actually
+watching — and whether they come back to a streamer they met through Watchside.
+Without this, we can only measure the part of your viewing that happened to
+involve a friend, which tells us nothing about how much difference Watchside
+made.
+
+**What is recorded for each stretch of viewing:**
+
+- how long it lasted
+- which channel
+- whether you got there by pressing JOIN in Watchside
+- whether a friend was watching with you at any point during it
+- why it ended — you moved to another stream, you left, you signed out, or
+  Watchside stopped being able to observe
+
+**What is not recorded:**
+
+- **Not the video, the title, the category, the viewer count, or anything else
+  about the stream.** The channel name and a duration are the whole of it.
+- **Not what you watch generally.** Only channels on Twitch, and only while
+  Watchside is running and you are signed in.
+- **Not tabs you are not looking at.** Only the stream you have in front of
+  you accrues time. Three streams open in background tabs record nothing.
+- **Not offline channels.** Sitting on a channel with no stream running records
+  no viewing time.
+- **Not time we did not observe.** If your computer sleeps or the browser stops
+  Watchside in the background, the interval is closed at the last moment we
+  could actually see, and the gap is never counted as viewing.
+
+**What is stored on your device:** only the stretch of viewing currently in
+progress, and it is deleted as soon as it ends. If you are not watching
+anything, there is nothing about your viewing stored on your device at all.
+
+**This is not shared with anyone.** It is not visible to your friends, it is
+never sold or shared with third parties, and it is not used for advertising.
 
 ## Feedback, specifically
 

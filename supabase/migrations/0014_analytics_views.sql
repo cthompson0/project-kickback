@@ -16,13 +16,27 @@
 
 begin;
 
--- Dependency order: dependants first.
-drop view if exists public.analytics_production_events_v;
-drop view if exists public.analytics_actor_days_v;
-drop view if exists public.analytics_join_funnel_v;
-drop view if exists public.analytics_together_v;
-drop view if exists public.analytics_sessions_v;
-drop view if exists public.analytics_reportable_events_v;
+-- Dependency order: dependants first, and CASCADE.
+--
+-- WHY CASCADE. These are the base views every later analytics view is built
+-- on, and the bundle must be safe to re-run - see tests/db/bundle.test.ts. A
+-- migration numbered after this one cannot drop its own views before this file
+-- runs, so without CASCADE the FIRST view anybody adds on top of these makes
+-- the second bundle pass fail with "cannot drop view ... because other objects
+-- depend on it". That is exactly what 0029 hit.
+--
+-- Naming the dependants here instead would work until somebody forgot to add
+-- one, which is a stale list waiting to be a bug. CASCADE cannot go stale, and
+-- it is safe for the same reason the drops themselves are: a view holds no
+-- data, and everything dropped is recreated later in the same bundle.
+-- Dependency order is still respected below, so CASCADE is a backstop rather
+-- than the mechanism.
+drop view if exists public.analytics_production_events_v cascade;
+drop view if exists public.analytics_actor_days_v          cascade;
+drop view if exists public.analytics_join_funnel_v         cascade;
+drop view if exists public.analytics_together_v            cascade;
+drop view if exists public.analytics_sessions_v            cascade;
+drop view if exists public.analytics_reportable_events_v   cascade;
 
 -- --------------------------------------------------------------- base views
 
