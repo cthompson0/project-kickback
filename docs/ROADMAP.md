@@ -219,6 +219,17 @@ they are gone permanently. M3D is therefore feasible **if** the credential is
 captured at sign-in and held server-side. That is custody, and it is an owner
 decision (**O1**) rather than an architectural dead end.
 
+**O1 answered 2026-08-31: YES IN PRINCIPLE.** The credential lifecycle is now
+designed - capture, encryption, rotation, revocation, scope loss, relationship
+deletion, account deletion and destruction - and the architecture verdict is
+**GO** subject to three conditions: close the EventSub payload unknown, decide
+what account deletion does to that user's analytics, and ship the whole
+lifecycle as one atomic milestone with deletion built and proven **before** the
+first credential exists. See §58-§90 of
+`docs/reports/g6-m3d-creator-discovery-2026-08-30.md`.
+
+**No credential may be stored until that architecture is explicitly approved.**
+
 The M3B and M3D/M3E research reports both asserted the token would be "in hand
 in-session" at the JOIN. That conflated the **Supabase session** (long-lived)
 with the **provider token** (one-shot). Nothing had yet tried to obtain a token
