@@ -46,6 +46,7 @@ import {
   expiryFrom,
   followsBroadcaster,
   isSpent,
+  FOLLOWS_SCOPE,
   readinessFor,
   refreshTokens,
   validateToken,
@@ -258,16 +259,50 @@ async function ensureFresh(
  * checked by reasoning about code is weaker than one that can be checked
  * against the database. It returns a length, a format byte and a key version -
  * never a byte of the envelope, and certainly never a token.
+ *
+ * WHY IT ALSO ANSWERS SCOPE AND READINESS
+ *
+ * Slice C's acceptance question is "does the stored credential actually carry
+ * user:read:follows", and a scope COUNT cannot answer it - two scopes could be
+ * any two. So this reports the three scope facts that matter as booleans, and
+ * the readiness the server would compute from them. A boolean about a scope is
+ * not a credential: it says what Watchside is permitted to read, which is
+ * exactly what the user was asked and exactly what a privacy claim must be
+ * checkable against.
+ *
+ * The observation counts are here for the same reason. "Zero observations
+ * exist" is a claim about production, and reading it from production is the
+ * only honest way to make it.
  */
 async function credentialShape(admin: SupabaseClient): Promise<Record<string, unknown>> {
   const { data, error } = await admin
     .from('twitch_credentials')
-    .select('actor_id, secret, key_version, status, scopes, access_expires_at, version')
+    .select('actor_id, secret, key_version, status, scopes, access_expires_at, version, created_at, updated_at')
   if (error) return { error: 'db_unavailable' }
 
-  const rows = (data ?? []) as { secret: string; key_version: number; status: string; scopes: string[] }[]
+  /*
+   * Counted, never read.
+   *
+   * `head: true` asks PostgREST for the count and no rows, so this cannot
+   * return anybody's follow state even by accident - which matters, because
+   * that column is the one thing the whole boundary exists to keep server-side.
+   */
+  const { count: observations, error: observationsError } = await admin
+    .from('creator_relationship_observations')
+    .select('*', { count: 'exact', head: true })
+
+  const rows = (data ?? []) as {
+    secret: string
+    key_version: number
+    status: string
+    scopes: string[]
+    access_expires_at: string | null
+    created_at: string
+    updated_at: string
+  }[]
   return {
     rows: rows.length,
+    observations: observationsError ? 'unavailable' : (observations ?? 0),
     shapes: rows.map((row) => {
       const hex = row.secret.startsWith('\\x') ? row.secret.slice(2) : row.secret
       const bytes = hex.length / 2
@@ -281,12 +316,37 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
         run = byte >= 0x20 && byte <= 0x7e ? run + 1 : 0
         if (run > longestPrintable) longestPrintable = run
       }
+      const scopes = row.scopes ?? []
       return {
         bytes,
         format_version: formatByte,
         key_version: row.key_version,
         status: row.status,
-        scope_count: row.scopes?.length ?? 0,
+        scope_count: scopes.length,
+        /*
+         * The scope facts, as facts. A count cannot distinguish "email plus
+         * follows" from "email plus something nobody agreed to".
+         *
+         * The second number is an ALLOWLIST rather than a list of scopes to be
+         * suspicious of. Naming a forbidden scope here in order to check for
+         * its absence would put that string in the source, where a test rightly
+         * refuses to see it - and it would only ever catch the scopes somebody
+         * thought to name. Counting everything outside the two Watchside asks
+         * for catches any scope at all, including ones that do not exist yet.
+         */
+        has_follows_scope: scopes.includes(FOLLOWS_SCOPE),
+        unexpected_scopes: scopes.filter(
+          (scope) => scope !== FOLLOWS_SCOPE && scope !== 'user:read:email',
+        ).length,
+        // What the server would tell this actor's client, computed the same way
+        // `status` computes it - so acceptance reads the real value rather than
+        // a second implementation of it.
+        readiness: readinessFor({ hasCredential: true, status: row.status, scopes }),
+        // Upgraded in place, or replaced? A `created_at` that predates this
+        // slice with a fresh `updated_at` is the same credential row for the
+        // same actor, carrying more scope than it used to.
+        created_at: row.created_at,
+        updated_at: row.updated_at,
         longest_printable_run: longestPrintable,
       }
     }),

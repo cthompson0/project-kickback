@@ -5843,3 +5843,172 @@ Recorded for the next person reading this file: **two UX designs were built and
 removed here, and the deterministic proof that outlived both is a single
 assertion about what the initial OAuth requests.** That is the part that was
 always the product. The rest was a migration for three people.
+
+---
+
+# SLICE C — REAL ACCEPTANCE
+
+*Appended 2026-08-31. §185–§238 stand unchanged.*
+
+## 239. The consent screen that did not appear
+
+The owner completed the OAuth round trip and was returned signed in **without
+seeing a Twitch consent screen**.
+
+That is expected, not a failure. Twitch shows a consent screen when an
+authorization asks for something the user has not already granted to that
+client. The owner granted `user:read:follows` during earlier Slice C testing, so
+the request was already satisfied and Twitch returned immediately.
+
+It is recorded here because the absence of a consent screen is exactly the kind
+of observation that invites a wrong conclusion in both directions — "nothing
+happened" or "it silently granted something". Neither is checkable from the
+browser. **The only sound way to settle it is to read what the server actually
+stores**, which is what §240 does, and it is the reason §197 made scope truth
+server-side in the first place.
+
+## 240. What production actually holds
+
+Read through the owner-gated `credential_shape` action. Shape only: no token, no
+byte of any envelope, no follow state.
+
+```json
+{
+  "rows": 1,
+  "observations": 0,
+  "shapes": [{
+    "bytes": 125,
+    "format_version": 1,
+    "key_version": 1,
+    "status": "active",
+    "scope_count": 2,
+    "has_follows_scope": true,
+    "unexpected_scopes": 0,
+    "readiness": "ready",
+    "created_at": "2026-08-31T19:33:16.905466+00:00",
+    "updated_at": "2026-08-31T22:24:02.721+00:00",
+    "longest_printable_run": 5
+  }]
+}
+```
+
+### Why the diagnostic had to be extended first
+
+The previously deployed version returned `scope_count` and no more. At §199 that
+count was **1**; it is now **2**. That is a genuine change and it is *not* proof:
+two scopes could be any two.
+
+Marking Slice C GO on "the count went up, and `user:read:follows` is the only
+scope our source ever requests" would have been an **inference dressed as an
+observation** — precisely the failure §197 exists to prevent. So
+`credential_shape` was extended, owner-gated as before, to answer the question
+directly.
+
+Two design notes worth keeping:
+
+* **`unexpected_scopes` is an allowlist count, not a denylist.** Checking for a
+  named forbidden scope would have (a) put that scope string in the source,
+  where a test rightly refuses to see it, and (b) only ever caught scopes
+  somebody thought to name. Counting everything outside the two Watchside asks
+  for catches any scope at all, including ones that do not exist yet. The test
+  suite caught the first draft doing this the wrong way.
+* **`observations` is counted with `head: true`** — PostgREST returns the count
+  and no rows, so the diagnostic cannot return anybody's follow state even by
+  accident. That column is the one thing the whole boundary exists to protect.
+
+## 241. Acceptance conditions
+
+| # | Condition | Result | How it was established |
+| --- | --- | --- | --- |
+| 1 | same Twitch identity remains connected | **PASS** | `rows: 1`, keyed by `actor_id` (primary key). `created_at` 19:33 UTC, `updated_at` 22:24 UTC — the **same row upgraded in place**, not replaced. Capture verifies the Twitch identity against the one already connected to the actor (§195); a mismatched credential could not have written this row. |
+| 2 | trusted stored scopes contain `user:read:follows` | **PASS** | `has_follows_scope: true`, read from the stored credential |
+| 3 | readiness | **`ready`** | server-computed by the same `readinessFor` the `status` action uses |
+| 4 | secure credential custody succeeded | **PASS** | `format_version: 1`, `key_version: 1`, 125 bytes, `longest_printable_run: 5` — AES-256-GCM envelope, no plaintext run. `status: active`. |
+| 5 | `provider_token` absent from persistent browser storage | **PASS (ATTRIBUTED)** | see §242 |
+| 6 | `provider_refresh_token` absent from persistent browser storage | **PASS (ATTRIBUTED)** | see §242 |
+| 7 | Supabase session remains functional | **PASS** | the owner returned signed in; no re-authentication was required |
+| 8 | Watchside remains functional | **PASS** | owner-observed; realtime, presence and metadata all connected |
+| 9 | production relationship observations remain ZERO | **PASS** | `observations: 0`, counted in production |
+| 10 | production relationship callers remain ZERO | **PASS** | 0 occurrences of `action: 'relationship'` under `src/`; 0 in both shipped bundles; test-enforced |
+| 11 | `user:read:subscriptions` absent | **PASS** | `unexpected_scopes: 0`; 0 in both bundles; 0 in source |
+| 12 | `user:read:emotes` absent | **PASS** | `unexpected_scopes: 0`; 0 in both bundles; 0 in source |
+
+Shipped bundles:
+
+```
+kickback-background.js   follows=1  subscriptions=0  emotes=0  relationship=0  SLICE-C=0
+kickback-content.js      follows=0  subscriptions=0  emotes=0  relationship=0  SLICE-C=0
+```
+
+Deterministic gates at acceptance: **2,627 tests / 104 files, 0 failures**;
+**25/25 mutations DETECTED**; `tsc -b` clean; `eslint` clean.
+
+## 242. Items 5 and 6, stated honestly
+
+`chrome.storage.local` is on the owner's machine and cannot be read from here.
+By owner decision, these two are accepted on the **proven boundary** rather than
+a fresh browser observation:
+
+* `stripProviderCredentials` is the only writer of the Supabase session into
+  storage, and it strips on **both** `setItem` and `getItem` — a session that
+  somehow arrived dirty is rewritten clean on the next read
+* its mutation lever, `o7: persist the session without stripping`, is
+  **DETECTED**
+* the owner completed this OAuth round trip on **this exact build**, so any
+  regression would have written a credential to disk within the last hour
+
+**This is ATTRIBUTED, not OBSERVED**, and it is labelled that way deliberately.
+It is the same status §200 assigned it, and it is the one acceptance item on
+this list that a database read cannot settle. A permanent in-worker self-check
+that counts (never prints) provider-credential keys at startup would convert it
+to OBSERVED, and remains available if it is ever wanted.
+
+## 243. What was deployed
+
+`supabase functions deploy twitch-credential`.
+
+The change is confined to the **owner-gated** `credential_shape` branch, which
+is reachable only with `TWITCH_EVENTSUB_ADMIN_TOKEN` and is checked before any
+user path. No user-facing behaviour changed: `capture`, `status`, `ensure_fresh`
+and `relationship` are untouched, and the relationship action remains dormant
+with no caller.
+
+This diagnostic is **retained, not temporary**. It is the only way to check the
+claim the entire custody design rests on — that the column holds ciphertext and
+nothing else — against production rather than against a reading of the code. It
+returns counts, booleans, byte lengths and timestamps, and never a value.
+
+Not to be confused with the `[SLICE-C]` console diagnostic, which was temporary,
+served a rejected UX, and was removed at §220.
+
+## 244. Slice C verdict
+
+# GO
+
+All twelve acceptance conditions pass. Ten are OBSERVED against production; two
+(items 5 and 6) are ATTRIBUTED to a mutation-proven boundary by owner decision,
+and are labelled as such above rather than rounded up.
+
+What Slice C delivered, after two rejected UX designs:
+
+* new authorizations request `user:read:follows` on the ordinary Twitch consent
+  screen — the product contract
+* `needs_follow_permission` is a truthful server-computed state, distinct from
+  `needs_reauthorization`, never inferred client-side
+* the pre-M3D beta cohort upgrades through one account control, using the
+  existing Phase 2 custody path
+* the owner's own credential is now `ready`, in place, with exactly the scopes
+  Watchside asks for and nothing else
+
+What Slice C deliberately did **not** deliver: any measurement. Zero relationship
+callers, zero observations. M3D can now be built; it has not been.
+
+## 245. Not started
+
+**Slice D is not started**, per instruction.
+
+Still ahead, and unchanged: the JOIN trigger at `recordJoin` (attribution
+minted, `socialCount > 0`), the M3D analytics views, and the **public privacy
+disclosure, which must ship atomically with the first production observation**.
+The no-caller test is to be turned off deliberately at that point, and never
+quietly.
