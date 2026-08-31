@@ -1063,6 +1063,71 @@
   color: var(--kb-text);
 }
 
+/*
+ * Deleting an account is irreversible, so it is styled to look like it.
+ *
+ * It sits below Sign out and reads differently on purpose: everything else in
+ * this card is reversible, and this is the one control that is not.
+ */
+.kb-danger-btn {
+  margin-top: 6px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--kb-live);
+  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--kb-live) 40%, var(--kb-line));
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.kb-danger-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--kb-live) 12%, transparent);
+}
+
+.kb-danger-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.kb-danger-confirm {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--kb-live) 35%, var(--kb-line));
+  background: color-mix(in srgb, var(--kb-live) 7%, transparent);
+}
+
+.kb-danger-confirm p {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--kb-text);
+}
+
+.kb-danger-confirm input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid var(--kb-line);
+  background: var(--kb-bg);
+  color: var(--kb-text);
+  font-size: 11.5px;
+}
+
+.kb-danger-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.kb-danger-error {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+  color: var(--kb-live);
+}
+
 .kb-inline-note {
   margin: 0 12px;
   padding: 7px 9px;

@@ -432,6 +432,13 @@ export interface KickbackClient {
   inviteToGroup(groupId: string, userId: string): Promise<string>
   /** Withdraws an invitation that has not been answered yet. */
   cancelGroupInvite(groupId: string, userId: string): Promise<void>
+  /**
+   * Irreversibly deletes the signed-in account and everything it owns.
+   *
+   * Takes no argument: the server reads the actor from the session, so there is
+   * nothing here that could name somebody else.
+   */
+  deleteAccount(): Promise<{ ok: boolean; error: string | null }>
   respondToGroupInvite(inviteId: string, accept: boolean): Promise<string>
   leaveGroup(groupId: string): Promise<void>
   removeGroupMember(groupId: string, userId: string): Promise<void>

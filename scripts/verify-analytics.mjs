@@ -72,6 +72,17 @@ const VIEWS = [
   // split that keeps stream-minutes from being quoted as wall-clock minutes.
   'analytics_stream_dwell_v',
   'analytics_viewing_daily_v',
+  /*
+   * The destruction paths, from 0032.
+   *
+   * These are not analytics, and they are here anyway. The credential table's
+   * whole security property is that no client can reach it, and the database
+   * suite only proves that against an in-memory Postgres. Listing them here is
+   * what checks the same thing against the schema people actually use.
+   */
+  'twitch_credentials',
+  'creator_relationship_observations',
+  'eventsub_messages',
 ]
 
 const FUNCTIONS = [

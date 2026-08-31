@@ -1878,6 +1878,14 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   },
   cancelGroupInvite: ([groupId, userId]) =>
     groups.cancelInvite(String(groupId), String(userId)),
+  /*
+   * Irreversible, and it takes no arguments on purpose.
+   *
+   * There is no user id to pass, here or anywhere further down. The server
+   * reads the actor from the JWT, so a tab cannot ask for anybody else's
+   * account to be deleted even if it wanted to.
+   */
+  deleteAccount: () => auth.deleteAccount(),
   respondToGroupInvite: async ([inviteId, accept]) => {
     const groupId = await groups.respondToInvite(String(inviteId), accept === true)
     if (accept === true) {

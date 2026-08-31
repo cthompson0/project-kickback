@@ -143,6 +143,27 @@ export function createSupabaseBackend(supabase: SupabaseClient): AuthBackend {
       }
     },
 
+    /**
+     * Calls the server, which reads the actor from the JWT.
+     *
+     * No user id is sent. There is nothing in this request for anybody to put
+     * somebody else's account into.
+     */
+    async deleteAccount(): Promise<BackendResult<true>> {
+      try {
+        const { data, error } = await supabase.functions.invoke('delete-account', {
+          body: { confirm: 'DELETE' },
+        })
+        if (error) return { value: null, error: describe(error) }
+        if ((data as { status?: string } | null)?.status !== 'deleted') {
+          return { value: null, error: 'Watchside could not finish deleting your account.' }
+        }
+        return { value: true }
+      } catch (error) {
+        return { value: null, error: describe(error) }
+      }
+    },
+
     async signOut(): Promise<void> {
       // 'global' also revokes the refresh token server-side; fall back to a
       // local wipe so that being offline can never trap someone signed in.

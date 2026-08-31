@@ -86,6 +86,7 @@ function renderAccount(): string {
       client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => {}}
+      onDeleted={() => {}}
       onVisibilityChange={() => {}}
       preferences={PREFERENCES}
       onPreferencesChange={() => {}}

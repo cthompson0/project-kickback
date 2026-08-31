@@ -670,6 +670,12 @@ export function KickbackPanel({
             setAccountOpen(false)
             client.signOut()
           }}
+          onDeleted={() => {
+            // The worker has already cleared the session and broadcast the
+            // signed-out state; this just closes the card behind it.
+            setAccountOpen(false)
+            setFeedbackOpen(false)
+          }}
           preferences={view.preferences}
           onPreferencesChange={(patch) => {
             setActionError(null)

@@ -178,9 +178,15 @@ describe('the generated bundle', () => {
      *
      * It exists so verify:analytics can tell a half-applied schema from a
      * complete one, and everything else those migrations change is revoked from
-     * clients and therefore invisible to it. 0031 owns it now.
+     * clients and therefore invisible to it. 0032 owns it now.
+     *
+     * 0032 takes the marker even though its tables are not analytics tables.
+     * The marker is the only signal that says how far the hosted schema has
+     * been advanced, and 0032 carries the destruction paths - the one thing
+     * where "did this actually apply?" must have an answer that does not depend
+     * on reading a table clients cannot see.
      */
-    expect(version).toBe(31)
+    expect(version).toBe(32)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.

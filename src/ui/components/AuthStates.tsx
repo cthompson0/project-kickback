@@ -309,9 +309,119 @@ export function FeedbackForm({
   )
 }
 
+/**
+ * The one control in this panel that cannot be undone.
+ *
+ * Deliberately not a single button. Deleting an account destroys the social
+ * graph somebody built - their friends, groups, invites and history - and none
+ * of it can be restored, so the flow asks them to type their Twitch login
+ * rather than accept a click that could have been a mis-tap.
+ *
+ * The confirmation is a real check rather than theatre: the button stays
+ * disabled until the typed text matches, which makes it impossible to complete
+ * without reading what is being asked.
+ *
+ * Sign-out is next to this and does something completely different - it ends a
+ * session and deletes nothing. Keeping them visually distinct is the point.
+ */
+function DeleteAccountSection({
+  client,
+  login,
+  onDeleted,
+}: {
+  client: KickbackClient
+  /** Nullable: an account can exist without a Twitch login on it. */
+  login: string | null
+  onDeleted: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Something specific to type, even for an account with no login recorded.
+  const phrase = login ?? 'DELETE'
+  const matches = typed.trim().toLowerCase() === phrase.toLowerCase()
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        className="kb-danger-btn"
+        onClick={() => {
+          setOpen(true)
+          setTyped('')
+          setError(null)
+        }}
+      >
+        Delete account
+      </button>
+    )
+  }
+
+  return (
+    <div className="kb-danger-confirm">
+      <p>
+        This permanently deletes your Watchside account: your friends, groups,
+        invites, messages and history. It cannot be undone, and it does not
+        affect your Twitch account.
+      </p>
+      <p>
+        Type <strong>{phrase}</strong> to confirm.
+      </p>
+      <input
+        type="text"
+        value={typed}
+        disabled={busy}
+        aria-label="Type your Twitch login to confirm"
+        onChange={(event) => setTyped(event.target.value)}
+      />
+      {error && <p className="kb-danger-error">{error}</p>}
+      <div className="kb-danger-actions">
+        <button
+          type="button"
+          className="kb-danger-btn"
+          disabled={!matches || busy}
+          onClick={() => {
+            setBusy(true)
+            setError(null)
+            client
+              .deleteAccount()
+              .then((result) => {
+                if (result.ok) {
+                  onDeleted()
+                  return
+                }
+                // Never report a failure as success: the account still exists
+                // and they need to be able to try again.
+                setBusy(false)
+                setError(result.error ?? 'Watchside could not delete your account.')
+              })
+              .catch((cause: unknown) => {
+                setBusy(false)
+                setError(cause instanceof Error ? cause.message : 'Something went wrong.')
+              })
+          }}
+        >
+          {busy ? 'Deleting…' : 'Delete permanently'}
+        </button>
+        <button
+          type="button"
+          className="kb-ghost-btn kb-ghost-btn-inline"
+          disabled={busy}
+          onClick={() => setOpen(false)}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function AccountCard({
   identity,
   onSignOut,
+  onDeleted,
   onVisibilityChange,
   preferences,
   onPreferencesChange,
@@ -327,6 +437,7 @@ export function AccountCard({
 }: {
   identity: KickbackIdentity
   onSignOut: () => void
+  onDeleted: () => void
   onVisibilityChange: (mode: PresenceVisibility) => void
   preferences: KickbackPreferences
   onPreferencesChange: (patch: Partial<KickbackPreferences>) => void
@@ -478,6 +589,12 @@ export function AccountCard({
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out
       </button>
+
+      <DeleteAccountSection
+        client={client}
+        login={identity.twitchLogin}
+        onDeleted={onDeleted}
+      />
 
       {/*
         * Which build is this?

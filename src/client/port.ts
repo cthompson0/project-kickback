@@ -246,6 +246,7 @@ export function createPortClient(): KickbackClient {
     cancelGroupInvite: async (groupId, userId) => {
       await rpc('cancelGroupInvite', groupId, userId)
     },
+    deleteAccount: () => rpc<{ ok: boolean; error: string | null }>('deleteAccount'),
     respondToGroupInvite: (inviteId, accept) =>
       rpc<string>('respondToGroupInvite', inviteId, accept),
     leaveGroup: async (groupId) => {

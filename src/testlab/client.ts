@@ -532,6 +532,9 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     },
     signIn: () => {},
     signOut: () => {},
+    // The lab never touches a real account, and must not pretend it did.
+    deleteAccount: () =>
+      Promise.resolve({ ok: false, error: 'Account deletion is disabled in the Test Lab.' }),
     retry: () => {},
 
     async searchUsers(query: string): Promise<SearchResult[]> {

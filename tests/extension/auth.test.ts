@@ -31,6 +31,7 @@ class FakeBackend implements AuthBackend {
   exchangeResult: BackendResult<SessionLike> = { value: LIVE_SESSION }
   oauthResult: BackendResult<string> = { value: 'https://id.twitch.test/authorize?x=1' }
   signOutError: Error | null = null
+  deleteError: string | undefined
   calls: string[] = []
 
   async getSession(): Promise<BackendResult<SessionLike>> {
@@ -56,6 +57,13 @@ class FakeBackend implements AuthBackend {
     this.calls.push('signOut')
     if (this.signOutError) throw this.signOutError
     this.session = null
+  }
+  async deleteAccount(): Promise<BackendResult<true>> {
+    this.calls.push('deleteAccount')
+    if (this.deleteError) return { value: null, error: this.deleteError }
+    this.session = null
+    this.identity = null
+    return { value: true }
   }
   async fetchIdentity(): Promise<BackendResult<KickbackIdentity>> {
     this.calls.push('fetchIdentity')

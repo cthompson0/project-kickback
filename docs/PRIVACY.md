@@ -270,11 +270,23 @@ exception text or a stack trace — exactly as the analytics section describes.
 - **Mute somebody** — local to your device; nothing is sent.
 - **Block somebody** — removes the friendship, stops all Watchside contact
   between you, and is never disclosed to them.
-- **Sign out** — clears the session from your device.
-- **Delete your account** — email **anoteros.dev@gmail.com**. Deleting your
-  account removes your profile, friendships, requests, group memberships,
-  presence, blocks and feedback. Analytics events are not tied to your name and
-  are removed with your actor record.
+- **Sign out** — clears the session from your device. It deletes nothing on the
+  server: your account, your friends and your history are all still there when
+  you sign back in.
+- **Delete your account** — in the account panel, whenever you want. No email,
+  no waiting on us.
+
+  It asks you to type your Twitch username first, because it cannot be undone.
+  Deleting removes your profile, friendships, friend requests, group
+  memberships, group and stream messages, presence, blocks, invites, referrals,
+  badges, feedback and your analytics history. Nothing is kept back.
+
+  Two things worth knowing before you do it. **Groups you created are deleted
+  for everyone in them** — a group cannot outlive its owner, so tell the others
+  first if that matters. And messages you sent disappear from conversations
+  other people can still see, which may leave gaps in them.
+
+  It does not touch your Twitch account, and it does not unfollow anybody.
 - **Uninstall** — removes everything Watchside stored on your device. Data on the
   backend is removed on request as above.
 

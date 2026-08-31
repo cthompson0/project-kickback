@@ -2831,3 +2831,820 @@ All three conditions from §58 are now resolved or assigned: **U3 is closed**,
 The implementation blocker is lifted. The next checkpoint is phase 1 of §86 —
 destruction paths first, proven against empty tables, before any credential
 exists.
+
+---
+
+# Phase 1 — Destruction paths and account deletion
+
+**Date:** 2026-08-31
+**Type:** IMPLEMENTATION
+**Entering:** `4c3f676` · 2,409/2,409 · hosted schema 31 · v0.7.0
+
+---
+
+## 94. Phase 1 verdict
+
+## **GO**
+
+The fire exits are built and proven while the building is empty. Every deletion
+path a stored Twitch credential will ever need exists, is exercised by tests,
+and survives mutation — and **no production path can write a credential**, which
+is the invariant that makes shipping this half alone safe.
+
+| Requirement | State |
+|---|---|
+| User-triggerable account deletion | ✅ endpoint, client path and UI |
+| EventSub `user.authorization.revoke` receiver | ✅ signature-verified, replay-guarded |
+| G6 deletion primitive | ✅ one shared function, three future call sites |
+| Credential deletion | ✅ proven with synthetic ciphertext |
+| Relationship-observation deletion | ✅ separately deletable |
+| Analytics **preserved** on Twitch deauth | ✅ and mutation-proven |
+| Analytics **destroyed** on account deletion | ✅ D-A, and mutation-proven |
+| Idempotent / retry-safe | ✅ throughout |
+| Production credential writers | **ZERO** |
+
+Nothing in the brief's STOP list triggered. The two decisions worth flagging as
+deliberate rather than incidental are in §110.4 (a group cannot outlive its
+owner) and §121 (the public privacy page is **not** deployed in this phase).
+
+---
+
+## 95. Starting state
+
+| | |
+|---|---|
+| HEAD | `4c3f676`, tree clean |
+| Suite | 2,409 / 2,409 |
+| Hosted schema marker | 31 |
+| `0032` | free — verified again before use |
+| Version | 0.7.0, unchanged |
+| Known debt | analytics 6 (4 stale anchors, 2 genuine) · presence 0 · layout 0 · lab 11 |
+
+---
+
+## 96. Account-data blast-radius inventory
+
+Derived by parsing every `create table` block and every foreign key in
+`supabase/migrations/`, not by trusting the cascade graph.
+
+### 96.1 Foreign keys to a user
+
+| Target | Count | Delete rule |
+|---|---|---|
+| `public.users (id)` | **29** | `CASCADE` — all of them |
+| `auth.users (id)` | 1 (`public.users.id`) | `CASCADE` |
+
+**There is no `SET NULL`, `RESTRICT` or `NO ACTION` anywhere.** That was checked
+explicitly, because one of them would leave an orphan that the cascade story
+silently misses.
+
+### 96.2 The 26 tables
+
+**Destroyed by cascade — 21 user-owned:**
+
+`analytics_actors` · `analytics_events` · `blocks` · `connected_accounts` ·
+`feedback` · `friend_requests` · `friendships` · `group_invites` ·
+`group_members` · `group_messages` · `groups` · `invite_codes` · `presence` ·
+`presence_destinations` · `presence_rate` · `rate_limits` · `referrals` ·
+`room_messages` · `together_reactions` · `user_badges` · `user_preferences`
+
+**Destroyed explicitly, before the cascade — 2 new:**
+
+`twitch_credentials` · `creator_relationship_observations`
+
+**Not user-owned, correctly untouched — 5:**
+
+| Table | Why it survives |
+|---|---|
+| `analytics_environments`, `analytics_event_names` | dimension rows |
+| `badge_definitions` | catalogue |
+| `twitch_metadata_cache` | **creator** metadata, not viewer data |
+| `eventsub_messages` | delivery ids, no user column |
+
+`public.users` itself is destroyed via the `auth.users` cascade, which is the
+real root (§109).
+
+### 96.3 Multi-actor tables — where deletion touches somebody else
+
+Seven tables reference a user from more than one column, or scope a shared
+object to one owner:
+
+| Table | Columns | Effect on the other party |
+|---|---|---|
+| `friendships` | `user_id`, `friend_id` | the friendship disappears for both — correct; it cannot survive one side |
+| `friend_requests` | `from_user`, `to_user` | pending requests vanish either way |
+| `group_invites` | `from_user`, `to_user` | same |
+| `blocks` | `blocker_id`, `blocked_id` | a block by or against the deleted user is removed |
+| `referrals` | `inviter_id`, `invitee_id` | the referral record goes with either party |
+| `room_messages` | `sender_id`, `recipient_id` | **their messages disappear from conversations others can still see** |
+| `groups` | `owner_id` | **the whole group is destroyed for every member** |
+
+The last two are unavoidable effects on shared records and are documented rather
+than engineered around (§110.4).
+
+### 96.4 Checked for and absent
+
+- **No user identity embedded in analytics payloads.** The event vocabulary in
+  `src/core/analytics.ts` contains no `user_id`-shaped property, so no event
+  belonging to actor A carries actor B's identity, and deleting B leaves no
+  dangling reference in A's rows.
+- **No storage buckets, files or per-user object resources.**
+- **No server-side state outside a simple foreign key.**
+
+---
+
+## 97. Destruction-first schema
+
+`supabase/migrations/0032_destruction_paths.sql`. Three tables and three
+functions, all server-only.
+
+| Object | Purpose |
+|---|---|
+| `twitch_credentials` | the future credential row. **Empty. No writer exists** |
+| `creator_relationship_observations` | future `following_at_join`. **Empty. No writer exists** |
+| `eventsub_messages` | replay guard |
+| `purge_twitch_derived(uuid)` | **the** shared G6 primitive (§100) |
+| `actor_for_twitch_user(text)` | Twitch id → Watchside actor |
+| `sweep_eventsub_messages(interval)` | housekeeping |
+
+The credential table carries the columns the approved architecture specified —
+`secret` (nonce ‖ ciphertext ‖ tag), `key_version`, `scopes`, `status`,
+`version`, `access_expires_at`, timestamps — so the destruction path is proven
+against the shape custody will actually use, not a placeholder.
+
+`relationship_present` is **nullable**, which is the mechanism that keeps a
+failed Twitch call from becoming "did not follow". Mutation-proven (§116).
+
+---
+
+## 98. Credential-table security
+
+The `twitch_metadata_cache` precedent from `0017`, verbatim:
+
+```sql
+alter table public.twitch_credentials enable row level security;
+revoke all on table public.twitch_credentials from public, anon, authenticated;
+grant select, insert, update, delete on table public.twitch_credentials to service_role;
+```
+
+RLS enabled with **zero policies** is deny-all, and the explicit `revoke` means
+a future accidental `GRANT` still cannot be reached through RLS. The test
+harness deliberately reproduces Supabase's default of granting `anon`/
+`authenticated` full DML on anything new in `public`, so these tests fail unless
+the migration actively claws it back.
+
+**Proven, for both `authenticated` and `anon`:** `SELECT`, `INSERT`, `UPDATE`
+and `DELETE` all refuse with `permission denied` — including when a row exists,
+so the answer is not merely "nothing to see".
+
+One lever in the mutation plan is worth recording because it changed the design
+of the test: a bare `GRANT SELECT` does **not** defeat RLS-with-no-policies, so
+mutating only the grant proved nothing. The realistic failure — and what an
+accidental "make it work" commit looks like — is a **permissive policy**, so
+that is what the mutation adds (§116).
+
+---
+
+## 99. Relationship-observation security
+
+Same posture: RLS on, zero policies, revoked from clients, granted to
+`service_role`, plus an index on `actor_id` because every deletion is by actor.
+
+**Not client-browseable, by its own subject.** A user cannot read their own
+follow observations through the API — there is no product surface that needs it,
+and the row exists for measurement rather than display.
+
+Kept in a separate table from `analytics_events` precisely so a Twitch
+deauthorization can delete it without touching Watchside's own observations
+(§106). No aggregate table retains a deleted relationship fact; future views
+compute from the table, so a deleted observation stops contributing
+automatically.
+
+---
+
+## 100. The shared G6 deletion primitive
+
+```sql
+purge_twitch_derived(p_actor uuid) returns jsonb
+```
+
+Deletes the credential and the Twitch-derived observations for one actor, and
+**nothing else**. Returns counts so callers can log that work happened without
+logging what was in the rows.
+
+**Three future call sites, one implementation:**
+
+| Caller | Status |
+|---|---|
+| EventSub revocation receiver | ✅ built (§101) |
+| Account deletion | ✅ built (§107) |
+| Use-time scope-loss detector | ⏳ phase 2 — calls the same function (§112) |
+
+One function rather than three copies is the point: three deletion paths that
+each decide for themselves what "Twitch-derived" means will diverge, and the
+divergence will be discovered by a row that outlived a revocation.
+
+**Behaviours proven:** deletes the right actor's rows; **preserves** that
+actor's analytics; leaves other actors untouched; idempotent (second call
+returns zeros); harmless for an actor who never had anything; and a **null
+actor is a no-op** rather than a delete-everything — which is what an
+unresolved Twitch id produces.
+
+---
+
+## 101. EventSub receiver
+
+`supabase/functions/twitch-eventsub/`, deployed **with `--no-verify-jwt`**:
+Twitch has no Supabase JWT, so the HMAC signature *is* the authentication.
+
+Pure decision logic lives in `verify.ts`, separate from I/O, so the two places
+where a mistake silently deletes user data — the signature check and the
+message-type branch — are provable offline rather than only in a deployed
+function.
+
+Order of operations, and it is deliberate:
+
+```
+  raw body read ONCE, before anything parses it
+  → headers present?          → 403
+  → timestamp fresh?          → 403      (before any HMAC work)
+  → signature matches?        → 403      (nothing believed until here)
+  → parse body
+  → branch on Message-Type    (§102)
+  → dedupe on Message-Id      (after verification, never before)
+  → resolve actor, purge
+```
+
+Unknown actor, unknown message type and unsubscribed subscription type all
+return **2xx and do nothing** — an error there would make Twitch retry a
+delivery that can never succeed.
+
+---
+
+## 102. Message-Type branching
+
+**The load-bearing distinction, and it came from the CLI rather than the docs.**
+
+| Delivery | Meaning | Action |
+|---|---|---|
+| `Message-Type: notification` + subscription type `user.authorization.revoke` | a **user** revoked authorization | purge that actor |
+| `Message-Type: revocation` | **Twitch** is dropping the subscription | **delete nothing** |
+| `Message-Type: webhook_callback_verification` | setup handshake | echo the challenge |
+
+Both of the first two are called "revocation" in Twitch's own vocabulary and
+both arrive at the same URL. Reading the second as the first would delete
+relationship data for whoever the body happened to name, because Watchside's own
+subscription lapsed — destroying an H2 baseline for a reason that has nothing to
+do with the user.
+
+Branching happens **before** anything in the body is treated as an instruction.
+Three tests cover it, including one where a `revocation` message carries a
+complete event body — the case where a naive implementation reading the body
+first would purge.
+
+Mutation-proven: deleting the `subscription_dropped` branch is DETECTED.
+
+---
+
+## 103. Signature verification
+
+**Source:** Twitch — *"Create an HMAC signature using your secret and a message
+that is the concatenation of the values in the Twitch-Eventsub-Message-Id
+header, Twitch-Eventsub-Message-Timestamp header, and the raw request body (the
+order is important.)"*
+
+| Property | Implementation |
+|---|---|
+| Signed material | `message_id ‖ timestamp ‖ raw_body` |
+| Algorithm | HMAC-SHA256, compared against `sha256=<64 hex>` |
+| Raw body | read once with `request.text()`, **never** parsed or re-serialised before verification |
+| Comparison | constant-time — accumulate XOR over all characters, no early return |
+| Secret | `TWITCH_EVENTSUB_SECRET`, a Function secret |
+
+**Proven:** a genuine delivery is accepted; a wrong signature, a signature from
+a different secret, missing headers, and a **body tampered with after signing**
+are all rejected. That last one is the attack that matters — swapping in another
+user's `user_id` in flight invalidates the signature, so nothing is deleted.
+
+### 103.1 One test that had to change shape
+
+The constant-time comparison produced the only **undetected** mutation in the
+first run: replacing it with `a === b` passes every behavioural assertion,
+because it is functionally identical. The difference is timing, and no assertion
+about a return value can observe timing.
+
+Rather than delete the lever or leave a decorative test, the test now also pins
+the *shape* — XOR accumulation, no early return — which is the codebase's
+existing idiom for properties that cannot be observed behaviourally. The
+mutation is now DETECTED, and a future "simplification" back to `===` fails.
+
+---
+
+## 104. Replay and dedupe
+
+| Mechanism | Behaviour |
+|---|---|
+| Timestamp freshness | ±10 minutes; an unparseable timestamp is **stale**, not "now" |
+| `Message-Id` | primary key in `eventsub_messages`; a duplicate insert (`23505`) means already handled → 2xx `duplicate` |
+| Ordering | dedupe happens **after** signature verification, so an unverified request cannot poison the table with an id that would suppress a later genuine delivery |
+| Guard unavailable | fail closed (503). The purge is idempotent so deleting anyway would be safe, but "no cleanup without a recorded delivery" is the simpler invariant |
+| Sweep | `sweep_eventsub_messages(interval)`, service-role only |
+
+A stale delivery is rejected **before** the HMAC, so a replayed message never
+reaches the comparison — and its signature is still perfectly valid, which is
+exactly why the message id is recorded as well.
+
+---
+
+## 105. Twitch identity resolution
+
+```
+event.user_id  →  connected_accounts.platform_user_id  (platform = 'twitch')
+                  unique (platform, platform_user_id)
+               →  connected_accounts.user_id  =  Watchside actor
+```
+
+**`event.user_id` only.** `user_login` and `user_name` are never consulted, and
+the tests prove resolution still works when both are null — which is the state
+they arrive in when the Twitch account no longer exists, one of the very
+situations that produces a revocation.
+
+The mapping needed no new schema: `connected_accounts` already carries it,
+already has the uniqueness constraint, and is already populated by the
+`auth.users` trigger from `0004`. Its `platform_user_id` is `text`, and Twitch
+delivers `user_id` as a string, so there is no coercion.
+
+**Unresolved id:** `actor_for_twitch_user` returns null, the receiver answers
+2xx and does nothing. There is no fallback to login or name matching, and the
+purge treats a null actor as a no-op rather than as "all actors" — both proven.
+
+---
+
+## 106. Twitch deauthorization behaviour
+
+| Deleted | Preserved |
+|---|---|
+| `twitch_credentials` row | the Watchside account |
+| `creator_relationship_observations` rows | **`analytics_events` and `analytics_actors`** |
+| | friendships, groups, messages, presence, invites, badges |
+
+Proven end to end with two actors: purging Alice removes Alice's credential and
+observations, **keeps Alice's analytics**, and leaves Bob's credential,
+observations and analytics entirely untouched.
+
+Revoking Twitch's grant is not a request to erase Watchside's own record of
+Watchside. A purge that took the analytics would silently corrupt the experiment
+for a reason unrelated to what the user did — which is why the mutation that
+adds `delete from analytics_events` to the purge is in the plan, and is DETECTED.
+
+---
+
+## 107. Account-deletion server flow
+
+`supabase/functions/delete-account/`.
+
+```
+POST { "confirm": "DELETE" }   Authorization: Bearer <Supabase JWT>
+  → auth.getUser()                     actor from the token, validated
+  → purge_twitch_derived(actor)        credential FIRST
+  → auth.admin.deleteUser(actor)       cascades the whole graph
+  → { status: "deleted" }
+```
+
+| Property | How |
+|---|---|
+| Self-only | actor from `auth.getUser()`, which validates the JWT against the auth server. **No id in the request** |
+| Unauthenticated rejected | 401 before anything else |
+| Deliberate | requires `confirm: "DELETE"`; a stray POST does nothing |
+| Idempotent | every step is delete-if-exists |
+| Partial failure | reported as `deletion_incomplete` with the stage, **never as success** |
+| Service role | stays server-side; the client never sees it |
+
+The client method takes **zero arguments** — asserted by a test — so there is
+nothing for a compromised tab to put another account into, at any layer.
+
+---
+
+## 108. Account-deletion UX
+
+In the account panel, beside Sign out, styled distinctly (`kb-danger-btn`)
+because everything else in that card is reversible and this is not.
+
+| Requirement | Implementation |
+|---|---|
+| Findable | account panel, next to Sign out |
+| Clear warning | names what is destroyed and says it cannot be undone |
+| Explicit confirmation | must type their **Twitch login**; the button stays disabled until it matches |
+| Not one-click | first click only opens the confirmation — **proven**: the destructive control is absent from the initial render |
+| Success / failure | failure sets an error and re-enables; the panel closes only on confirmed success |
+| Session cleared | the worker clears local state after the server confirms |
+| Nullable login | an account without a Twitch login gets `DELETE` as the phrase rather than an unfillable field |
+
+Deliberately no other account-management features were added.
+
+---
+
+## 109. Account-deletion ordering
+
+**Credential first, always.**
+
+```
+1. purge_twitch_derived(actor)     ← the worst thing to retain
+2. auth.admin.deleteUser(actor)    ← cascades public.users → 21 tables
+```
+
+If the process dies between them, the live Twitch credential is **already
+gone** and the account is in a state a retry completes. The reverse order would
+orphan the credential behind a deleted account, where no later cleanup could
+reach it — and Twitch's confidential-client refresh tokens have no expiration
+time, so it would sit there indefinitely.
+
+`auth.users` is the real root: `public.users.id references auth.users (id) on
+delete cascade`, verified in the schema and proven by a test that deletes the
+auth row and asserts the whole graph goes with it.
+
+---
+
+## 110. Analytics deletion semantics
+
+### 110.1 What "that user's analytics history" is
+
+`analytics_events` where `actor_id = <user>`, plus their `analytics_actors` row.
+Both carry `on delete cascade` from `public.users`, so both are destroyed by the
+account-deletion root. D-A satisfied.
+
+### 110.2 Nobody else's is touched
+
+`actor_id` is the only user column on `analytics_events`, and the event
+vocabulary embeds no second user's identity (§96.4). Deleting Alice cannot
+remove a row belonging to Bob — proven with both actors present.
+
+### 110.3 The contract is generated, not hand-listed
+
+The strongest test here asks the **catalogue** which tables carry a
+`public.users` foreign key, then asserts every one of them is empty for the
+deleted actor. A hand-written list stops covering table 22 the day somebody adds
+one; this makes a new user-owned table join the deletion contract automatically,
+and fail loudly if it does not.
+
+### 110.4 Unavoidable effects on shared records
+
+Two are worth stating plainly rather than burying:
+
+- **A group cannot outlive its owner.** `groups.owner_id` cascades, so deleting
+  an owner destroys the group for every member. That is the existing schema's
+  semantics; changing it silently — reassigning ownership during a deletion —
+  would be a product decision made inside a privacy feature, so it is documented
+  and surfaced in the UI copy instead.
+- **Messages disappear from conversations others can still see**, leaving gaps.
+
+Both are now stated in the privacy policy (§121) so the user learns them before
+confirming rather than afterwards.
+
+---
+
+## 111. Sign-out invariants
+
+**Sign-out deletes nothing server-side, and never reaches a destruction path.**
+
+| Proven | |
+|---|---|
+| `signOut` never calls `deleteAccount` | ✅ |
+| The account survives sign-out | ✅ |
+| No server-side deletion of credential or observations | ✅ (§115) |
+
+The mutation "delete the credential on sign-out" is in the plan precisely
+because that is the plausible mistake: both end a session from the user's point
+of view, and only one is a withdrawal of anything.
+
+---
+
+## 112. Scope-loss future hook
+
+**Not implemented**, because detecting scope loss requires a refresh — and
+refreshing requires custody, which does not exist yet.
+
+The *deletion* side is already built. When phase 2 adds the use-time detector,
+it calls `purge_twitch_derived(actor)` — the same function the receiver and
+account deletion already use. There is no second implementation to write and
+none to keep in step.
+
+**Future call site:** the credential subsystem, after a refresh whose `scope`
+array no longer contains `user:read:follows`, or after a `401`/`403` from Get
+Followed Channels.
+
+---
+
+## 113. Migration
+
+`0032_destruction_paths.sql`. `0032` was re-verified free before use. No
+historical migration was edited.
+
+The schema marker moves **31 → 32**. `0032` takes ownership even though its
+tables are not analytics tables, because the marker is the only signal for how
+far the hosted schema has advanced, and the destruction paths are the one thing
+where "did this actually apply?" must have an answer that does not depend on
+reading a table clients cannot see. The bundle test's own comment anticipated
+ownership moving; it was updated with that reasoning rather than flipped.
+
+---
+
+## 114. Hosted state
+
+Applied through the established workflow, with every check the brief requires:
+
+| Step | Result |
+|---|---|
+| SQL inspected | ✅ |
+| DB suite | ✅ 390 → **423** passing |
+| Bundle regenerated + migration test | ✅ |
+| `supabase migration list` | local ≡ remote through 0031; **0032 the only gap** — no history problem, so no repair or baseline |
+| `db push --dry-run` | **`0032_destruction_paths.sql` only** |
+| Applied | ✅ |
+| `migration list` after | local ≡ remote through **0032** |
+| `verify:analytics` | ✅ passes; **nothing client-readable** |
+
+**The three new tables were added to `verify:analytics`.** They are not
+analytics, and they belong there anyway: the credential table's entire security
+property is that no client can reach it, and the database suite only proves that
+against an in-memory Postgres. Production now reports:
+
+```
+relation present  twitch_credentials
+relation present  creator_relationship_observations
+relation present  eventsub_messages
+```
+
+…all present, none client-readable.
+
+---
+
+## 115. Deterministic security tests
+
+**+80 tests**, 2,409 → **2,489**.
+
+| Suite | Count | Covers |
+|---|---|---|
+| `tests/db/destructionPaths.test.ts` | 33 | table posture, purge semantics, identity resolution, deletion contract, dedupe |
+| `tests/extension/eventsubVerification.test.ts` | 24 | signature, replay, Message-Type branching, identity |
+| `tests/extension/accountDeletion.test.ts` | 14 | deletion flow, sign-out invariant, **no-custody proof** |
+| `tests/extension/accountDeletionUi.test.tsx` | 9 | findable, not one-click, honest failure |
+
+All 40 enumerated proofs are covered. Mapping the less obvious ones:
+
+| # | Proof | Where |
+|---|---|---|
+| 9 | unknown Twitch user_id cannot delete another actor | null actor is a no-op |
+| 10 | nullable login/name do not matter | resolution with both null |
+| 14 | replayed message id handled deterministically | dedupe primary key |
+| 15 | `Message-Type: revocation` does no user cleanup | three tests |
+| 20 | credential destroyed before broader deletion | call-order assertion |
+| 26 | expected cascades execute | catalogue-generated contract (§110.3) |
+| 29 | local session cleared after success | auth-service state |
+| 30 | sign-out performs no server deletion | §111 |
+| 36 | no real provider credential can be persisted | §118 |
+| 40 | logs contain no plaintext | fixed-code logging only (§117) |
+
+---
+
+## 116. Mutation proofs
+
+`npm run test:destruction` — **11 / 11 detected.**
+
+| Mutation | Result |
+|---|---|
+| eventsub: accept any signature | ✅ DETECTED |
+| eventsub: compare signatures with early exit | ✅ DETECTED *(after §103.1)* |
+| eventsub: stop checking freshness | ✅ DETECTED |
+| eventsub: treat a dropped subscription as a user revocation | ✅ DETECTED |
+| eventsub: fall back from `user_id` to `user_login` | ✅ DETECTED |
+| purge: also delete Watchside analytics on deauth | ✅ DETECTED |
+| purge: delete every actor rather than the named one | ✅ DETECTED |
+| purge: treat an unresolved actor as "all actors" | ✅ DETECTED |
+| credentials: give clients a permissive read policy | ✅ DETECTED |
+| observations: default `relationship_present` to false | ✅ DETECTED |
+| o7: persist the session without stripping | ✅ DETECTED |
+
+Two levers taught something rather than merely passing. The permissive-policy
+one had to be rewritten because a bare `GRANT` does not defeat RLS-with-no-
+policies (§98), and the constant-time one was genuinely undetectable until the
+test pinned the implementation shape (§103.1).
+
+---
+
+## 117. O7 regression proof
+
+**Intact.** `providerCredentialStripping.test.ts` unchanged and passing, and the
+O7 mutation is still DETECTED.
+
+| Assertion | Result |
+|---|---|
+| `provider_token` absent from persistent browser storage | ✅ |
+| `provider_refresh_token` absent from persistent browser storage | ✅ |
+| Supabase's own tokens untouched | ✅ |
+| Exactly one source file names a provider credential, and it strips them | ✅ |
+| Logs contain no plaintext | ✅ fixed codes only; both new functions log a code and counts, never an actor id, login, header or row content |
+
+---
+
+## 118. No-custody proof
+
+**Release-blocking, and it is now a test rather than a claim.**
+
+| Check | Result |
+|---|---|
+| Source files naming a provider credential | **exactly one** — `src/background/storage.ts`, which removes them |
+| Edge Functions naming a provider credential | **none** |
+| `insert into public.twitch_credentials` anywhere in SQL | **none** |
+| `delete from public.twitch_credentials` | present — the destruction path |
+| Twitch scopes requested | **none**; no `scopes:` key, no `user:read:follows`, no `user:read:subscriptions` |
+| O7 stripping present | ✅ |
+
+**Production credential writers: ZERO.**
+
+These are written to fail loudly when custody is implemented deliberately, so
+turning them off is a decision somebody makes at the custody gate rather than a
+line that quietly stopped being true.
+
+---
+
+## 119. Chrome impact
+
+**None.** Verified rather than assumed:
+
+| Aspect | State |
+|---|---|
+| `permissions` | unchanged — `identity`, `storage`, `alarms`, `notifications` |
+| `host_permissions` | unchanged — the new functions are routes on the already-granted `*.supabase.co` |
+| CSP | unchanged |
+| Manifest / extension id / version | **untouched** (`git diff` empty) |
+| Privacy-practice answers | **will** need updating when a version carrying account deletion is submitted (§121) |
+
+---
+
+## 120. Firefox impact
+
+**None.** Declared categories remain exactly `authenticationInfo`,
+`browsingActivity`, `personalCommunications`, `websiteActivity` —
+`scripts/manifest.mjs` untouched. `technicalAndInteraction` still zero.
+
+Account deletion collects nothing; it removes. `verify:firefox` passes.
+
+---
+
+## 121. Privacy impact
+
+`docs/PRIVACY.md` updated. It previously said deletion was by email, which is no
+longer true.
+
+It now says deletion is self-service in the account panel, that it asks for the
+Twitch username because it cannot be undone, and enumerates what goes —
+including **the two shared-record effects from §110.4**: groups you created are
+deleted for everyone, and your messages leave gaps in conversations others can
+still see. Somebody should learn that before confirming, not after.
+
+It also states plainly that sign-out deletes nothing on the server.
+
+**No claim is made that Watchside stores Twitch credentials, because it does
+not.** The only token sentence in the policy refers to Watchside's own Supabase
+session tokens, which is accurate.
+
+### 121.1 The public page is deliberately NOT deployed
+
+`docs/PRIVACY.md` tracks HEAD; the published page describes what people have
+**installed**, and account deletion is not in v0.7. Publishing now would promise
+a control that no installed build has.
+
+`scripts/build-privacy-page.mjs` is a generator run at publish time, not a gate,
+so the two are allowed to differ between a feature landing and its release.
+**Regenerating and deploying the page is a release-gate action for the version
+that ships account deletion** — the same atomicity the brief requires of
+credential-custody disclosure. Recorded in §125 as a phase-2 obligation.
+
+---
+
+## 122. Regression results
+
+| Gate | Result |
+|---|---|
+| `npm test` | ✅ **2,489 / 2,489** (99 files) |
+| `tests/db` | ✅ 423 |
+| `npm run lint` | ✅ clean |
+| `npx tsc -b --force` | ✅ clean |
+| `npm run build` | ✅ clean |
+| `npm run verify:store` | ✅ |
+| `npm run verify:firefox` | ✅ |
+| `npm run verify:analytics` | ✅ new tables present, none client-readable |
+| `npm run test:destruction` | ✅ 11/11 |
+
+---
+
+## 123. Known-debt delta
+
+| Harness | Baseline | Now | Delta |
+|---|---|---|---|
+| `test:presence` | 0 / 21 | **0 / 21** | ✅ none |
+| `test:layout` | 0 / 23 | **0 / 23** | ✅ none |
+| `verify:lab` | 11 | **11** | ✅ none |
+| `test:analytics` | 6 (4 stale anchors, 2 genuine) | **6** | ✅ none |
+
+No baseline worsened and no unrelated debt was reopened. The four stale anchors
+in `analyticsHub.ts` remain out of scope.
+
+### 123.1 The analytics number took three runs to establish
+
+Worth recording, because it nearly went into this report wrong and because the
+cause can bite anybody.
+
+The first reading was **11 / 87**, the second **9 / 87**. Both were false, and
+the reason is that a mutation harness *edits source files on disk* and restores
+them afterwards. An earlier run had been killed by a timeout mid-mutation, which
+left two files — `analyticsHub.ts` and `togetherWatch.ts` — holding live
+mutations that nobody put there:
+
+```
+- from_join: event.attributionId !== null      +  from_join: true
+- lastSeenAt: lifecycleSeenAt                  +  lastSeenAt: now
+- state.socialEndedAt = state.aloneSince       +  state.socialEndedAt = at
+```
+
+Every subsequent run then measured mutated source, and the anchors it was
+looking for no longer matched — which is why the extra failures all appeared as
+`SKIPPED … anchor no longer present` rather than as anything obviously wrong.
+
+**Two consequences, and the second is the serious one.** A worsened debt number
+was not real; and those three mutations were sitting in the working tree,
+`git status` showed them as ordinary modifications, and they would have been
+committed as product code. They were caught only because the debt figure did not
+match and was chased rather than accepted.
+
+Restoring both files to HEAD and re-running on clean source gives **6 / 87**,
+identical to baseline. The reconciliation between the seven printed lines and
+the count of six: four `SKIPPED` stale anchors plus three `UNDETECTED`, one of
+which is flagged `optional` in the harness and counted separately.
+
+**Operational rule this establishes:** never run two mutation harnesses at once,
+and after any interrupted run, check `git status` for source files nobody
+edited before trusting the result — or committing.
+
+---
+
+## 124. Remaining risks
+
+| # | Risk | Severity | Position |
+|---|---|---|---|
+| 1 | EventSub subscription not yet created | Medium | The receiver exists; the subscription is a phase-2 deployment step. Until then no revocation is heard — and nothing is stored to lose |
+| 2 | A dropped subscription silently stops revocation delivery | Medium | Logged loudly as `subscription_dropped`; needs an alert in phase 2 |
+| 3 | Deployment not yet done | Low | Both functions are unlaunched. No credential exists, so nothing is unprotected |
+| 4 | `groups` cascade destroys a group for its members | Low | Existing semantics, now disclosed |
+| 5 | Real end-to-end EventSub never exercised | Medium | Deliberate. Belongs at the custody gate (§125) |
+| 6 | Account deletion is irreversible with no grace period | Low | Typed confirmation is the guard; a soft-delete window would retain data the user asked to destroy |
+
+---
+
+## 125. Phase 2 readiness
+
+**Ready.** Phase 2 (custody) may proceed, and inherits a working deletion path
+for everything it will create.
+
+Obligations that must land **with** the first credential writer, not after:
+
+1. deploy `twitch-eventsub` (`--no-verify-jwt`) and `delete-account`;
+2. create the EventSub subscription and set `TWITCH_EVENTSUB_SECRET`;
+3. set `TWITCH_CREDENTIAL_KEY_V1`;
+4. **a real shape-only end-to-end exercise** — capture, refresh, revoke, delete —
+   on a real account, per §90;
+5. request `user:read:follows` and update the authorization UX;
+6. **regenerate and deploy the public privacy page**, including credential
+   disclosure (§121.1);
+7. update Chrome privacy-practice answers at submission.
+
+Until (1)–(3) exist, no credential can be written even by mistake: there is no
+writer, no key and no endpoint.
+
+---
+
+## 126. Final verdict
+
+## **GO**
+
+The destruction side is complete, proven, and mutation-tested while the tables
+are empty — which was the whole argument for building it first. A credential
+with no working deletion path is a liability from its first row; an empty
+deletion path is merely untested until fixtures are pointed at it, and now they
+have been.
+
+Three things are worth carrying forward as findings rather than mechanics:
+
+- **A bare `GRANT` does not defeat RLS-with-no-policies**, so the first
+  credential-exposure mutation proved nothing. The realistic failure is a
+  permissive policy, and that is now what the test defends against.
+- **The constant-time comparison was undetectable behaviourally.** Replacing it
+  with `===` passed every assertion. Pinning the implementation shape was the
+  only honest fix, and it is the same idiom the experiment-salt test uses.
+- **Deleting an account destroys a group for everyone in it.** That falls out of
+  a foreign key written in `0007`, and it is the kind of thing a user should be
+  told before they confirm rather than discover afterwards.
+
+**Production credential writers: ZERO.** The invariant holds, and it is enforced
+by tests that will fail loudly the moment phase 2 deliberately changes it.

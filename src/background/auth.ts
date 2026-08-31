@@ -29,6 +29,8 @@ export interface AuthBackend {
   startOAuth(redirectTo: string): Promise<BackendResult<string>>
   exchangeCode(code: string): Promise<BackendResult<SessionLike>>
   signOut(): Promise<void>
+  /** Irreversibly deletes the signed-in account, server-side. */
+  deleteAccount(): Promise<BackendResult<true>>
   /** Reads the Watchside profile for the current session. */
   fetchIdentity(): Promise<BackendResult<KickbackIdentity>>
 }
@@ -92,6 +94,8 @@ export interface AuthService {
   initialize(): Promise<void>
   signIn(): Promise<void>
   signOut(): Promise<void>
+  /** Irreversible. Deletes the account server-side, then clears the session. */
+  deleteAccount(): Promise<{ ok: boolean; error: string | null }>
   retry(): Promise<void>
   /** Refreshes if the token is close to expiry. Returns false if signed out. */
   ensureFreshSession(): Promise<boolean>
@@ -246,6 +250,35 @@ export function createAuthService(deps: AuthDeps): AuthService {
         friends: [],
         signingIn: false,
       })
+    },
+
+    /**
+     * Irreversible, and deliberately not modelled on sign-out.
+     *
+     * Sign-out clears the local session and touches nothing on the server.
+     * This destroys the account. The local session is cleared ONLY after the
+     * server confirms, because signing somebody out of an account that still
+     * exists would leave them unable to retry the thing they asked for.
+     */
+    async deleteAccount() {
+      const result = await deps.backend.deleteAccount()
+      if (result.error || !result.value) {
+        deps.onError?.('deleteAccount', result.error)
+        return { ok: false, error: result.error ?? 'Watchside could not delete your account.' }
+      }
+
+      // The account is gone, so there is no server session left to end. Clear
+      // the local one anyway, and never let that failure look like a failure to
+      // delete - the deletion already succeeded.
+      await deps.backend.signOut().catch(() => {})
+      setState({
+        status: 'signed_out',
+        identity: null,
+        error: null,
+        friends: [],
+        signingIn: false,
+      })
+      return { ok: true, error: null }
     },
 
     async retry() {

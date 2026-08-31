@@ -158,6 +158,7 @@ describe('resetting the layout', () => {
         client={{ badges: async () => [] } as unknown as KickbackClient}
         identity={signedIn.identity!}
         onSignOut={() => {}}
+        onDeleted={() => {}}
         onVisibilityChange={() => {}}
         preferences={{ gatheringNotifications: true }}
         onPreferencesChange={() => {}}

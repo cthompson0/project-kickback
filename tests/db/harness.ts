@@ -185,6 +185,10 @@ export async function createTestDb(): Promise<TestDb> {
         truncate auth.users cascade;
         truncate public.users, public.connected_accounts, public.friend_requests,
                  public.friendships, public.user_preferences, public.presence cascade;
+        -- No user foreign key, so the cascade above does not reach it. A dedupe
+        -- table that survived resets would make one test's message id look like
+        -- a replay to the next.
+        truncate public.eventsub_messages;
       `)
       userCounter = 0
     },

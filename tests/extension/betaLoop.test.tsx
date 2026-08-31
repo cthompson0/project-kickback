@@ -183,6 +183,7 @@ describe('the account card carries the shelf', () => {
         client={client}
         identity={IDENTITY}
         onSignOut={() => {}}
+        onDeleted={() => {}}
         onVisibilityChange={() => {}}
         preferences={PREFERENCES}
         onPreferencesChange={() => {}}

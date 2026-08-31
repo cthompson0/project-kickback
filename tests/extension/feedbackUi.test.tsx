@@ -66,6 +66,7 @@ function account(calls: string[] = []) {
       client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => calls.push('signOut')}
+      onDeleted={() => {}}
       onVisibilityChange={() => calls.push('visibility')}
       preferences={{ gatheringNotifications: true }}
       onPreferencesChange={() => calls.push('preferences')}

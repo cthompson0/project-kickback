@@ -120,6 +120,7 @@ function account(blocked: { user: { id: string; displayName: string } }[], muted
       client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => {}}
+      onDeleted={() => {}}
       onVisibilityChange={() => {}}
       preferences={{ gatheringNotifications: true }}
       onPreferencesChange={() => {}}
