@@ -1,5 +1,5 @@
 import { INITIAL_STATE } from '../client/types'
-import type { KickbackIdentity, KickbackState } from '../client/types'
+import type { KickbackIdentity, KickbackState, MeasurementReadiness } from '../client/types'
 
 /**
  * The authentication state machine.
@@ -26,7 +26,9 @@ export interface AuthBackend {
   getSession(): Promise<BackendResult<SessionLike>>
   refreshSession(): Promise<BackendResult<SessionLike>>
   /** Returns the provider URL the user must visit. */
-  startOAuth(redirectTo: string): Promise<BackendResult<string>>
+  startOAuth(redirectTo: string, scopes?: string): Promise<BackendResult<string>>
+  /** What the server says about measuring this actor. */
+  measurementReadiness(): Promise<BackendResult<MeasurementReadiness>>
   exchangeCode(code: string): Promise<BackendResult<SessionLike>>
   signOut(): Promise<void>
   /** Irreversibly deletes the signed-in account, server-side. */
@@ -42,6 +44,9 @@ export interface AuthDeps {
   now?: () => number
   onError?: (context: string, error: unknown) => void
 }
+
+/** The one optional Twitch permission Watchside ever asks for. */
+const FOLLOWS_SCOPE = 'user:read:follows'
 
 /** Refresh this many seconds before the token actually expires. */
 const EXPIRY_SKEW_SECONDS = 120
@@ -94,6 +99,15 @@ export interface AuthService {
   initialize(): Promise<void>
   signIn(): Promise<void>
   signOut(): Promise<void>
+  /**
+   * Asks Twitch for the optional measurement permission.
+   *
+   * Deliberately NOT signIn(). Sign-in treats cancellation as "end up signed
+   * out", which is right for somebody who has not signed in and completely
+   * wrong for somebody who already has - backing out of an optional permission
+   * must never cost them their session.
+   */
+  grantFollowPermission(): Promise<{ ok: boolean; error: string | null }>
   /** Irreversible. Deletes the account server-side, then clears the session. */
   deleteAccount(): Promise<{ ok: boolean; error: string | null }>
   retry(): Promise<void>
@@ -145,6 +159,23 @@ export function createAuthService(deps: AuthDeps): AuthService {
       signingIn: false,
       friends: [],
     })
+
+    // Asked once the person is known, and deliberately not awaited: measurement
+    // readiness decides whether an OPTIONAL control is offered, and nothing
+    // about signing in should wait on it.
+    void refreshMeasurementReadiness()
+  }
+
+  /**
+   * Re-reads measurement readiness from the server.
+   *
+   * Failure leaves it null rather than guessing: "we could not ask" is not the
+   * same as "not permitted", and showing somebody a permission prompt because
+   * the network blipped would be worse than showing nothing.
+   */
+  async function refreshMeasurementReadiness(): Promise<void> {
+    const result = await deps.backend.measurementReadiness()
+    setState({ measurementReadiness: result.value })
   }
 
   async function ensureFreshSession(): Promise<boolean> {
@@ -279,6 +310,59 @@ export function createAuthService(deps: AuthDeps): AuthService {
         signingIn: false,
       })
       return { ok: true, error: null }
+    },
+
+    /**
+     * The optional measurement permission, asked for on purpose.
+     *
+     * Every failure path leaves the person exactly as they were: still signed
+     * in, still working, still able to try again later. The only thing that
+     * changes on success is that the credential now carries the scope - and
+     * that is confirmed by asking the SERVER afterwards rather than by
+     * assuming the redirect meant yes.
+     */
+    async grantFollowPermission() {
+      const started = await deps.backend.startOAuth(deps.redirectUrl, FOLLOWS_SCOPE)
+      if (started.error || !started.value) {
+        deps.onError?.('grantFollowPermission', started.error)
+        return { ok: false, error: 'Watchside could not start the Twitch permission request.' }
+      }
+
+      let redirectedTo: string
+      try {
+        redirectedTo = await deps.launchWebAuthFlow(started.value)
+      } catch (error) {
+        // Backing out is an ordinary thing to do with an optional permission.
+        // Nothing changes, and nothing is reported as broken.
+        if (isUserCancellation(error)) return { ok: false, error: null }
+        deps.onError?.('grantFollowPermission', error)
+        return { ok: false, error: 'Twitch did not finish the permission request.' }
+      }
+
+      const callback = readCallback(redirectedTo)
+      if (callback.error || !callback.code) {
+        return { ok: false, error: callback.error ?? null }
+      }
+
+      const exchanged = await deps.backend.exchangeCode(callback.code)
+      if (exchanged.error || !exchanged.value) {
+        deps.onError?.('grantFollowPermission', exchanged.error)
+        return { ok: false, error: 'Watchside could not finish the permission request.' }
+      }
+
+      /*
+       * The redirect succeeding is not the answer.
+       *
+       * Twitch will complete a flow having granted less than was asked for, so
+       * readiness is re-read from the server, which knows what the stored
+       * credential actually carries.
+       */
+      await refreshMeasurementReadiness()
+      const granted = state.measurementReadiness === 'ready'
+      return {
+        ok: granted,
+        error: granted ? null : 'Twitch did not grant the permission.',
+      }
     },
 
     async retry() {

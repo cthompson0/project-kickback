@@ -15,12 +15,22 @@ import type { AsyncStorageArea } from './storage'
 export interface KickbackPreferences {
   /** Desktop notifications when a gathering forms. */
   gatheringNotifications: boolean
+  /**
+   * Whether the optional measurement permission has been waved away.
+   *
+   * Remembered so the explanation does not reappear every time somebody opens
+   * their account panel. It is a DISMISSAL, not a refusal: the control stays,
+   * collapsed to a single line, so granting later is always one click away.
+   */
+  followPermissionDismissed: boolean
 }
 
 export const DEFAULT_PREFERENCES: KickbackPreferences = {
   // On by default: the whole point of this checkpoint is to find out whether
   // gathering alerts actually bring people together. One click turns it off.
   gatheringNotifications: true,
+  // Nothing has been dismissed until somebody dismisses it.
+  followPermissionDismissed: false,
 }
 
 const STORAGE_KEY = 'kickback:preferences'
@@ -58,6 +68,10 @@ export function createPreferences(
               typeof candidate.gatheringNotifications === 'boolean'
                 ? candidate.gatheringNotifications
                 : DEFAULT_PREFERENCES.gatheringNotifications,
+            followPermissionDismissed:
+              typeof candidate.followPermissionDismissed === 'boolean'
+                ? candidate.followPermissionDismissed
+                : DEFAULT_PREFERENCES.followPermissionDismissed,
           }
           emit()
         }

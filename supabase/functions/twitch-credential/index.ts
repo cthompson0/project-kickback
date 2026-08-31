@@ -558,6 +558,20 @@ Deno.serve(async (request: Request) => {
         scope_count: row?.scopes?.length ?? 0,
         access_expires_at: row?.access_expires_at ?? null,
         version: row?.version ?? null,
+        /*
+         * The authoritative answer to "can this actor be measured".
+         *
+         * It is computed from the stored scope set, not from anything the
+         * client believes. An OAuth redirect coming back successfully is not
+         * evidence that the permission was granted - Twitch will happily
+         * complete a flow with fewer scopes than asked for - so the only
+         * trustworthy source is what the credential actually carries.
+         */
+        readiness: readinessFor({
+          hasCredential: row !== null,
+          status: row?.status ?? '',
+          scopes: row?.scopes ?? [],
+        }),
       })
     }
 

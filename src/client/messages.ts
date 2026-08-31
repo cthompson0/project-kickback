@@ -41,6 +41,7 @@ export type RpcMethod =
   | 'setGroupMuted'
   | 'cancelGroupInvite'
   | 'deleteAccount'
+  | 'grantFollowPermission'
   | 'setGroupIcon'
   | 'searchEmotes'
   // The growth loop. Reads are RPCs rather than broadcast state because they

@@ -9,7 +9,7 @@ import type { MetadataFetcher } from './metadata'
 import type { ReactionBackend } from './togetherReactions'
 import type { RoomBackend } from './streamRoom'
 import type { RoomMessageBackend } from './roomMessages'
-import type { BlockedUser } from '../client/types'
+import type { BlockedUser, MeasurementReadiness } from '../client/types'
 import { MAX_MESSAGES } from '../core/roomMessages'
 import type { Reaction } from '../core/together'
 import type { AnalyticsEvent } from '../core/analytics'
@@ -167,12 +167,20 @@ export function createSupabaseBackend(supabase: SupabaseClient): AuthBackend {
       }
     },
 
-    async startOAuth(redirectTo: string): Promise<BackendResult<string>> {
+    /**
+     * Starts Twitch OAuth, optionally asking for more than the default.
+     *
+     * Ordinary sign-in passes no scopes and is unchanged - the measurement
+     * permission is OPTIONAL, so nobody is asked for it just to use Watchside.
+     * It is requested only when somebody deliberately chooses to grant it.
+     */
+    async startOAuth(redirectTo: string, scopes?: string): Promise<BackendResult<string>> {
       try {
         const { data, error } = await supabase.auth.signInWithOAuth({
           provider: 'twitch',
           options: {
             redirectTo,
+            ...(scopes ? { scopes } : {}),
             // A service worker cannot navigate; we hand the URL to
             // chrome.identity.launchWebAuthFlow ourselves.
             skipBrowserRedirect: true,
@@ -212,6 +220,29 @@ export function createSupabaseBackend(supabase: SupabaseClient): AuthBackend {
           return { value: null, error: 'Watchside could not finish deleting your account.' }
         }
         return { value: true }
+      } catch (error) {
+        return { value: null, error: describe(error) }
+      }
+    },
+
+    /**
+     * What the SERVER says about measuring this actor.
+     *
+     * Deliberately not derived from anything the client observed. Twitch will
+     * complete an OAuth flow having granted fewer scopes than were asked for,
+     * so "the redirect came back" is not evidence of permission - only the
+     * stored credential's recorded scope set is.
+     */
+    async measurementReadiness(): Promise<BackendResult<MeasurementReadiness>> {
+      try {
+        const { data, error } = await supabase.functions.invoke('twitch-credential', {
+          body: { action: 'status' },
+        })
+        if (error) return { value: null, error: describe(error) }
+        const readiness = (data as { readiness?: unknown } | null)?.readiness
+        return typeof readiness === 'string'
+          ? { value: readiness as MeasurementReadiness }
+          : { value: null, error: 'unreadable measurement status' }
       } catch (error) {
         return { value: null, error: describe(error) }
       }

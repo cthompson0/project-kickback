@@ -93,6 +93,14 @@ export type SendRequestOutcome =
 
 export interface KickbackState {
   status: AuthStatus
+  /**
+   * Whether Watchside can measure creator discovery for this person, as the
+   * SERVER sees it. Null until asked, or when signed out.
+   *
+   * 'needs_follow_permission' is the state everybody who signed in before this
+   * existed is in, and it does not mean anything is wrong with their account.
+   */
+  measurementReadiness: MeasurementReadiness | null
   identity: KickbackIdentity | null
   /** Human-readable auth failure, shown in the panel. Never contains a token. */
   error: string | null
@@ -286,6 +294,7 @@ export interface KickbackState {
 
 export const INITIAL_STATE: KickbackState = {
   status: 'loading',
+  measurementReadiness: null,
   identity: null,
   error: null,
   friends: [],
@@ -302,7 +311,7 @@ export const INITIAL_STATE: KickbackState = {
   demo: false,
   attention: [],
   unread: [],
-  preferences: { gatheringNotifications: true },
+  preferences: { gatheringNotifications: true, followPermissionDismissed: false },
   groups: [],
   groupInvites: [],
   groupSentInvites: {},
@@ -439,6 +448,13 @@ export interface KickbackClient {
    * nothing here that could name somebody else.
    */
   deleteAccount(): Promise<{ ok: boolean; error: string | null }>
+  /**
+   * Asks Twitch for the optional measurement permission.
+   *
+   * Declining costs nothing: the session, the account and every feature are
+   * exactly as they were.
+   */
+  grantFollowPermission(): Promise<{ ok: boolean; error: string | null }>
   respondToGroupInvite(inviteId: string, accept: boolean): Promise<string>
   leaveGroup(groupId: string): Promise<void>
   removeGroupMember(groupId: string, userId: string): Promise<void>
@@ -588,4 +604,18 @@ export interface AttentionItem {
 
 export interface KickbackPreferences {
   gatheringNotifications: boolean
+  followPermissionDismissed: boolean
 }
+
+/**
+ * What the credential subsystem says about measuring this actor.
+ *
+ * Four states rather than one failure, because "you never granted the optional
+ * permission" and "your authorization is broken" are different things and the
+ * account surface has to say something true about each.
+ */
+export type MeasurementReadiness =
+  | 'ready'
+  | 'needs_follow_permission'
+  | 'needs_reauthorization'
+  | 'temporarily_unavailable'

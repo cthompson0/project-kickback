@@ -40,8 +40,9 @@ function account(): string {
       identity={IDENTITY}
       onSignOut={() => {}}
       onDeleted={() => {}}
+      measurementReadiness={null}
       onVisibilityChange={() => {}}
-      preferences={{ gatheringNotifications: true }}
+      preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
       onPreferencesChange={() => {}}
       mutedUserIds={[]}
       knownPeople={[]}

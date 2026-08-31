@@ -77,6 +77,7 @@ const IDENTITY: KickbackIdentity = {
 
 const PREFERENCES: KickbackPreferences = {
   gatheringNotifications: false,
+  followPermissionDismissed: false,
 }
 
 function renderAccount(): string {
@@ -87,6 +88,7 @@ function renderAccount(): string {
       identity={IDENTITY}
       onSignOut={() => {}}
       onDeleted={() => {}}
+      measurementReadiness={null}
       onVisibilityChange={() => {}}
       preferences={PREFERENCES}
       onPreferencesChange={() => {}}

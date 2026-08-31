@@ -670,6 +670,7 @@ export function KickbackPanel({
             setAccountOpen(false)
             client.signOut()
           }}
+          measurementReadiness={view.measurementReadiness}
           onDeleted={() => {
             // The worker has already cleared the session and broadcast the
             // signed-out state; this just closes the card behind it.

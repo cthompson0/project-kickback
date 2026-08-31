@@ -269,6 +269,8 @@ export function createDemoClient(): KickbackClient {
     signIn: () => setState({ status: 'signed_in', identity: DEMO_IDENTITY }),
     signOut: () => setState({ status: 'signed_out', identity: null, friends: [] }),
     // The demo build has no account and must never look like it deleted one.
+    grantFollowPermission: () =>
+      Promise.resolve({ ok: false, error: 'The demo build has no Twitch account.' }),
     deleteAccount: () =>
       Promise.resolve({ ok: false, error: 'The demo build has no account to delete.' }),
     retry: () => {},

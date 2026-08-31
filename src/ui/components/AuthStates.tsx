@@ -5,6 +5,7 @@ import type {
   KickbackIdentity,
   KickbackPreferences,
   PresenceVisibility,
+  MeasurementReadiness,
 } from '../../client/types'
 import { BadgeShelf } from './BadgeShelf'
 import { BackIcon, WatchsideMark } from './Icons'
@@ -310,6 +311,102 @@ export function FeedbackForm({
 }
 
 /**
+ * The optional permission that lets Watchside measure whether friends help
+ * people find creators.
+ *
+ * WHY IT LIVES HERE AND NOWHERE ELSE
+ *
+ * The account panel is somewhere people go deliberately. Putting this here
+ * means it is findable without ever interrupting anything: no toast, no
+ * onboarding step, and above all nothing between a JOIN click and arriving on
+ * Twitch, which is the one place a permission prompt would both annoy people
+ * and corrupt the very measurement it enables.
+ *
+ * WHAT "DISMISSED" MEANS
+ *
+ * The explanation collapses to a single line. It is not a refusal and it is not
+ * remembered as one - the control stays, so granting later is one click away,
+ * and nothing ever asks again on its own.
+ *
+ * WHAT IT DOES NOT SAY
+ *
+ * That Watchside needs it. It does not: everything works without it, and the
+ * copy never implies otherwise.
+ */
+function MeasurementPermission({
+  client,
+  readiness,
+  dismissed,
+  onDismissedChange,
+}: {
+  client: KickbackClient
+  readiness: MeasurementReadiness | null
+  dismissed: boolean
+  onDismissedChange: (dismissed: boolean) => void
+}) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // Only offered to people who could actually grant it. Someone already
+  // measured is shown nothing, and someone whose authorization is genuinely
+  // broken is not told a story about optional permissions.
+  if (readiness !== 'needs_follow_permission') return null
+
+  const grant = (): void => {
+    setBusy(true)
+    setError(null)
+    client
+      .grantFollowPermission()
+      .then((result) => {
+        setBusy(false)
+        // A declined or cancelled request reports no error, because nothing
+        // went wrong - somebody simply said no.
+        if (!result.ok && result.error) setError(result.error)
+      })
+      .catch(() => {
+        setBusy(false)
+        setError('Watchside could not reach Twitch just then.')
+      })
+  }
+
+  if (dismissed) {
+    return (
+      <button type="button" className="kb-ghost-btn" disabled={busy} onClick={grant}>
+        {busy ? 'Opening Twitch…' : 'Help measure discovery'}
+      </button>
+    )
+  }
+
+  return (
+    <div className="kb-permission">
+      <p>
+        Watchside can check whether you already follow a creator when you join
+        them through a friend. It is how we find out whether friends actually
+        help people discover creators they did not already watch.
+      </p>
+      <p className="kb-permission-note">
+        Optional. Everything in Watchside works without it, and it never changes
+        who you follow.
+      </p>
+      {error && <p className="kb-danger-error">{error}</p>}
+      <div className="kb-danger-actions">
+        <button type="button" className="kb-signin-btn" disabled={busy} onClick={grant}>
+          {busy ? 'Opening Twitch…' : 'Allow on Twitch'}
+        </button>
+        <button
+          type="button"
+          className="kb-ghost-btn kb-ghost-btn-inline"
+          disabled={busy}
+          onClick={() => onDismissedChange(true)}
+        >
+          Not now
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
  * The one control in this panel that cannot be undone.
  *
  * Deliberately not a single button. Deleting an account destroys the social
@@ -422,6 +519,7 @@ export function AccountCard({
   identity,
   onSignOut,
   onDeleted,
+  measurementReadiness,
   onVisibilityChange,
   preferences,
   onPreferencesChange,
@@ -438,6 +536,7 @@ export function AccountCard({
   identity: KickbackIdentity
   onSignOut: () => void
   onDeleted: () => void
+  measurementReadiness: MeasurementReadiness | null
   onVisibilityChange: (mode: PresenceVisibility) => void
   preferences: KickbackPreferences
   onPreferencesChange: (patch: Partial<KickbackPreferences>) => void
@@ -585,6 +684,15 @@ export function AccountCard({
       <button type="button" className="kb-ghost-btn" onClick={onFeedback}>
         Feedback
       </button>
+
+      <MeasurementPermission
+        client={client}
+        readiness={measurementReadiness}
+        dismissed={preferences.followPermissionDismissed}
+        onDismissedChange={(followPermissionDismissed) =>
+          onPreferencesChange({ followPermissionDismissed })
+        }
+      />
 
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out

@@ -533,6 +533,8 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     signIn: () => {},
     signOut: () => {},
     // The lab never touches a real account, and must not pretend it did.
+    grantFollowPermission: () =>
+      Promise.resolve({ ok: false, error: 'Twitch permissions are disabled in the Test Lab.' }),
     deleteAccount: () =>
       Promise.resolve({ ok: false, error: 'Account deletion is disabled in the Test Lab.' }),
     retry: () => {},

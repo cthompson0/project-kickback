@@ -32,6 +32,7 @@ class FakeBackend implements AuthBackend {
   oauthResult: BackendResult<string> = { value: 'https://id.twitch.test/authorize?x=1' }
   signOutError: Error | null = null
   deleteError: string | undefined
+  readiness: 'ready' | 'needs_follow_permission' | 'needs_reauthorization' | 'temporarily_unavailable' | null = null
   calls: string[] = []
 
   async getSession(): Promise<BackendResult<SessionLike>> {
@@ -52,6 +53,10 @@ class FakeBackend implements AuthBackend {
     this.calls.push(`exchangeCode:${code}`)
     if (this.exchangeResult.value) this.session = this.exchangeResult.value
     return this.exchangeResult
+  }
+  async measurementReadiness() {
+    this.calls.push('measurementReadiness')
+    return { value: this.readiness }
   }
   async signOut(): Promise<void> {
     this.calls.push('signOut')

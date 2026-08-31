@@ -36,6 +36,7 @@ class FakeBackend implements AuthBackend {
   session: SessionLike | null = LIVE
   identity: KickbackIdentity | null = IDENTITY
   deleteResult: BackendResult<true> = { value: true }
+  readiness: 'ready' | 'needs_follow_permission' | 'needs_reauthorization' | 'temporarily_unavailable' | null = null
   calls: string[] = []
 
   async getSession() {
@@ -53,6 +54,10 @@ class FakeBackend implements AuthBackend {
   async exchangeCode() {
     this.calls.push('exchangeCode')
     return { value: LIVE }
+  }
+  async measurementReadiness() {
+    this.calls.push('measurementReadiness')
+    return { value: this.readiness }
   }
   async signOut() {
     this.calls.push('signOut')

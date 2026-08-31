@@ -159,8 +159,9 @@ describe('resetting the layout', () => {
         identity={signedIn.identity!}
         onSignOut={() => {}}
         onDeleted={() => {}}
+        measurementReadiness={null}
         onVisibilityChange={() => {}}
-        preferences={{ gatheringNotifications: true }}
+        preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
         onPreferencesChange={() => {}}
         mutedUserIds={[]}
         knownPeople={[]}

@@ -1090,6 +1090,31 @@
   cursor: default;
 }
 
+/*
+ * The optional measurement permission.
+ *
+ * Deliberately NOT styled like the destructive controls beneath it: this is an
+ * offer, not a warning, and it should not borrow their urgency.
+ */
+.kb-permission {
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--kb-line);
+  background: var(--kb-bg-hover);
+}
+
+.kb-permission p {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--kb-text);
+}
+
+.kb-permission-note {
+  color: var(--kb-dim);
+}
+
 .kb-danger-confirm {
   margin-top: 8px;
   padding: 10px;

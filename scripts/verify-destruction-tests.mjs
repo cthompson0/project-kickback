@@ -26,6 +26,8 @@ const M3D_MIGRATION = 'supabase/migrations/0033_m3d_relationship.sql'
 const BINDING_SUITE = 'tests/extension/relationshipBinding.test.ts'
 const BASELINE_SUITE = 'tests/extension/followBaseline.test.ts'
 const M3D_DB_SUITE = 'tests/db/relationshipObservation.test.ts'
+const AUTH = 'src/background/auth.ts'
+const PERMISSION_SUITE = 'tests/extension/followPermission.test.tsx'
 const MIGRATION = 'supabase/migrations/0032_destruction_paths.sql'
 const STORAGE = 'src/background/storage.ts'
 
@@ -242,6 +244,42 @@ create policy twitch_credentials_read on public.twitch_credentials
     and e.attribution_id = p_attribution`,
     to: `  where e.attribution_id = p_attribution`,
     expect: 'returns nothing when a different actor asks about it',
+  },
+
+  // ----------------------------------------------------- authorization
+  {
+    // Trusts the redirect. Twitch will complete a flow having granted less
+    // than was asked for, so this would report READY for somebody who granted
+    // nothing - and M3D would then look permanently broken for them.
+    name: 'auth: believe OAuth succeeded rather than asking the server',
+    file: AUTH,
+    suite: PERMISSION_SUITE,
+    from: `      await refreshMeasurementReadiness()
+      const granted = state.measurementReadiness === 'ready'`,
+    to: `      const granted = true`,
+    expect: 'does not call itself ready just because OAuth came back',
+  },
+  {
+    // Backing out of an OPTIONAL permission costs somebody their session.
+    name: 'auth: sign the user out when they decline the permission',
+    file: AUTH,
+    suite: PERMISSION_SUITE,
+    from: `        if (isUserCancellation(error)) return { ok: false, error: null }`,
+    to: `        if (isUserCancellation(error)) {
+          setState({ status: 'signed_out', identity: null, friends: [] })
+          return { ok: false, error: null }
+        }`,
+    expect: 'leaves the person signed in when they back out',
+  },
+  {
+    // Everybody is asked for the measurement permission merely to sign in,
+    // which is exactly what "optional" is supposed to prevent.
+    name: 'auth: request the follow scope on ordinary sign-in',
+    file: AUTH,
+    suite: PERMISSION_SUITE,
+    from: `      const started = await deps.backend.startOAuth(deps.redirectUrl)`,
+    to: `      const started = await deps.backend.startOAuth(deps.redirectUrl, FOLLOWS_SCOPE)`,
+    expect: 'asks for no extra scope',
   },
 
   // ------------------------------------------------------------------- O7

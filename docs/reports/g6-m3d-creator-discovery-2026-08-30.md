@@ -4832,3 +4832,406 @@ In order:
 
 **M3E-a remains HOLD.** No subscription scope, state or measurement exists
 anywhere, and a test asserts it.
+
+---
+
+# M3D Slice C — the Twitch authorization transition
+
+**Date:** 2026-08-31
+**Type:** IMPLEMENTATION — deterministic work complete, **owner OAuth outstanding**
+**Entering:** `73bf8c4` · 2,591/2,591 · hosted schema 33
+
+---
+
+## 185. Slice C verdict
+
+## **DETERMINISTIC WORK COMPLETE — NOT YET GO**
+
+Everything that can be proven without a real Twitch consent screen is built and
+proven. The one remaining step is the owner's single authorization, and Slice C
+is not GO until that is observed (§207).
+
+M3D as a whole remains NOT GO regardless: no JOIN trigger exists, no analytics
+views exist, and no observation can be produced by ordinary use.
+
+| | |
+|---|---|
+| Scope delta | **`user:read:follows`**, requested only on deliberate grant |
+| Existing users | **`needs_follow_permission`** — not broken, not signed out |
+| Permission UX | account panel, one control |
+| Ordinary sign-in | **unchanged** — asks for no extra scope |
+| Relationship action deployed | **YES**, dormant |
+| Production relationship callers | **ZERO**, test-enforced |
+| Production observations | **ZERO** |
+| Tests | 2,591 → **2,615** |
+| Mutations | 20 → **23 / 23** |
+
+---
+
+## 186. Starting state
+
+`73bf8c4`, clean · hosted schema 33 · relationship action implemented and
+undeployed · no scope requested · the owner's stored credential carries
+`scope_count: 1` — the pre-M3D state this whole slice is about.
+
+---
+
+## 187. OAuth architecture
+
+The existing Supabase/Twitch flow performs the upgrade; **no second auth
+architecture was created**. `startOAuth` gained one optional argument:
+
+```ts
+startOAuth(redirectTo: string, scopes?: string)
+```
+
+Ordinary sign-in passes nothing and is byte-for-byte unchanged in behaviour.
+The scope is supplied only by the deliberate grant path, which is what keeps
+"optional" true rather than merely stated.
+
+The upgraded credential reaches storage through the **existing Phase 2 custody
+flow** — `exchangeCode` already hands provider tokens to `twitch-credential`,
+so the scoped credential is validated, identity-bound, encrypted and upserted by
+exactly the code that handles an ordinary sign-in. There is no second credential
+writer, and a test asserts the grant path contains no capture logic of its own.
+
+---
+
+## 188. Scope delta
+
+**Exactly one: `user:read:follows`.**
+
+Proven by search across the final source: the only occurrence is the
+`FOLLOWS_SCOPE` constant in `src/background/auth.ts`.
+`user:read:subscriptions` appears **nowhere** in `src/` or `supabase/` — zero
+files — and a test asserts it.
+
+---
+
+## 189. Existing-user transition
+
+The load-bearing distinction, and it is preserved end to end.
+
+| Situation | State | What the user is told |
+|---|---|---|
+| valid credential, no follow scope | **`needs_follow_permission`** | an optional thing they can turn on |
+| no credential / dead credential | `needs_reauthorization` | nothing about optional permissions |
+| unknown status | `temporarily_unavailable` | nothing |
+| scope present | `ready` | nothing — no prompt at all |
+
+Somebody who signed in before M3D existed is **not** pushed through
+account-repair UX, is not signed out, and is not told anything is wrong —
+because nothing is. Mutation-proven: collapsing `needs_follow_permission` into
+`needs_reauthorization` is DETECTED.
+
+---
+
+## 190. Permission UX
+
+One control, in the account panel, beside Sign out and Delete account.
+
+It says what is checked (*"whether you already follow a creator when you join
+them through a friend"*), why (*"whether friends actually help people discover
+creators they did not already watch"*), and that it is **optional** —
+*"Everything in Watchside works without it, and it never changes who you
+follow."*
+
+Tests assert the copy never contains "required", "must grant", "you need to" or
+"in order to use", and never mentions subscriptions, purchases, payments or
+Bits. Those are the claims that would be untrue or would read as coercion.
+
+---
+
+## 191. Discoverability
+
+**Where:** the account panel — somewhere people go deliberately.
+**When:** only when readiness is `needs_follow_permission`.
+**Never:** on startup, on a Twitch page, in onboarding, in a toast, or anywhere
+near a JOIN.
+
+That placement is the whole nag policy. A control that only appears where
+somebody chose to look cannot interrupt anything, which is why no
+frequency-capping machinery was needed.
+
+Tests assert `MeasurementPermission` is rendered from exactly one place, that
+`KickbackPanel` does not render it directly, and that nothing schedules
+`grantFollowPermission` on a timer or an alarm.
+
+---
+
+## 192. Decline and cancel behaviour
+
+**Declining costs nothing.** This is why the grant path is deliberately *not*
+`signIn()`: sign-in treats cancellation as "end up signed out", which is right
+for somebody who has not signed in and completely wrong for somebody who has.
+
+| Situation | Result |
+|---|---|
+| closes the Twitch window | still signed in, **no error shown** — nothing went wrong |
+| Twitch will not start the flow | still signed in, error surfaced |
+| flow returns without the scope | still signed in, still `needs_follow_permission` |
+| any failure | credential untouched, no sign-out, no deletion, retry available |
+
+Mutation-proven: signing the user out on cancellation is DETECTED.
+
+---
+
+## 193. Nag and dismissal policy
+
+"Not now" sets `followPermissionDismissed` in preferences and **collapses the
+explanation to a single line** — `Help measure discovery` — which still grants
+when clicked.
+
+It is a dismissal, not a refusal: nothing records it as a decision, nothing
+re-prompts on its own, and the path to granting later never disappears. The
+alternative — hiding the control entirely — would have made the permission
+ungrantable after one dismissal.
+
+---
+
+## 194. Credential upgrade
+
+Through the existing flow, unchanged:
+
+```
+OAuth (with scope) → transient provider tokens in worker memory
+  → authenticated custody handoff → Twitch validation → actor binding
+  → encrypted upsert → granted scopes recorded → browser stripped by O7
+```
+
+`upsert` on `actor_id` means the upgraded credential **replaces** the old one
+rather than accumulating.
+
+---
+
+## 195. Identity binding
+
+Unchanged and still enforced. The upgraded credential is validated at
+`id.twitch.tv/oauth2/validate`, its `client_id` must be Watchside's, and the
+Twitch identity it names must be the one already in `connected_accounts` for
+that actor. A mismatch is refused and **nothing is stored** — so an upgrade
+cannot be used to swap in a different Twitch account.
+
+---
+
+## 196. Custody-failure behaviour
+
+If OAuth succeeds but custody fails, readiness simply does not become `ready`,
+and the control stays offered. Specifically: nothing pretends M3D is ready, no
+provider credential is persisted browser-side (O7 strips it regardless), core
+authentication is untouched, and the same control retries.
+
+---
+
+## 197. Trusted scope truth
+
+**Readiness comes from the server, never from the client.**
+
+`status` now returns `readiness`, computed from the **stored credential's
+recorded scope set**. After a grant, the client re-reads it rather than assuming
+the redirect meant yes.
+
+This matters because **Twitch will complete an OAuth flow having granted fewer
+scopes than were asked for**. A client-side "permission granted" boolean would
+be wrong exactly when a user unticked something, and M3D would then look
+permanently broken for them with no way to tell why. Mutation-proven: believing
+the redirect instead of asking the server is DETECTED.
+
+---
+
+## 198. Relationship-action deployment
+
+**Deployed: YES. Dormant.**
+
+Deployment was necessary this slice: `status` had to return `readiness`, and the
+client reads it. The relationship action shipped in the same function and is
+reachable, but:
+
+- no client path calls it (test-enforced, §199)
+- without the scope it can only answer `needs_follow_permission`
+- deploying changes no collection semantics — nothing invokes it
+
+---
+
+## 199. No-observation proof
+
+**Production relationship callers: ZERO. Production observations: ZERO.**
+
+- no file under `src/` contains `action: 'relationship'`
+- no JOIN trigger exists
+- the credential table shows one row (the owner's, `scope_count: 1`) and the
+  observation table has no writer
+
+No synthetic observation was created in production, so none needed cleaning up.
+
+---
+
+## 200. O7 and browser persistence
+
+**Unchanged and still mutation-proven.** The stripping boundary is untouched,
+and its lever remains in the harness. The upgrade path introduces no new storage
+location — the scoped credential travels the same in-memory route to the same
+custody endpoint.
+
+Real confirmation after a scoped OAuth belongs to §207.
+
+---
+
+## 201. G6 and account deletion
+
+**Untouched.** No deletion semantics were modified. Twitch deauthorization still
+destroys the credential and Twitch-derived observations while preserving
+Watchside's analytics; account deletion still destroys the credential first;
+sign-out still deletes nothing. All still covered by the existing suites and
+mutation levers.
+
+---
+
+## 202. Chrome impact
+
+**No manifest change.** Permissions, host permissions and CSP are untouched — a
+Twitch OAuth scope is not a Chrome extension permission, and conflating the two
+would be a category error.
+
+For an eventual v0.8 submission the privacy-practice answers will need to
+describe the optional follow check, but only once collection is live. Nothing to
+change now.
+
+---
+
+## 203. Firefox classification
+
+**No new category required.** Declared categories remain exactly
+`authenticationInfo`, `browsingActivity`, `personalCommunications`,
+`websiteActivity`; `technicalAndInteraction` and `financialAndPaymentInfo`
+remain zero. `scripts/manifest.mjs` is untouched, and nothing was uploaded — the
+pending v0.6 review is undisturbed.
+
+---
+
+## 204. Privacy status
+
+**No public change, and that is the correct answer.**
+
+The deployed policy already discloses that Watchside stores an encrypted Twitch
+authorization credential server-side, why, and how it is destroyed. This slice
+adds an *optional permission request* and **zero collection**, so nothing in the
+live text becomes false.
+
+The explanatory copy a user needs lives where the decision is made — in the
+permission control itself. The public M3D collection disclosure belongs
+atomically with the trigger and the first production observation, and claiming
+`following_at_join` collection now would describe something that does not
+happen.
+
+---
+
+## 205. Deterministic tests
+
+**+24**, 2,591 → **2,615**. `tests/extension/followPermission.test.tsx`:
+
+who is offered it (four readiness states) · what the copy says and refuses to
+say · dismissal collapsing rather than vanishing · dismissal not recorded as
+refusal · rendered from exactly one place · never scheduled · exactly one scope
+asked · **OAuth success alone does not assert ready** · ready only when the
+server says so · uses the existing custody path · cancel leaves the session
+intact · no sign-out or credential deletion on decline · start-failure survivable
+· retry works · **ordinary sign-in asks for no extra scope** · no subscriptions
+scope anywhere.
+
+---
+
+## 206. Mutation proofs
+
+`npm run test:destruction` — **23 / 23 detected** (was 20).
+
+| New lever | Result |
+|---|---|
+| believe OAuth succeeded rather than asking the server | ✅ DETECTED |
+| sign the user out when they decline the permission | ✅ DETECTED |
+| request the follow scope on ordinary sign-in | ✅ DETECTED |
+
+The third is the one that would be easiest to ship by accident and hardest to
+notice: everything would keep working, and every user would silently be asked
+for a measurement permission in order to sign in.
+
+---
+
+## 207. Real authorization flow — OUTSTANDING
+
+**This is the remaining step, and it needs the owner.**
+
+The owner's stored credential currently reports `scope_count: 1`, so they are in
+`needs_follow_permission` — the exact state the transition exists for. That
+makes them the right and only test subject.
+
+**Minimal action required:**
+
+1. `chrome://extensions` → **Reload** Watchside
+2. Open the Watchside panel → **account** (the avatar/account control)
+3. Find **"Help measure discovery"** / **"Allow on Twitch"**
+4. Click it and complete the Twitch authorization
+5. Say so here
+
+No devtools, no tokens, no revocation, no storage editing.
+
+**What will then be verified, automatically and shape-only:** OAuth completed ·
+same Twitch identity still connected · custody handoff succeeded ·
+`user:read:follows` present in the stored scope set · readiness `ready` ·
+provider tokens absent from browser storage · Supabase session intact · core UI
+working · **no observation created** · no JOIN trigger · no subscriptions scope.
+
+Until that is observed, **Slice C is not GO** and this section is the reason.
+
+---
+
+## 208. Regression results
+
+| Gate | Result |
+|---|---|
+| `npm test` | ✅ **2,615 / 2,615** (104 files) |
+| lint / tsc / build | ✅ clean |
+| `test:destruction` | ✅ 23/23 |
+| Hosted schema | 33, unchanged — **no migration needed** |
+
+---
+
+## 209. Known-debt delta
+
+| Harness | Baseline | Now | Delta |
+|---|---|---|---|
+| `test:presence` | 0 / 21 | **0 / 21** | ✅ none |
+| `test:layout` | 0 / 23 | **0 / 23** | ✅ none |
+| `test:destruction` | 20 / 20 | **23 / 23** | ✅ none (grew) |
+| `test:analytics` | 6 | **6** | ✅ none — untouched files |
+| `verify:lab` | 11 | **11** | ✅ none |
+
+---
+
+## 210. Remaining risks
+
+| # | Risk | Position |
+|---|---|---|
+| 1 | The scoped OAuth has never run | §207. It is the whole outstanding item |
+| 2 | Discoverability may be too quiet | Deliberate. One control in a panel people open on purpose. If coverage turns out too low to measure anything, that is a data-driven reason to revisit — not a reason to nag first |
+| 3 | Twitch may grant partial scopes | Handled: readiness comes from the stored scope set, so a partial grant reads as `needs_follow_permission` and the control stays offered |
+| 4 | Relationship action is deployed and reachable | Dormant: no caller, and without the scope it can only refuse |
+| 5 | A future trigger could bypass the readiness gate | The action re-checks readiness itself, so the gate is not the caller's responsibility |
+
+---
+
+## 211. Next-slice readiness
+
+Blocked on §207 only.
+
+Once the owner's authorization is observed, the next slice is the **JOIN
+trigger**: fire the relationship action at `recordJoin` where an attribution is
+minted and `socialCount > 0`, respecting the 120-second baseline window, with
+the attribution id already serving as the idempotency key.
+
+That slice is also where the **public privacy disclosure must ship atomically**
+with the first production observation, and where the no-caller test is turned
+off deliberately rather than quietly.
+
+**M3E-a remains HOLD.** No subscription scope, state or measurement exists, and
+a test asserts it.

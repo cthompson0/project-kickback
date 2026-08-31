@@ -120,8 +120,9 @@ function account(
       identity={IDENTITY}
       onSignOut={() => calls.push('signOut')}
       onDeleted={() => {}}
+      measurementReadiness={null}
       onVisibilityChange={() => calls.push('visibility')}
-      preferences={{ gatheringNotifications: true }}
+      preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
       onPreferencesChange={() => calls.push('preferences')}
       mutedUserIds={muted}
       knownPeople={muted.map((id) => ({ id, displayName: `Muted ${id}` }))}

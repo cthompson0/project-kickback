@@ -1886,6 +1886,13 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
    * account to be deleted even if it wanted to.
    */
   deleteAccount: () => auth.deleteAccount(),
+  /*
+   * Optional, and deliberately user-initiated.
+   *
+   * Nothing schedules this. It runs when somebody chooses it in the account
+   * panel, which is the only place it is offered.
+   */
+  grantFollowPermission: () => auth.grantFollowPermission(),
   respondToGroupInvite: async ([inviteId, accept]) => {
     const groupId = await groups.respondToInvite(String(inviteId), accept === true)
     if (accept === true) {
