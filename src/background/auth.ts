@@ -46,7 +46,47 @@ export interface AuthDeps {
 }
 
 /** The one optional Twitch permission Watchside ever asks for. */
-const FOLLOWS_SCOPE = 'user:read:follows'
+export const FOLLOWS_SCOPE = 'user:read:follows'
+
+/**
+ * The Twitch scopes a NEW authorization asks for.
+ *
+ * WHY THIS IS IN THE INITIAL REQUEST
+ *
+ * The permission is optional to Watchside, not obscure. Somebody installing
+ * Watchside today should meet it once, on the Twitch consent screen they were
+ * always going to see, rather than sign in and later stumble across a second
+ * authorization buried in their account settings. Two OAuth trips is the wrong
+ * steady state; it is a migration path, and it exists only for the people whose
+ * credential predates this.
+ *
+ * Optional still means optional: Twitch will complete a flow having granted
+ * less than was asked for, and everything in Watchside keeps working when it
+ * does. It simply resolves to `needs_follow_permission` and measures nothing.
+ *
+ * This list is deliberately additive to what Supabase's Twitch provider already
+ * requests for itself (`user:read:email`) - that scope is not repeated here
+ * because it is not ours to ask for.
+ *
+ * WHAT MUST NEVER BE ADDED
+ *
+ * Anything about subscriptions, purchases or writing to somebody's account.
+ * Watchside reads one relationship - do you already follow this creator - and
+ * the scope set is the enforceable statement of that.
+ */
+export const REQUESTED_SCOPES: readonly string[] = [FOLLOWS_SCOPE]
+
+/**
+ * Builds the scope parameter from the list, so scope construction is one
+ * function rather than a string literal repeated at each call site.
+ *
+ * Both the initial sign-in and the legacy upgrade go through here, which is why
+ * they cannot drift apart: a scope added for new users is, by construction, the
+ * same scope offered to existing ones.
+ */
+export function scopeRequest(scopes: readonly string[] = REQUESTED_SCOPES): string {
+  return scopes.join(' ')
+}
 
 /** Refresh this many seconds before the token actually expires. */
 const EXPIRY_SKEW_SECONDS = 120
@@ -100,7 +140,12 @@ export interface AuthService {
   signIn(): Promise<void>
   signOut(): Promise<void>
   /**
-   * Asks Twitch for the optional measurement permission.
+   * Adds the measurement permission to a credential that predates it.
+   *
+   * This is the MIGRATION path, not the normal one. New authorizations request
+   * the scope up front (see REQUESTED_SCOPES); this exists for the people who
+   * signed in before that was true, and as the manual way back for anybody who
+   * declined and later changed their mind.
    *
    * Deliberately NOT signIn(). Sign-in treats cancellation as "end up signed
    * out", which is right for somebody who has not signed in and completely
@@ -233,7 +278,15 @@ export function createAuthService(deps: AuthDeps): AuthService {
       if (state.signingIn) return
       setState({ signingIn: true, error: null })
 
-      const started = await deps.backend.startOAuth(deps.redirectUrl)
+      /*
+       * The measurement scope is part of the ordinary consent screen.
+       *
+       * Not because Watchside needs it - it does not - but because asking once,
+       * where somebody is already deciding what to authorize, is honest and
+       * costs them nothing. If Twitch returns without it the sign-in still
+       * succeeds and readiness simply becomes `needs_follow_permission`.
+       */
+      const started = await deps.backend.startOAuth(deps.redirectUrl, scopeRequest())
       if (started.error || !started.value) {
         fail('startOAuth', 'Watchside could not start the Twitch sign-in.', started.error)
         return
@@ -322,7 +375,7 @@ export function createAuthService(deps: AuthDeps): AuthService {
      * assuming the redirect meant yes.
      */
     async grantFollowPermission() {
-      const started = await deps.backend.startOAuth(deps.redirectUrl, FOLLOWS_SCOPE)
+      const started = await deps.backend.startOAuth(deps.redirectUrl, scopeRequest())
       if (started.error || !started.value) {
         deps.onError?.('grantFollowPermission', started.error)
         return { ok: false, error: 'Watchside could not start the Twitch permission request.' }

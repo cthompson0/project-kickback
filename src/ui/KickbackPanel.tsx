@@ -28,6 +28,7 @@ import {
   LoadingState,
   SignInCard,
 } from './components/AuthStates'
+import { MeasurementInvitation } from './components/MeasurementInvitation'
 
 /**
  * Friends, the contextual session, Groups.
@@ -727,6 +728,31 @@ export function KickbackPanel({
 
       {signedIn && (
         <>
+          {/*
+            * The migration invitation for credentials that predate M3D.
+            *
+            * Here, at the top of the signed-in body, because that is where
+            * somebody's eye already is - and nowhere near a JOIN. It renders
+            * only for `needs_follow_permission`, only until it is dismissed,
+            * and it is ordinary flow content rather than an overlay, so it can
+            * never come between a JOIN click and arriving on Twitch.
+            *
+            * New users never see it: their authorization already asked.
+            */}
+          <MeasurementInvitation
+            client={client}
+            readiness={view.measurementReadiness}
+            dismissed={view.preferences.followPermissionDismissed}
+            onDismissedChange={(followPermissionDismissed) => {
+              setActionError(null)
+              client.setPreferences({ followPermissionDismissed }).catch((cause: unknown) => {
+                setActionError(
+                  cause instanceof Error ? cause.message : 'Could not save that setting.',
+                )
+              })
+            }}
+          />
+
           {friendsHere.length > 0 && (
             <div className="kb-here-banner">
               <div className="kb-avatar-stack">

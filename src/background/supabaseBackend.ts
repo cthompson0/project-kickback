@@ -168,11 +168,12 @@ export function createSupabaseBackend(supabase: SupabaseClient): AuthBackend {
     },
 
     /**
-     * Starts Twitch OAuth, optionally asking for more than the default.
+     * Starts Twitch OAuth, asking for whatever scope set the caller decided on.
      *
-     * Ordinary sign-in passes no scopes and is unchanged - the measurement
-     * permission is OPTIONAL, so nobody is asked for it just to use Watchside.
-     * It is requested only when somebody deliberately chooses to grant it.
+     * The decision is auth.ts's (see REQUESTED_SCOPES); this only carries it.
+     * Both the ordinary sign-in and the legacy upgrade arrive here, and neither
+     * gets to construct a different set - which is what keeps "what a new user
+     * is asked for" and "what an existing user can add" the same list.
      */
     async startOAuth(redirectTo: string, scopes?: string): Promise<BackendResult<string>> {
       try {

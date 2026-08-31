@@ -27,6 +27,7 @@ const BINDING_SUITE = 'tests/extension/relationshipBinding.test.ts'
 const BASELINE_SUITE = 'tests/extension/followBaseline.test.ts'
 const M3D_DB_SUITE = 'tests/db/relationshipObservation.test.ts'
 const AUTH = 'src/background/auth.ts'
+const INVITATION = 'src/ui/components/MeasurementInvitation.tsx'
 const PERMISSION_SUITE = 'tests/extension/followPermission.test.tsx'
 const MIGRATION = 'supabase/migrations/0032_destruction_paths.sql'
 const STORAGE = 'src/background/storage.ts'
@@ -272,14 +273,56 @@ create policy twitch_credentials_read on public.twitch_credentials
     expect: 'leaves the person signed in when they back out',
   },
   {
-    // Everybody is asked for the measurement permission merely to sign in,
-    // which is exactly what "optional" is supposed to prevent.
-    name: 'auth: request the follow scope on ordinary sign-in',
+    // The correction, inverted. Dropping the scope from the initial
+    // authorization is what created the rejected product: every new user would
+    // sign in without it and then have to discover a second Twitch trip
+    // somewhere in their settings.
+    name: 'auth: drop the follow scope from the initial sign-in',
     file: AUTH,
     suite: PERMISSION_SUITE,
-    from: `      const started = await deps.backend.startOAuth(deps.redirectUrl)`,
-    to: `      const started = await deps.backend.startOAuth(deps.redirectUrl, FOLLOWS_SCOPE)`,
-    expect: 'asks for no extra scope',
+    from: `      const started = await deps.backend.startOAuth(deps.redirectUrl, scopeRequest())
+      if (started.error || !started.value) {
+        fail('startOAuth', 'Watchside could not start the Twitch sign-in.', started.error)`,
+    to: `      const started = await deps.backend.startOAuth(deps.redirectUrl)
+      if (started.error || !started.value) {
+        fail('startOAuth', 'Watchside could not start the Twitch sign-in.', started.error)`,
+    expect: 'asks Twitch for the measurement scope during the initial authorization',
+  },
+  {
+    // Watchside asks for something it has no business holding. The scope set is
+    // the enforceable statement of what Watchside can do to somebody's Twitch
+    // account, so widening it must never be a quiet edit.
+    name: 'auth: widen the requested scope set',
+    file: AUTH,
+    suite: PERMISSION_SUITE,
+    from: `export const REQUESTED_SCOPES: readonly string[] = [FOLLOWS_SCOPE]`,
+    to: `export const REQUESTED_SCOPES: readonly string[] = [FOLLOWS_SCOPE, 'user:read:subscriptions']`,
+    expect: 'asks for nothing beyond that one scope',
+  },
+
+  // ------------------------------------------- the legacy migration prompt
+  {
+    // The gate loosens, and people whose authorization is genuinely BROKEN get
+    // told an optional-permission story instead of the one thing that would
+    // help them. Failing closed on readiness is the whole reason this state
+    // machine has four values rather than a boolean.
+    name: 'invite: prompt somebody whose authorization is broken',
+    file: INVITATION,
+    suite: PERMISSION_SUITE,
+    from: `  if (readiness !== 'needs_follow_permission') return null`,
+    to: `  if (readiness === 'ready') return null`,
+    expect: 'invites nobody whose authorization is actually broken',
+  },
+  {
+    // "Not now" stops meaning anything. This is the difference between a
+    // one-time invitation and a nag, and it is the failure a user would
+    // experience as Watchside not listening.
+    name: 'invite: keep asking after "Not now"',
+    file: INVITATION,
+    suite: PERMISSION_SUITE,
+    from: `  if (dismissed) return null`,
+    to: `  if (dismissed && readiness === 'ready') return null`,
+    expect: 'stops appearing once it has been waved away',
   },
 
   // ------------------------------------------------------------------- O7

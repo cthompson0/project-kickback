@@ -196,6 +196,7 @@
 .kb-panel > .kb-footer,
 .kb-panel > .kb-here-banner,
 .kb-panel > .kb-gathering-banner,
+.kb-panel > .kb-invite,
 .kb-panel > .kb-inline-note {
   flex: none;
 }
@@ -411,6 +412,55 @@
   border-radius: 9px;
   background: linear-gradient(90deg, rgba(46, 230, 168, 0.16), rgba(46, 230, 168, 0.05));
   border: 1px solid rgba(46, 230, 168, 0.28);
+}
+
+/* ---------- the measurement invitation (legacy credentials only) ---------- */
+
+/*
+ * Visible enough to be found, quiet enough not to be an alarm.
+ *
+ * It borrows the panel's own surface rather than the here-banner's accent or
+ * the danger block's urgency: this is an offer somebody may decline with no
+ * consequence, and dressing it as either an event or a warning would misstate
+ * that. It is also the only element on this surface that can be dismissed
+ * permanently, so it must not read as something that will come back.
+ */
+.kb-invite {
+  margin: 0 10px 10px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--kb-line);
+  background: var(--kb-bg-hover);
+}
+
+.kb-invite-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--kb-text);
+  margin-bottom: 6px;
+}
+
+.kb-invite-body,
+.kb-invite-note,
+.kb-invite-error {
+  margin: 0 0 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--kb-text);
+}
+
+.kb-invite-note {
+  color: var(--kb-dim);
+}
+
+.kb-invite-error {
+  color: var(--kb-live);
+}
+
+.kb-invite-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .kb-here-banner-text {

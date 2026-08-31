@@ -312,21 +312,28 @@ export function FeedbackForm({
 
 /**
  * The optional permission that lets Watchside measure whether friends help
- * people find creators.
+ * people find creators - as a control somebody can come back to.
  *
- * WHY IT LIVES HERE AND NOWHERE ELSE
+ * WHAT THIS IS NOT
  *
- * The account panel is somewhere people go deliberately. Putting this here
- * means it is findable without ever interrupting anything: no toast, no
- * onboarding step, and above all nothing between a JOIN click and arriving on
- * Twitch, which is the one place a permission prompt would both annoy people
- * and corrupt the very measurement it enables.
+ * It is not how anybody is expected to discover this permission. It was, and
+ * that was the wrong product: nobody goes looking through account settings for
+ * something they have never heard of. New authorizations now request the scope
+ * on the ordinary Twitch consent screen, and people whose credential predates
+ * that are invited once on the main panel surface (see MeasurementInvitation).
+ *
+ * WHAT IT IS FOR
+ *
+ * The deliberate way back. Somebody who said "not now" and later changed their
+ * mind needs a place to go, and it has to be somewhere stable that does not
+ * depend on a prompt reappearing - because the prompt deliberately never does.
  *
  * WHAT "DISMISSED" MEANS
  *
  * The explanation collapses to a single line. It is not a refusal and it is not
  * remembered as one - the control stays, so granting later is one click away,
- * and nothing ever asks again on its own.
+ * and nothing ever asks again on its own. The same flag silences the invitation
+ * on the main surface, so "not now" is answered once and honoured everywhere.
  *
  * WHAT IT DOES NOT SAY
  *
