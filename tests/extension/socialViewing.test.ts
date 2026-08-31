@@ -147,14 +147,43 @@ describe('the worker keeps the two apart', () => {
      * in the database forever.
      */
     expect(WORKER).toContain(`const channel = liveWatchChannel()
-  analytics.noteTogether({ channel, otherCount: coWatcherCount(channel) })`)
+  const observed = observedStreams()`)
+    expect(WORKER).toContain('otherCount: coWatcherCount(channel)')
     // Its own doc line, its definition, the analytics call, and the
     // diagnostic that exists so a future disagreement is answerable in one line.
     expect((WORKER.match(/liveWatchChannel\(\)/g) ?? []).length).toBe(4)
   })
 
-  it('asks the live question in exactly one place', () => {
-    expect((WORKER.match(/canWatchLiveTogether\(/g) ?? []).length).toBe(1)
+  /**
+   * ONE RULE, and now two consumers of it.
+   *
+   * M3C.1 gave observed dwell its own answer per destination, because dwell is
+   * per stream and the shared watch is not. That is a second CALL, and the
+   * count below moved from 1 to 2 to say so honestly.
+   *
+   * What must never change is that there is one RULE. Both call sites ask
+   * canWatchLiveTogether() from core/socialViewing.ts; neither re-implements
+   * liveness, and the assertions below are what stop a third answer appearing
+   * as a hand-rolled comparison somewhere in the worker.
+   */
+  it('asks the live question through one rule, from its two named consumers', () => {
+    expect((WORKER.match(/canWatchLiveTogether\(/g) ?? []).length).toBe(2)
+
+    // The shared watch: one channel.
+    expect(WORKER).toContain(`function liveWatchChannel(): string | null {
+  const here = sessionChannel()
+  return canWatchLiveTogether(here, metadata.snapshot()) ? here : null
+}`)
+    // Observed dwell: the same rule, asked of each open destination.
+    expect(WORKER).toContain('function observedStreams()')
+    expect(WORKER).toContain('.filter((channel) => canWatchLiveTogether(channel, snapshot))')
+  })
+
+  it('never decides liveness any other way', () => {
+    // A hand-rolled comparison is how a second definition of "live" gets in.
+    expect(WORKER).not.toContain('liveStateOf(')
+    expect(WORKER).not.toMatch(/===\s*'live'/)
+    expect(WORKER).not.toMatch(/\.live\s*===/)
   })
 
   it('leaves raw presence alone', () => {

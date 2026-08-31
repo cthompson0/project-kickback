@@ -29,8 +29,8 @@ import {
 } from './exposure'
 import { opportunityKey } from '../core/socialGravity'
 import { createTogetherWatch } from './togetherWatch'
-import { createChannelDwell } from './channelDwell'
-import type { DwellState } from './channelDwell'
+import { createChannelDwell, reconcileDwell } from './channelDwell'
+import type { DwellStream, PersistedDwell } from './channelDwell'
 import { isObservationLost, reconcileLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
 import { isRandomisedArm } from '../core/experiment'
@@ -94,7 +94,7 @@ export interface AnalyticsHubDeps {
    * both without one of them being wrong. Same recovery policy, same
    * conservative rules; see channelDwell.ts and togetherStore.ts.
    */
-  dwellStore: StoredValue<PersistedLifecycle<DwellState>>
+  dwellStore: StoredValue<PersistedDwell>
   /** True once there is a signed-in user to attribute events to. */
   canSend: () => boolean
   /**
@@ -144,8 +144,34 @@ export interface AnalyticsHub {
 
   /** The user is now here. Emits join_arrived if this answers a pending click. */
   noteChannel(channel: string | null): void
-  /** Who else is on this channel with them. Emits the shared-watch transitions. */
-  noteTogether(input: { channel: string | null; otherCount: number }): void
+  /**
+   * The viewing world, right now.
+   *
+   * `channel` / `otherCount` drive the SHARED WATCH, which is single-channel
+   * by design - it is about the destination the viewer is at with somebody.
+   *
+   * `streams` drives OBSERVED STREAM DWELL, which is per stream and may hold
+   * several at once: every eligible live destination the viewer has open,
+   * whether or not it is the one in front of them.
+   *
+   * Both arrive on ONE call so they are computed from the same metadata
+   * snapshot in the same tick. Two calls would be two chances for the shared
+   * watch and the dwell interval containing it to disagree about the world.
+   */
+  noteTogether(input: {
+    channel: string | null
+    otherCount: number
+    streams?: readonly DwellStream[]
+    /**
+     * Every destination still OPEN, live or not.
+     *
+     * The difference between this and `streams` is what lets an ending stream
+     * be told from a closing tab: a channel that drops out of `streams` but is
+     * still here stopped being live, and one that drops out of both went away.
+     * Neither is guessed.
+     */
+    openChannels?: readonly string[]
+  }): void
   noteExposure(report: ExposureReport): void
 
   flush(): Promise<void>
@@ -326,6 +352,17 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
         name: 'channel_dwell_ended',
         properties: {
           duration_ms: event.durationMs,
+          /*
+           * The focus partition, carried rather than left to be derived.
+           *
+           * focused + background === duration exactly, enforced where the
+           * interval closes. Sending both means a query cannot forget the
+           * subtraction exists or get its sign wrong, and it keeps
+           * "focused stream-minutes" a first-class metric rather than
+           * something each analyst re-derives slightly differently.
+           */
+          focused_duration_ms: event.focusedMs,
+          background_duration_ms: event.backgroundMs,
           from_join: event.attributionId !== null,
           had_social: event.hadSocial,
           end_reason: event.reason,
@@ -348,14 +385,14 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       })
     }
 
-    if (!dwell.current()) dwellSessionId = null
+    if (dwell.current().length === 0) dwellSessionId = null
   }
 
   /** The dwell counterpart of persistLifecycle. Same throttle, same reasons. */
   async function persistDwell(at: number): Promise<void> {
-    const state = dwell.snapshot()
+    const states = dwell.snapshot()
 
-    if (!state) {
+    if (states.length === 0) {
       if (dwellPersistedJson !== null) {
         await deps.dwellStore.write(null)
         dwellPersistedJson = null
@@ -366,13 +403,13 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
     const userId = deps.selfId()
     if (!userId) return
 
-    const json = JSON.stringify(state)
+    const json = JSON.stringify(states)
     if (json === dwellPersistedJson && at - dwellPersistedAt < LAST_SEEN_WRITE_MS) return
 
     await deps.dwellStore.write({
       userId,
       sessionId: dwellSessionId,
-      state,
+      states,
       lastSeenAt: dwellSeenAt,
     })
     dwellPersistedJson = json
@@ -381,10 +418,12 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
 
   /** The dwell counterpart of closeIfObservationLost. See that comment. */
   function closeDwellIfObservationLost(at: number): void {
-    if (!dwell.current()) return
+    if (dwell.current().length === 0) return
     if (!isObservationLost(dwellSeenAt, at)) return
 
-    emitDwell(dwell.closeAt('observation_lost', dwellSeenAt, at))
+    // Every open stream at once: the gap was in our observation, not in any
+    // one destination, so they all end at the same last-vouched moment.
+    emitDwell(dwell.closeAllAt('observation_lost', dwellSeenAt, at))
     dwellPersistedJson = null
     void deps.dwellStore.write(null)
   }
@@ -392,17 +431,22 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
   /**
    * The dwell counterpart of ensureLifecycle.
    *
-   * Reuses reconcileLifecycle itself rather than restating the policy: the
-   * question after a restart - is this the world we left, and when did we last
-   * honestly know anything - is identical for both intervals, and answering it
-   * twice would be two chances to answer it differently.
+   * The staleness RULE is shared with the shared watch (isObservationLost, same
+   * constant), but the membership question is not: several intervals come back
+   * at once and each one has to be judged against the destination set rather
+   * than against a single channel. reconcileDwell holds that policy, and it is
+   * pure so every branch is testable without a browser.
+   *
+   * A restart usually finds some of the world as it left it and some of it
+   * gone - two streams open, one tab closed during the outage - so resume and
+   * close are applied together rather than as separate decisions.
    */
-  async function ensureDwell(channel: string | null, at: number): Promise<void> {
+  async function ensureDwell(channels: readonly string[], at: number): Promise<void> {
     if (dwellRestored) return
     dwellRestored = true
 
     const stored = await deps.dwellStore.read()
-    const decision = reconcileLifecycle(stored, { userId: deps.selfId(), channel, now: at })
+    const decision = reconcileDwell(stored, { userId: deps.selfId(), channels, now: at })
 
     if (decision.action === 'discard') {
       if (stored) await deps.dwellStore.write(null)
@@ -410,17 +454,32 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       return
     }
 
-    dwellSessionId = decision.lifecycle.sessionId
-    dwell.restore(decision.lifecycle.state)
+    dwellSessionId = stored?.sessionId ?? null
 
-    if (decision.action === 'resume') {
-      dwellPersistedJson = JSON.stringify(decision.lifecycle.state)
-      dwellPersistedAt = decision.lifecycle.lastSeenAt
-      dwellSeenAt = decision.lifecycle.lastSeenAt
+    // Everything is installed first, then the departed ones are closed - so
+    // each close emits from a real interval with its focus partition intact.
+    dwell.restore([...decision.resume, ...decision.close])
+
+    if (decision.close.length > 0) {
+      emitDwell(
+        dwell.closeAt(
+          decision.close.map((state) => state.channel),
+          decision.reason,
+          decision.effectiveAt,
+          at,
+        ),
+      )
+    }
+
+    if (decision.resume.length > 0) {
+      dwellPersistedJson = JSON.stringify(dwell.snapshot())
+      dwellPersistedAt = stored?.lastSeenAt ?? at
+      // Carry the stored moment forward, so the very next tick measures its
+      // gap from when we last saw the user rather than from the restart.
+      dwellSeenAt = stored?.lastSeenAt ?? at
       return
     }
 
-    emitDwell(dwell.closeAt(decision.reason, decision.effectiveAt, at))
     await deps.dwellStore.write(null)
     dwellPersistedJson = null
   }
@@ -613,7 +672,7 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * moment we could vouch for, not at the moment of the sign-out.
          */
         await ensureLifecycle(null, now())
-        await ensureDwell(null, now())
+        await ensureDwell([], now())
         /*
          * Before stop(), which closes at now(). Signing out after a long sleep
          * must not credit the sleep any more than a heartbeat tick would.
@@ -728,9 +787,24 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
       }, 'analytics.noteChannel')
     },
 
-    noteTogether({ channel, otherCount }): void {
+    noteTogether({ channel, otherCount, streams = [], openChannels = [] }): void {
       if (off) return
       const login = normalizeChannel(channel)
+      /*
+       * Normalised here, once, so a caller cannot introduce a channel spelling
+       * the envelope would reject later. Anything that fails the login rule is
+       * dropped rather than guessed at.
+       */
+      const observed: DwellStream[] = []
+      for (const stream of streams) {
+        const channelLogin = normalizeChannel(stream.channel)
+        if (channelLogin) observed.push({ ...stream, channel: channelLogin })
+      }
+      const stillOpen = new Set<string>()
+      for (const candidate of openChannels) {
+        const channelLogin = normalizeChannel(candidate)
+        if (channelLogin) stillOpen.add(channelLogin)
+      }
       serial(async () => {
         /*
          * Before anything else, and only once per worker life: whatever
@@ -739,7 +813,10 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * no ordering to get wrong - this is the first place that needs it.
          */
         await ensureLifecycle(login, now())
-        await ensureDwell(login, now())
+        await ensureDwell(
+          observed.map((stream) => stream.channel),
+          now(),
+        )
 
         /*
          * Then doubt it again, every time.
@@ -760,35 +837,60 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
          * somebody comes back inherits the attribution already held, so
          * looking one up again would be wrong as well as wasteful.
          */
-        if (login && (together.wantsAttribution() || dwell.wantsAttribution())) {
-          const credit = await attribution.forTogether(login)
-          if (credit) {
-            if (together.wantsAttribution()) together.attribute(credit.id)
-            if (dwell.wantsAttribution()) dwell.attribute(credit.id)
-          }
+        /*
+         * Attribution is looked up PER DESTINATION, and only for the one a
+         * JOIN actually led to.
+         *
+         * forTogether() answers for one channel and returns null for any other,
+         * so a second stream open at the same time cannot inherit the first
+         * one's credit. That isolation is the whole reason this asks per
+         * channel rather than once for "the current attribution".
+         */
+        const needsCredit = new Set<string>()
+        if (login && together.wantsAttribution()) needsCredit.add(login)
+        for (const stream of observed) {
+          if (dwell.wantsAttribution(stream.channel)) needsCredit.add(stream.channel)
+        }
+        for (const candidate of needsCredit) {
+          const credit = await attribution.forTogether(candidate)
+          if (!credit) continue
+          if (candidate === login && together.wantsAttribution()) together.attribute(credit.id)
+          if (dwell.wantsAttribution(candidate)) dwell.attribute(candidate, credit.id)
         }
         emitTogether(together.update({ channel: login, otherCount }))
 
         /*
-         * Dwell is driven AFTER the shared watch, from the same channel value
-         * in the same tick, and its social flag is read from the shared-watch
-         * machine's own state rather than from otherCount.
+         * Dwell is driven AFTER the shared watch, in the same tick, and its
+         * social flag is read from the shared-watch machine's own state rather
+         * than from a friend count.
          *
-         * That ordering is what makes had_social mean "a shared watch actually
-         * occurred" rather than "some friends were around". It also means the
-         * two can never disagree about what counts as watching: a shared watch
-         * exists only inside a dwell interval on the same channel.
+         * PER STREAM. The shared watch is single-channel by design, so only the
+         * stream it currently holds can be marked social - a background stream
+         * where friends happen to be is NOT claimed as shared viewing, because
+         * the shared-watch lifecycle never opened an interval there. That
+         * under-reports, which is the direction to be wrong in, and it keeps
+         * had_social meaning exactly "the shared watch was open on this
+         * stream".
          *
-         * The flag is sticky inside channelDwell, so an interval whose social
-         * part ended an hour ago is still had_social - which is why this reads
+         * The flag is sticky inside channelDwell, so a stream whose social part
+         * ended an hour ago is still had_social - which is why this reads
          * current() rather than trying to catch the moment it was open.
          */
-        emitDwell(dwell.update({ channel: login, social: together.current() !== null }))
+        const socialChannel = together.current()?.channel ?? null
+        emitDwell(
+          dwell.update({
+            streams: observed.map((stream) => ({
+              ...stream,
+              social: stream.channel === socialChannel,
+            })),
+            reasonFor: (channel) => (stillOpen.has(channel) ? 'stream_ended' : 'left_channel'),
+          }),
+        )
 
         // This tick is now the last moment we can vouch for, and the stored
         // copy is written from it - see persistLifecycle.
         if (together.current()) lifecycleSeenAt = now()
-        if (dwell.current()) dwellSeenAt = now()
+        if (dwell.current().length > 0) dwellSeenAt = now()
         await persistLifecycle(now())
         await persistDwell(now())
       }, 'analytics.noteTogether')

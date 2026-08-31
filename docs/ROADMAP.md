@@ -149,6 +149,53 @@ In this order, none of it now:
 
 ---
 
+## Measurement — M3
+
+The measurement work is core product infrastructure, not telemetry: the
+strategic bet is that Watchside can show it contributes to Twitch consumption,
+and that argument is only as good as the evidence recorded while it happened.
+
+### The permanent measurement principle
+
+> **Measure observable Twitch consumption faithfully; preserve dimensions for
+> stricter analysis later; be conservative in claims rather than destructive in
+> collection.**
+
+Adopted in M3C.1 after focused-tab-only dwell was rejected. A metric made
+artificially conservative by *discarding* legitimate behaviour cannot be
+widened afterwards - the behaviour is simply gone. Collect the dimensions;
+argue about the claim in the query, where it can be argued with.
+
+### State
+
+| Phase | What | State |
+|---|---|---|
+| **M3A** | Five reporting views + experiment-arm instrumentation | **DONE.** Views live server-side; the arm property ships with v0.7 |
+| **M3B** | Economic attribution research, incl. M3B.1 D9 resolution | **CLOSED** |
+| **M3C** | Observed stream dwell + repeat-creator foundation | **IMPLEMENTED**, corrected by M3C.1, awaiting v0.7 |
+| **M3C.1** | Per-stream dwell, focus/background split, concurrency views | **IMPLEMENTED**. Zero production rows existed, so the contract was corrected rather than versioned around |
+| **D7 / D8** | Twitch DSA legal read; Mozilla `financialAndPaymentInfo` classification | **OPEN**, running in parallel. Both gate M3D/M3E-a, neither gates v0.7 |
+| **G6 + M3D + M3E-a** | Deletion architecture, `following_at_join`, `subscribed_at_join` | **AFTER the policy gates.** One Twitch OAuth authorisation change, target **v0.8** |
+
+### v0.7 — the next coherent cross-browser measurement release
+
+Not created yet. Contents:
+
+- experiment-arm instrumentation (production randomisation only)
+- corrected **observed stream dwell**, per stream
+- focus / background diagnostic subdurations
+- repeat-creator measurement foundation
+- **no Twitch OAuth scope change**, no new Firefox data category
+
+### After v0.7
+
+**F7** is independent and happens whenever Mozilla approves the pending v0.6
+submission. Then **M5** → Store assets → **M6** → **M7 public launch**, gated by
+the irreversible-data checks in
+`docs/reports/m3a-m3c-measurement-foundation-2026-08-30.md` §26.9.
+
+---
+
 ## Decided, and not to be re-opened without new evidence
 
 ### Distribution — **CHROME WEB STORE, PRIVATE**

@@ -1026,3 +1026,509 @@ exact queries are ready to paste.
 **Recommended next step:** run §24's queries, then treat M3C as ready for the
 v0.7 cross-browser release — recording the dwell measurement start date in that
 release's notes, as §25 requires.
+
+---
+
+## 33. M3C.1 — Observed Stream Dwell Correction
+
+**Appended:** 2026-08-30
+**Starting commit:** `7ce6f43` · both trees clean
+**Type:** focused implementation correction, made before any production data
+existed.
+
+> **The whole reason this was cheap: `channel_dwell_ended` had produced ZERO
+> production rows.** v0.7 was never packaged, so the contract could be
+> corrected outright rather than versioned around. There is no mixed-semantics
+> window, no cut-over date, and no query anywhere will ever need a footnote
+> about which rule produced a row.
+
+---
+
+### 33.1 Why focused-only was rejected
+
+The M3C implementation measured only the focused tab, one interval at a time
+(§9, §10). The reasoning was that counting three open tabs as three concurrent
+hours would *invent* watch time, and invented watch time cannot be detected
+afterwards.
+
+That reasoning was right about the risk and wrong about the remedy. It
+protected the headline number by **destroying the evidence**:
+
+- a viewer with two streams legitimately open for an hour really did consume
+  two stream-hours of Twitch, and one of them was discarded;
+- a stream on a second monitor, or running while the viewer read something
+  else, recorded nothing at all;
+- none of it was recoverable later, because a measurement that never ran leaves
+  nothing to re-analyse.
+
+The asymmetry is the point. **A metric made conservative by discarding
+behaviour cannot be widened afterwards; one made faithful can always be
+narrowed in the query.** Focused-only threw away the strict reading's
+alternatives; per-stream keeps both.
+
+So the governing principle, now recorded in `docs/ROADMAP.md`:
+
+> **Measure observable Twitch consumption faithfully; preserve dimensions for
+> stricter analysis later; be conservative in claims rather than destructive in
+> collection.**
+
+The original concern is not dismissed — it is relocated. Inventing watch time is
+still the failure that matters, which is why §33.3 keeps *wall-clock* time a
+separate, union-based quantity that concurrency cannot inflate, and why §14.0 of
+`docs/ANALYTICS.md` forbids the one sentence that would confuse them.
+
+---
+
+### 33.2 New canonical dwell definition
+
+> **Observed stream dwell** — how long Watchside had defensible continuing
+> evidence that one eligible **live** Twitch stream was open and observed.
+
+- **Per stream.** Not capped to one per actor.
+- **Not gated on focus.**
+- **Not human attention**, and never described as such.
+
+**Unit: stream-milliseconds.** Summing across concurrent streams yields
+stream-time, which is a different quantity from wall-clock time and is named
+differently everywhere (§14.0).
+
+What still ends an interval is unchanged in spirit and now more precise:
+
+| Reason | Evidence |
+|---|---|
+| `left_channel` | the destination left the observed set — tab closed or navigated |
+| `stream_ended` | still open, but Twitch no longer says it is live |
+| `session_ended` | sign-out or session close |
+| `observation_lost` | gap beyond the 5-minute resume window; closed at the last vouched moment |
+
+`stream_ended` is **new and newly possible**: tracking the destination set and
+live state separately means "the stream ended under a viewer who stayed" is now
+distinguishable from "the viewer left". Under focused-only both arrived as a
+null channel and were necessarily folded together.
+
+`switched_channel` was **removed**. It existed only because focused-only dwell
+had to close one interval to open another; per-stream dwell does not, so the
+value became unreachable. A vocabulary listing outcomes that can no longer occur
+misleads whoever reads a `group by` next.
+
+---
+
+### 33.3 Multi-stream semantics
+
+Concurrent streams accrue simultaneously and independently.
+
+```
+two streams open 60 minutes  →  120 observed stream-minutes
+                                 60 wall-clock minutes
+                                 60 concurrent stream-minutes
+```
+
+All three are computed, and `analytics_viewing_daily_v` puts them **in the same
+row** so the wrong one cannot be reached for by accident:
+
+| Column | Concurrency | May be described as |
+|---|---|---|
+| `observed_stream_ms` | **inflates** it, legitimately | "observed Twitch stream-hours" |
+| `wall_clock_ms` | does **not** inflate it | "Watchside-observed Twitch time" |
+| `concurrent_stream_ms` | the exact difference | "consumption alongside another stream" |
+
+`wall_clock_ms` is the union of an actor's intervals for a day, by
+gaps-and-islands. It is the only dwell quantity that may be described as time a
+person spent watching Twitch.
+
+#### What establishes "observed" — existing evidence only
+
+The brief asked whether presence destinations could serve, and whether all of
+them count. They cannot be assumed equal to valid dwell; the set used is the
+intersection that already exists:
+
+| Evidence | Source |
+|---|---|
+| the tab exists on that channel | `tabActivity.destinations()` (capped at 3, deduped, visibility-independent) |
+| the destination was published and acknowledged by the server | `presenceReporter.lastDestinations()` |
+| both | **`sessionChannels()`** — their intersection |
+| the stream is live | `canWatchLiveTogether()`, per channel |
+| observation is continuing | the existing 45-second presence heartbeat |
+
+**No polling was added.** Nothing new is fetched on dwell's behalf except one
+thing:
+
+**`wantMetadata()` now requests metadata for every open destination, not only
+the focused one.** This was a genuine blocker found during inspection: it pushed
+`currentChannel()` alone, so a background stream would have read `unknown`
+forever, `unknown` is not live, and the interval would never have opened — the
+measurement would have silently collapsed back to focused-only while looking
+correct. Cost: at most two extra logins per refresh against a budget of **600
+per five minutes**, batched, TTL-guarded and idempotent.
+
+#### One rule, two consumers
+
+`canWatchLiveTogether()` is now called from two places — `liveWatchChannel()`
+(the single-channel shared watch) and `observedStreams()` (per destination).
+Two existing tests asserted **one** call site.
+
+I did not relax them. Unifying was considered and **rejected on evidence**:
+`sessionChannel()` consults only the published set while `sessionChannels()`
+also intersects `tabActivity.destinations()`, so deriving `liveWatchChannel()`
+from the observed set would change shared-watch behaviour in an edge case (more
+than three tabs, the focused one outside the top three). Changing accepted
+shared-watch semantics is a stated STOP condition.
+
+Instead the guards were **strengthened**: they now assert the count is two, name
+both consumers by their source, and additionally assert that nothing else in the
+worker decides liveness (`liveStateOf(`, `=== 'live'`, `.live ===` are all
+forbidden). The invariant that matters — *one rule, no second definition* — is
+now checked more directly than a bare count checked it.
+
+---
+
+### 33.4 Focus / background semantics
+
+Focus is a **dimension**, not a gate. The representation is the one the brief
+preferred, and no better alternative was found:
+
+```
+duration_ms
+focused_duration_ms
+background_duration_ms
+
+focused_duration_ms + background_duration_ms = duration_ms      (exactly)
+```
+
+Carried on the same event rather than split into separate events — the brief's
+stated preference, and correct here: two events would need pairing, and pairing
+is a second chance to disagree.
+
+**Banked at each focus transition, not sampled per tick.** Sampling would smear
+every transition across the 45-second heartbeat, and the error would always fall
+the same way for whichever stream happened to be focused at tick time. A
+transition is observed as it happens, because content scripts report on
+`visibilitychange`.
+
+**Clamped at close**, so the invariant holds by construction rather than by the
+arithmetic happening to line up. The case that makes this real: an interval
+carrying focus time banked before a worker died, then closed retroactively at an
+*earlier* last-vouched moment. Without the clamp, `background_duration_ms` would
+go negative and silently poison every sum built on it. Mutation-proved (§33.10).
+
+**"Focused" means the primary destination** — the tab the activity registry
+picks, visible beating hidden. At most one stream is focused at a time, which
+keeps focused stream-minutes comparable to wall-clock time. Two visible Twitch
+windows on two monitors are one primary and one background, deliberately.
+
+---
+
+### 33.5 Interval and concurrency derivation
+
+**No new telemetry was needed**, and the brief asked this be checked rather than
+assumed.
+
+`analytics_events.occurred_at` is the **effective end** and `duration_ms` is
+the interval length, so:
+
+```
+started_at = occurred_at - duration_ms      (exact)
+```
+
+That is sufficient to reconstruct every interval, and therefore to derive
+overlap, union and concurrency in SQL. Two views make it usable:
+
+- **`analytics_stream_dwell_v`** — one row per interval, with `started_at`,
+  `ended_at`, the durations, `from_join`, `had_social`, `end_reason`, and
+  `observed_during` as a `tstzrange` so overlap questions are range operations
+  rather than hand-rolled timestamp arithmetic in every query.
+- **`analytics_viewing_daily_v`** — per actor-day: stream-time, focused,
+  background, attributed, social, **wall-clock union**, and concurrent time.
+
+Asserted on the wire, not just in SQL: a hub test reconstructs both spans from
+emitted events and checks that stream-time exceeds the union for two concurrent
+streams (§33.10).
+
+---
+
+### 33.6 Attribution isolation
+
+Per-stream JOIN attribution is unchanged in rule and newly isolated in
+mechanism.
+
+Attribution is now looked up **per destination**:
+
+```ts
+for (const candidate of needsCredit) {
+  const credit = await attribution.forTogether(candidate)
+  ...
+}
+```
+
+`forTogether()` answers for one channel and returns null for any other, so a
+stream open alongside an attributed one **cannot inherit its credit**. An
+interval that opens without an attribution never acquires one, so organic
+viewing cannot be retroactively credited.
+
+**Nothing widens the attribution lifetime** — the 90-second arrival window and
+10-minute retention are untouched.
+
+`had_social` is likewise per stream, and deliberately conservative: the
+shared-watch lifecycle is single-channel by design, so **only the stream it
+actually held** may be marked social. A background stream where friends happen
+to be is *not* claimed as shared viewing, because the shared watch never opened
+there. That under-reports, which is the right direction, and it keeps
+`had_social` meaning exactly "the shared watch was open on this stream" rather
+than "friends were around somewhere".
+
+Both isolations are mutation-proved.
+
+---
+
+### 33.7 Repeat-creator implications
+
+`analytics_creator_repeat_v` is **semantically correct unchanged**, and its
+definition was checked against the new semantics rather than assumed.
+
+It never referenced focus. It asks: after a Watchside-attributed arrival at a
+creator, did a later qualifying dwell interval on that creator occur, not itself
+covered by a JOIN attribution. Under per-stream dwell that question is
+unchanged — and **strictly better answered**, because a return visit in a
+background tab now produces a qualifying interval where before it produced
+nothing.
+
+The view's SQL required no edit. `docs/ANALYTICS.md` §14.7 now states explicitly
+that focus is irrelevant to it, so nobody later assumes the old rule applied.
+
+---
+
+### 33.8 Schema and contract changes
+
+**Numbering checked first, as instructed.** Highest existing was `0030`;
+`0031` was free. No conflict, no STOP.
+
+**`0030` was not edited.** An applied migration is history.
+
+**New: `supabase/migrations/0031_m3c_stream_dwell.sql`**
+
+| Change | Kind |
+|---|---|
+| `channel_dwell_ended` gains `focused_duration_ms`, `background_duration_ms` | contract row — **data, not DDL** |
+| `analytics_stream_dwell_v` | new view |
+| `analytics_viewing_daily_v` | new view |
+| version marker → **31** | function replace |
+
+Statement audit: 2 `create view`, 2 `drop view if exists`, 2 `revoke`, 1
+`insert ... on conflict do update`, 1 `create or replace function`, 1 `revoke
+... function`. **No `drop table`, `delete`, `truncate`, or `alter table`.**
+
+Both new views are revoked from `anon` and `authenticated`, like every other
+analytics relation. Verified against the hosted project after the apply.
+
+**Validated against real Postgres** before any hosted change:
+`tests/db/` — **390 passing**, including applies-twice, applies-three-times and
+five partial-state upgrade paths.
+
+---
+
+### 33.9 Privacy changes
+
+The previous wording was now **inaccurate**, and the disclosure guard caught it
+rather than a human noticing: the policy claimed *"Not tabs you are not looking
+at — three streams open in background tabs record nothing"*, which the
+correction makes false.
+
+`docs/PRIVACY.md` now states, in plain words and without analytics jargon:
+
+> **If you have more than one stream open, each one is counted separately.**
+> Two streams open for an hour are recorded as two one-hour stretches, not one.
+> That is how we can tell how much Twitch viewing Watchside is part of; it is
+> not a claim that you were sitting there for two hours, and we do not describe
+> it that way.
+
+and
+
+> A stream still counts while its tab is in the background — on another monitor,
+> or behind something else. We also record how much of each stretch the stream
+> was the one you had in front of you, because "playing in the background" and
+> "the thing you were watching" are genuinely different and we would rather not
+> confuse them.
+
+The false limit was replaced with a true one — **"Not other tabs. Watchside only
+ever looks at Twitch"** — and the on-device sentence now says stretches, plural,
+one per open stream, each deleted as it ends.
+
+The opening sentence is unchanged and still un-euphemised: *"Watchside records
+how long you watch a live Twitch channel."*
+
+**The guard was also made wrapping-insensitive.** It matched literal substrings,
+so an 80-column line break could break a disclosure check for a reason having
+nothing to do with disclosure. It now matches against whitespace-collapsed text
+— asserting what the policy *says* rather than how it is laid out.
+
+**Firefox: no change.** Still `browsingActivity`, already declared REQUIRED. The
+correction widened *what is observed*, not the *category*: still a duration and
+a channel login, still nothing about the stream itself. No
+`technicalAndInteraction`, no `financialAndPaymentInfo` — both still asserted
+absent.
+
+---
+
+### 33.10 Tests and mutation proof
+
+**Full suite: 93 files, 2380 passing.** Lint, `tsc -b --force`, build all clean.
+
+All sixteen required proofs, mapped:
+
+| # | Requirement | Where |
+|---|---|---|
+| 1 | unfocused stream accrues | `channelDwell` "accrues dwell for a live stream that is not focused"; hub "accrues an unfocused stream" |
+| 2 | focused stream accrues | "accrues dwell for a focused stream" |
+| 3 | focus loss does not end dwell | "does not end an interval when focus is lost" |
+| 4 | focus regain does not duplicate | "does not duplicate an interval when focus returns" |
+| 5 | focused + background = duration | "splits the duration exactly across several focus changes" + two clamp tests + hub invariant check |
+| 6 | two concurrent streams both accrue | "lets two streams accrue at the same time"; hub equivalent |
+| 7 | concurrent intervals stay separate | "keeps concurrent intervals separate per destination" |
+| 8 | attribution cannot leak | "attributes only the stream the JOIN led to"; hub "does not leak attribution to a concurrent stream" |
+| 9 | `had_social` cannot leak | "marks only the stream the shared watch was open on"; hub equivalent |
+| 10 | closing one does not close another | "closing one stream does not close another"; hub equivalent |
+| 11 | navigation closes only the affected | "navigating one tab closes only the affected interval" |
+| 12 | `observation_lost` stays conservative | "closes a lost observation at the last vouched moment, not now"; hub three-hour-gap test |
+| 13 | offline stream does not accrue | "accrues nothing while no stream is eligible"; "closes as `stream_ended`" |
+| 14 | restart cannot duplicate | "cannot duplicate an interval across a restart"; hub restart test |
+| 15 | repeat-creator remains correct | §33.7; view unchanged, `analytics_creator_repeat_v` covered by existing tests |
+| 16 | data permits union/concurrency | "emits enough to recover start and end for overlapping streams"; hub "emits enough for wall-clock and concurrency analysis" |
+
+#### Mutation proof — seven invariants, all detected
+
+| Mutation | Result |
+|---|---|
+| focus gates dwell again (background discarded) | **DETECTED** |
+| attribution shared across concurrent streams | **DETECTED** |
+| `had_social` spread to every open stream | **DETECTED** |
+| focus partition unclamped (background could go negative) | **DETECTED** |
+| closing one stream closes them all | **DETECTED** |
+| interval restarts on focus change (duplicates) | **DETECTED** |
+| observation loss dated to now, not the last vouched moment | **DETECTED** |
+
+**A first attempt reported four of these as MISSED, and that was my error, not
+the tests'.** Three levers were ineffective — one mutated the worker, which no
+unit test loads; one replaced a lookup whose entry had already been deleted, so
+behaviour was identical; one mutated a branch the affected tests never reached.
+The fourth was a genuinely weak test: the clamp case it exercised produced the
+same answer clamped or not. That test was **strengthened** (an interval carrying
+banked focus time, closed retroactively earlier than the bank) and now fails
+without the clamp. Worth recording because a passing mutation run means nothing
+until the levers are shown to bite.
+
+#### Known debt — measured against `7ce6f43`, not assumed
+
+| Harness | Baseline | Now |
+|---|---|---|
+| `test:analytics` | 18/87 undetected | **18/87** — unchanged |
+| `test:presence` | 4/21 | **4/21** — unchanged |
+| `test:layout` | 5/23 | **5/23** — unchanged, pre-existing |
+| `verify:lab` | 11 failures | **11** — unchanged, pre-existing |
+
+**No new failure anywhere.**
+
+---
+
+### 33.11 Hosted apply and verification
+
+Same disciplined sequence as §22, with the smallest possible blast radius.
+
+1. `npm run db:bundle` — regenerated from 31 migrations.
+2. Statement audit — no destructive statements (§33.8).
+3. `tests/db/` — 390 passing against real Postgres, three bundle re-runs.
+4. `supabase db push --linked --dry-run` → **`0031_m3c_stream_dwell.sql` only**.
+5. `supabase db push --linked` — applied, no error.
+
+**Verification after the apply:**
+
+- `verify:analytics`: **all nine analytics views present**, including
+  `analytics_stream_dwell_v` and `analytics_viewing_daily_v`, and **none
+  readable by an anonymous client** — the revokes took effect.
+- Migration history: **31/31 tracked remote**, `0031` `local=remote`.
+- Schema version marker → 31.
+- Ingestion path untouched; `analytics_track` present and correctly refusing an
+  unauthenticated caller. The widened contract is exercised against real
+  Postgres by `tests/db/analytics.test.ts`.
+- `verify:store` and `verify:firefox` pass.
+
+---
+
+### 33.12 Updated roadmap
+
+`docs/ROADMAP.md` gained a **Measurement — M3** section carrying the permanent
+principle from §33.1 and the current state:
+
+| Phase | State |
+|---|---|
+| **M3A** | **DONE** — views live server-side; arm property ships with v0.7 |
+| **M3B** (incl. M3B.1) | **CLOSED** |
+| **M3C** | **IMPLEMENTED**, corrected by M3C.1, awaiting v0.7 |
+| **M3C.1** | **IMPLEMENTED** — corrected while the table was empty |
+| **D7 / D8** | **OPEN**, in parallel. Gate M3D/M3E-a; neither gates v0.7 |
+| **G6 + M3D + M3E-a** | after the policy gates; one OAuth change; target **v0.8** |
+
+**v0.7 — next coherent cross-browser measurement release** (not created):
+experiment-arm instrumentation · corrected observed stream dwell ·
+focus/background diagnostic · repeat-creator foundation · **no Twitch OAuth
+scope change, no new Firefox data category**.
+
+Then **F7** independently when Mozilla approves v0.6, and **M5 → Store assets →
+M6 → M7**, gated by §26.9.
+
+---
+
+### 33.13 Measurement start state
+
+**Zero `channel_dwell_ended` rows exist in any environment.** v0.7 has not been
+packaged or released.
+
+| Measurement | Data valid from |
+|---|---|
+| **`channel_dwell_ended`** (per-stream semantics) | **the first production release carrying M3C.1** |
+| `focused_duration_ms` / `background_duration_ms` | same release |
+| `analytics_stream_dwell_v`, `analytics_viewing_daily_v` | live now — views, so they see whatever rows exist |
+| `experiment_arm` | first **production** release; never in private beta |
+| `analytics_creator_repeat_v` | depends on dwell — same date |
+
+**There is no mixed-semantics window.** The focused-only contract shipped in no
+release and produced no rows, so every `channel_dwell_ended` row that will ever
+exist is per-stream. No query needs a cut-over date; no figure needs a footnote
+about which rule produced it. **That is the entire reason for correcting this
+now rather than after v0.7**, and it is recorded in `docs/ANALYTICS.md` §15.
+
+The dwell start timestamp must be recorded in the release notes of the version
+that ships it, and quoted beside any watch-time figure.
+
+---
+
+### 33.14 Final recommendation
+
+## **GO**
+
+1. **The correction is complete and the semantics are now faithful.** Per-stream
+   dwell, concurrency preserved, focus kept as a dimension rather than a gate,
+   and every stricter reading still derivable — focused-only, single-stream,
+   wall-clock union.
+2. **The original concern is answered rather than dismissed.** Inventing watch
+   time was the real risk; it is prevented by keeping wall-clock a separate
+   union-based quantity, putting it in the same row as stream-time, and
+   forbidding the one sentence that would confuse them (§14.0).
+3. **One genuine blocker was found and fixed** — metadata was only requested for
+   the focused destination, which would have silently collapsed the measurement
+   back to focused-only while appearing to work.
+4. **Two architectural guards were strengthened, not relaxed.** Unifying the
+   live-rule call sites was rejected because it would have changed accepted
+   shared-watch behaviour in an edge case; the guards now check the real
+   invariant more directly than the count did.
+5. **The privacy disclosure followed the behaviour**, because a test forced it
+   to. The claim that background tabs record nothing was false the moment the
+   semantics changed, and the guard failed until the policy was corrected.
+6. **Timed to cost nothing.** Zero production rows existed, so there is no
+   migration of old data, no dual-semantics query, and no footnote.
+
+**Nothing was released.** Chrome v0.6.0 live; Firefox v0.6.0 at AMO untouched;
+no version bump, no package, no upload. v0.7 does not exist.
+
+**Outstanding and unchanged:** the private-beta snapshot (§24) still needs
+SQL-editor access this environment does not have, and D7/D8 remain open ahead of
+M3D/M3E-a.

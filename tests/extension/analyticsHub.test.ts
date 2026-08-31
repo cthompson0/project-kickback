@@ -82,7 +82,19 @@ function harness(options: { enabled?: boolean; environment?: 'private_beta' | 'p
      * timestamp fresh. Advancing the clock without it would model the worker
      * being dead, which is a different test.
      */
-    keepAlive: async (totalMs: number, channel: string | null, otherCount: number) => {
+    keepAlive: async (
+      totalMs: number,
+      channel: string | null,
+      otherCount: number,
+      /*
+       * The observed stream set. Defaults to "the shared-watch channel,
+       * focused" so the existing shared-watch tests read unchanged; the dwell
+       * tests pass it explicitly to model background and concurrent streams.
+       */
+      streams?: ReadonlyArray<{ channel: string; focused: boolean }>,
+    ) => {
+      const observed =
+        streams ?? (channel ? [{ channel, focused: true }] : [])
       const beat = 45_000
       /*
        * Each beat is awaited before the next.
@@ -94,7 +106,12 @@ function harness(options: { enabled?: boolean; environment?: 'private_beta' | 'p
        */
       for (let elapsed = 0; elapsed < totalMs; elapsed += beat) {
         clock += Math.min(beat, totalMs - elapsed)
-        hub.noteTogether({ channel, otherCount })
+        hub.noteTogether({
+          channel,
+          otherCount,
+          streams: observed.map((stream) => ({ ...stream, social: false })),
+          openChannels: observed.map((stream) => stream.channel),
+        })
         for (let turn = 0; turn < 4; turn += 1) {
           await new Promise((resolve) => setTimeout(resolve, 0))
         }
@@ -1655,45 +1672,126 @@ describe('social gravity analytics', () => {
 
 
 /**
- * Channel dwell, wired.
+ * Observed stream dwell, wired.
  *
- * channelDwell.test.ts proves the state machine. These prove the WIRING: that
- * the event reaches the wire with the right duration, that a worker restart
- * does not turn one evening into two, and that had_social is read from the
- * shared-watch lifecycle rather than from a friend count.
+ * channelDwell.test.ts proves the state machine. These prove the WIRING under
+ * the M3C.1 semantics: that background and concurrent streams reach the wire
+ * with the right durations and the right focus partition, that a worker
+ * restart does not turn one evening into two, and that nothing leaks between
+ * concurrent intervals.
  */
-describe('channel dwell through the hub', () => {
-  it('emits one interval with the observed duration when the channel changes', async () => {
+describe('observed stream dwell through the hub', () => {
+  it('emits an interval with its duration and focus partition', async () => {
     const h = harness()
     try {
       h.hub.noteActive()
       await h.settle()
 
       await h.keepAlive(300_000, 'lirik', 0)
-      await h.keepAlive(45_000, 'shroud', 0)
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
       const dwell = h.named('channel_dwell_ended')
       expect(dwell).toHaveLength(1)
       expect(dwell[0].destination_channel).toBe('lirik')
       expect(dwell[0].properties.duration_ms).toBe(300_000)
-      expect(dwell[0].properties.end_reason).toBe('switched_channel')
+      expect(dwell[0].properties.end_reason).toBe('left_channel')
       expect(dwell[0].properties.had_social).toBe(false)
       expect(dwell[0].properties.from_join).toBe(false)
+      // The invariant the contract promises.
+      expect(
+        Number(dwell[0].properties.focused_duration_ms) +
+          Number(dwell[0].properties.background_duration_ms),
+      ).toBe(Number(dwell[0].properties.duration_ms))
     } finally {
       h.restore()
     }
   })
 
-  it('accrues nothing while there is no eligible live channel', async () => {
+  /** The M3C.1 correction, end to end. */
+  it('accrues an unfocused stream, and records it as background time', async () => {
     const h = harness()
     try {
       h.hub.noteActive()
       await h.settle()
 
-      // liveWatchChannel() returns null for an offline or unknown stream, so
-      // this is exactly what watching a dead channel looks like from here.
-      await h.keepAlive(600_000, null, 0)
+      // Present and live, but never the focused destination.
+      await h.keepAlive(300_000, null, 0, [{ channel: 'lirik', focused: false }])
+      await h.keepAlive(45_000, null, 0, [])
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(Number(dwell[0].properties.duration_ms)).toBeGreaterThanOrEqual(300_000)
+      expect(dwell[0].properties.focused_duration_ms).toBe(0)
+      expect(dwell[0].properties.background_duration_ms).toBe(
+        dwell[0].properties.duration_ms,
+      )
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('lets two concurrent streams both accrue, without merging them', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(600_000, 'lirik', 0, [
+        { channel: 'lirik', focused: true },
+        { channel: 'shroud', focused: false },
+      ])
+      await h.keepAlive(45_000, null, 0, [])
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(2)
+      const channels = dwell.map((event) => event.destination_channel).sort()
+      expect(channels).toEqual(['lirik', 'shroud'])
+      for (const event of dwell) {
+        expect(Number(event.properties.duration_ms)).toBeGreaterThanOrEqual(600_000)
+      }
+      // Focus describes one viewer's attention even while two streams accrue.
+      const byChannel = Object.fromEntries(
+        dwell.map((event) => [event.destination_channel, event]),
+      )
+      expect(Number(byChannel.lirik.properties.focused_duration_ms)).toBeGreaterThan(0)
+      expect(byChannel.shroud.properties.focused_duration_ms).toBe(0)
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('closing one stream leaves the other running', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0, [
+        { channel: 'lirik', focused: true },
+        { channel: 'shroud', focused: false },
+      ])
+      await h.keepAlive(300_000, 'lirik', 0, [{ channel: 'lirik', focused: true }])
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].destination_channel).toBe('shroud')
+      // lirik is still open, so nothing was emitted for it yet.
+    } finally {
+      h.restore()
+    }
+  })
+
+  it('accrues nothing while no stream is eligible', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(600_000, null, 0, [])
       await h.settle()
 
       expect(h.named('channel_dwell_ended')).toHaveLength(0)
@@ -1702,14 +1800,32 @@ describe('channel dwell through the hub', () => {
     }
   })
 
-  /**
-   * One evening, not two.
-   *
-   * The failure this rules out is the one togetherStore was written for: an
-   * evicted worker forgets the open interval, so the end is never emitted and
-   * a second interval starts. For dwell that would DOUBLE the headline
-   * watch-time number rather than merely lose some of it.
-   */
+  it('reports stream_ended when a still-open stream stops being live', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0)
+      // Still open, no longer live: it leaves `streams` but stays in
+      // `openChannels`, which is how the two cases are told apart.
+      h.hub.noteTogether({
+        channel: null,
+        otherCount: 0,
+        streams: [],
+        openChannels: ['lirik'],
+      })
+      await h.settle()
+
+      const dwell = h.named('channel_dwell_ended')
+      expect(dwell).toHaveLength(1)
+      expect(dwell[0].properties.end_reason).toBe('stream_ended')
+    } finally {
+      h.restore()
+    }
+  })
+
+  /** One evening, not two. */
   it('does not double-count an interval across a worker restart', async () => {
     const h = harness()
     try {
@@ -1719,25 +1835,18 @@ describe('channel dwell through the hub', () => {
       await h.keepAlive(300_000, 'lirik', 0)
       h.restartWorker()
       await h.keepAlive(300_000, 'lirik', 0)
-      await h.keepAlive(45_000, null, 0)
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
       const dwell = h.named('channel_dwell_ended')
       expect(dwell).toHaveLength(1)
-      // Measured from the ORIGINAL start, across the restart.
       expect(Number(dwell[0].properties.duration_ms)).toBeGreaterThanOrEqual(600_000)
-      expect(dwell[0].properties.end_reason).toBe('left_channel')
     } finally {
       h.restore()
     }
   })
 
-  /**
-   * The closed laptop.
-   *
-   * A gap longer than the resume window closes the interval at the last moment
-   * we could vouch for. The unobserved hours are detection lag, not viewing.
-   */
+  /** The closed laptop: an unobserved gap is detection lag, never viewing. */
   it('does not fabricate the period it could not observe', async () => {
     const h = harness()
     try {
@@ -1745,8 +1854,6 @@ describe('channel dwell through the hub', () => {
       await h.settle()
 
       await h.keepAlive(120_000, 'lirik', 0)
-
-      // Three hours with nothing running at all.
       h.restartWorker()
       h.advance(3 * 60 * 60 * 1000)
       await h.keepAlive(45_000, 'lirik', 0)
@@ -1755,7 +1862,6 @@ describe('channel dwell through the hub', () => {
       const dwell = h.named('channel_dwell_ended')
       expect(dwell).toHaveLength(1)
       expect(dwell[0].properties.end_reason).toBe('observation_lost')
-      // Two minutes of vouched viewing. Not three hours and two minutes.
       expect(Number(dwell[0].properties.duration_ms)).toBeLessThanOrEqual(180_000)
     } finally {
       h.restore()
@@ -1768,10 +1874,9 @@ describe('channel dwell through the hub', () => {
       h.hub.noteActive()
       await h.settle()
 
-      // A friend is here for two minutes, then the viewer watches on alone.
       await h.keepAlive(120_000, 'lirik', 1)
       await h.keepAlive(600_000, 'lirik', 0)
-      await h.keepAlive(45_000, null, 0)
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
       const dwell = h.named('channel_dwell_ended')
@@ -1782,23 +1887,33 @@ describe('channel dwell through the hub', () => {
     }
   })
 
-  it('leaves had_social false for viewing nobody shared', async () => {
+  /**
+   * had_social must not spread to a concurrently open stream. The shared watch
+   * is single-channel, so only the stream it actually held may claim it.
+   */
+  it('does not leak had_social to a concurrent stream', async () => {
     const h = harness()
     try {
       h.hub.noteActive()
       await h.settle()
 
-      await h.keepAlive(300_000, 'lirik', 0)
-      await h.keepAlive(45_000, null, 0)
+      await h.keepAlive(300_000, 'lirik', 2, [
+        { channel: 'lirik', focused: true },
+        { channel: 'shroud', focused: false },
+      ])
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
-      expect(h.named('channel_dwell_ended')[0].properties.had_social).toBe(false)
+      const byChannel = Object.fromEntries(
+        h.named('channel_dwell_ended').map((event) => [event.destination_channel, event]),
+      )
+      expect(byChannel.lirik.properties.had_social).toBe(true)
+      expect(byChannel.shroud.properties.had_social).toBe(false)
     } finally {
       h.restore()
     }
   })
 
-  /** A dwell interval a JOIN produced carries that JOIN's attribution. */
   it('attributes viewing that a JOIN led to', async () => {
     const h = harness()
     try {
@@ -1818,28 +1933,23 @@ describe('channel dwell through the hub', () => {
       await h.settle()
 
       await h.keepAlive(300_000, 'lirik', 0)
-      await h.keepAlive(45_000, null, 0)
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
       const dwell = h.named('channel_dwell_ended')
       expect(dwell).toHaveLength(1)
       expect(dwell[0].properties.from_join).toBe(true)
-      expect(dwell[0].attribution_id).not.toBeNull()
-
-      const click = h.named('join_clicked')[0]
-      expect(dwell[0].attribution_id).toBe(click.attribution_id)
+      expect(dwell[0].attribution_id).toBe(h.named('join_clicked')[0].attribution_id)
     } finally {
       h.restore()
     }
   })
 
   /**
-   * Attribution must not leak.
-   *
-   * Watching something else later is not the JOIN's outcome, and crediting it
-   * would inflate the one number Watchside would put in front of a partner.
+   * Concurrency must never leak attribution. A JOIN to lirik says nothing
+   * about the stream that happened to be open beside it.
    */
-  it('does not attribute unrelated later viewing to an earlier JOIN', async () => {
+  it('does not leak attribution to a concurrent stream', async () => {
     const h = harness()
     try {
       h.hub.noteActive()
@@ -1857,44 +1967,48 @@ describe('channel dwell through the hub', () => {
       h.hub.noteChannel('lirik')
       await h.settle()
 
-      await h.keepAlive(300_000, 'lirik', 0)
-      // Somewhere else entirely, well after the attribution window.
-      await h.keepAlive(1_200_000, 'shroud', 0)
-      await h.keepAlive(45_000, null, 0)
+      await h.keepAlive(300_000, 'lirik', 0, [
+        { channel: 'lirik', focused: true },
+        { channel: 'shroud', focused: false },
+      ])
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
-      const dwell = h.named('channel_dwell_ended')
-      const shroud = dwell.find((event) => event.destination_channel === 'shroud')
-      expect(shroud).toBeDefined()
-      expect(shroud?.properties.from_join).toBe(false)
-      expect(shroud?.attribution_id).toBeNull()
+      const byChannel = Object.fromEntries(
+        h.named('channel_dwell_ended').map((event) => [event.destination_channel, event]),
+      )
+      expect(byChannel.lirik.properties.from_join).toBe(true)
+      expect(byChannel.shroud.properties.from_join).toBe(false)
+      expect(byChannel.shroud.attribution_id).toBeNull()
     } finally {
       h.restore()
     }
   })
 
-  it('closes the open interval when the session ends', async () => {
+  it('closes every open stream when the session ends', async () => {
     const h = harness()
     try {
       h.hub.noteActive()
       await h.settle()
 
-      await h.keepAlive(300_000, 'lirik', 0)
+      await h.keepAlive(300_000, 'lirik', 0, [
+        { channel: 'lirik', focused: true },
+        { channel: 'shroud', focused: false },
+      ])
       h.hub.noteSignedOut()
       await h.settle()
 
       const dwell = h.named('channel_dwell_ended')
-      expect(dwell).toHaveLength(1)
-      expect(dwell[0].properties.end_reason).toBe('session_ended')
+      expect(dwell).toHaveLength(2)
+      for (const event of dwell) expect(event.properties.end_reason).toBe('session_ended')
     } finally {
       h.restore()
     }
   })
 
   /**
-   * Dwell is the denominator, so it must never be SMALLER than the shared
-   * watch it contains. If this ever inverts, one of the two lifecycles has
-   * stopped meaning what the other means.
+   * Dwell contains the shared watch on the same channel, so it can never be
+   * shorter. If this inverts, the two lifecycles have stopped agreeing.
    */
   it('is never shorter than the shared watch inside it', async () => {
     const h = harness()
@@ -1903,7 +2017,7 @@ describe('channel dwell through the hub', () => {
       await h.settle()
 
       await h.keepAlive(300_000, 'lirik', 2)
-      await h.keepAlive(45_000, null, 0)
+      await h.keepAlive(45_000, null, 0, [])
       await h.settle()
 
       const dwell = h.named('channel_dwell_ended')[0]
@@ -1913,6 +2027,44 @@ describe('channel dwell through the hub', () => {
       expect(Number(dwell.properties.duration_ms)).toBeGreaterThanOrEqual(
         Number(together.properties.duration_ms),
       )
+    } finally {
+      h.restore()
+    }
+  })
+
+  /**
+   * What SQL needs to compute wall-clock union and concurrency.
+   *
+   * The event is dated to the effective end and carries the duration, so
+   * started_at = occurred_at - duration_ms. Asserted here on the wire, because
+   * analytics_stream_dwell_v depends on it being true of real rows.
+   */
+  it('emits enough for wall-clock and concurrency analysis', async () => {
+    const h = harness()
+    try {
+      h.hub.noteActive()
+      await h.settle()
+
+      await h.keepAlive(300_000, 'lirik', 0, [
+        { channel: 'lirik', focused: true },
+        { channel: 'shroud', focused: false },
+      ])
+      await h.keepAlive(45_000, null, 0, [])
+      await h.settle()
+
+      const spans = h.named('channel_dwell_ended').map((event) => {
+        const end = Date.parse(event.occurred_at)
+        return { channel: event.destination_channel, start: end - Number(event.properties.duration_ms), end }
+      })
+      expect(spans).toHaveLength(2)
+      for (const span of spans) expect(span.end).toBeGreaterThan(span.start)
+
+      const streamMs = spans.reduce((sum, span) => sum + (span.end - span.start), 0)
+      const unionMs =
+        Math.max(...spans.map((span) => span.end)) - Math.min(...spans.map((span) => span.start))
+      // Two concurrent streams: stream-time exceeds wall-clock time, which is
+      // exactly the distinction analytics_viewing_daily_v exists to keep.
+      expect(streamMs).toBeGreaterThan(unionMs)
     } finally {
       h.restore()
     }

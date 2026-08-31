@@ -50,7 +50,7 @@ your identity, not who your friends are, not what you type.
 | **Mute** | **yes, only on your device** | **never** | no | no | until you unmute |
 | **Block** | no | yes | never — the other person is never told | that a block happened, with **no identifiers of either party** | until you unblock |
 | **Panel position and size** | **yes** | never | no | no | until you reset the layout |
-| **How long you watched a channel** | the currently open interval only | yes | never | yes — see "Viewing time" below | the open interval is deleted when it ends; the recorded duration is kept as analytics |
+| **How long you had each live stream open** | the streams open right now, and nothing else | yes | never | yes — see "Viewing time" below | each stretch is deleted from your device when it ends; the recorded length is kept as analytics |
 | **Analytics** | a session id | yes | never | — | see below |
 | **JOIN attribution** | a random id, for minutes | yes | never | yes, that is its purpose | the id is dropped after the window closes |
 | **Feedback you send** | no | yes | never | only the category | kept until it has been acted on |
@@ -116,14 +116,27 @@ Without this, we can only measure the part of your viewing that happened to
 involve a friend, which tells us nothing about how much difference Watchside
 made.
 
+**If you have more than one stream open, each one is counted separately.**
+Two streams open for an hour are recorded as two one-hour stretches, not one.
+That is how we can tell how much Twitch viewing Watchside is part of; it is not
+a claim that you were sitting there for two hours, and we do not describe it
+that way.
+
+A stream still counts while its tab is in the background — on another monitor,
+or behind something else. We also record how much of each stretch the stream
+was the one you had in front of you, because "playing in the background" and
+"the thing you were watching" are genuinely different and we would rather not
+confuse them.
+
 **What is recorded for each stretch of viewing:**
 
 - how long it lasted
+- how much of that time it was the stream in front of you
 - which channel
 - whether you got there by pressing JOIN in Watchside
 - whether a friend was watching with you at any point during it
-- why it ended — you moved to another stream, you left, you signed out, or
-  Watchside stopped being able to observe
+- why it ended — you closed or left the stream, the stream ended, you signed
+  out, or Watchside stopped being able to observe
 
 **What is not recorded:**
 
@@ -131,17 +144,19 @@ made.
   about the stream.** The channel name and a duration are the whole of it.
 - **Not what you watch generally.** Only channels on Twitch, and only while
   Watchside is running and you are signed in.
-- **Not tabs you are not looking at.** Only the stream you have in front of
-  you accrues time. Three streams open in background tabs record nothing.
+- **Not other tabs.** Watchside only ever looks at Twitch. A stream counts
+  whether or not it is in front of you, but nothing else you have open is seen
+  at all.
 - **Not offline channels.** Sitting on a channel with no stream running records
   no viewing time.
 - **Not time we did not observe.** If your computer sleeps or the browser stops
   Watchside in the background, the interval is closed at the last moment we
   could actually see, and the gap is never counted as viewing.
 
-**What is stored on your device:** only the stretch of viewing currently in
-progress, and it is deleted as soon as it ends. If you are not watching
-anything, there is nothing about your viewing stored on your device at all.
+**What is stored on your device:** only the stretches of viewing currently in
+progress — one per stream you have open — and each is deleted as soon as it
+ends. If you are not watching anything, there is nothing about your viewing
+stored on your device at all.
 
 **This is not shared with anyone.** It is not visible to your friends, it is
 never sold or shared with third parties, and it is not used for advertising.

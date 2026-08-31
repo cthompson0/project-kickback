@@ -68,6 +68,10 @@ const VIEWS = [
   'analytics_graph_cohort_v',
   'analytics_return_v',
   'analytics_creator_repeat_v',
+  // M3C.1, from 0031. Per-stream intervals, and the wall-clock/concurrency
+  // split that keeps stream-minutes from being quoted as wall-clock minutes.
+  'analytics_stream_dwell_v',
+  'analytics_viewing_daily_v',
 ]
 
 const FUNCTIONS = [
@@ -142,7 +146,7 @@ export async function verifyAnalyticsSchema({ quiet = false } = {}) {
   const exposed = []
 
   log('project      :', url)
-  log('checking     : migrations 0013 - 0030 against the hosted database\n')
+  log('checking     : migrations 0013 - 0031 against the hosted database\n')
 
   for (const relation of [...TABLES, ...VIEWS]) {
     let code

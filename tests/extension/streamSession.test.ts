@@ -620,8 +620,17 @@ describe('the panel and the worker wire it the way the lifecycle says', () => {
 
   it('follows the same session channel everything else does', () => {
     expect(WORKER).toContain('roomChat.setChannels(open)')
-    // And the LIVE question is asked once, for analytics only.
-    expect((WORKER.match(/canWatchLiveTogether\(/g) ?? []).length).toBe(1)
+    /*
+     * And the LIVE question is asked only for analytics - now from two
+     * consumers rather than one, because M3C.1 made observed dwell per stream
+     * while the shared watch stayed single-channel. Both ask the same rule;
+     * see socialViewing.test.ts, which pins which two they are.
+     *
+     * The property that matters here is unchanged: nothing a person can SEE
+     * hangs off liveness. The room, the conversation and the contextual tab
+     * still follow the session rule above.
+     */
+    expect((WORKER.match(/canWatchLiveTogether\(/g) ?? []).length).toBe(2)
   })
 
   it('records a sent message on delivery, and never its body', () => {

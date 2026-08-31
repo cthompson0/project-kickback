@@ -592,85 +592,148 @@ after the social context dissolved — including by two seconds. **How long** is
 `post_social_duration`. A query that wants "meaningfully retained" should
 threshold on the duration; the boolean deliberately does not decide for you.
 
-## 8b. Channel dwell: observed viewing time
+## 8b. Observed stream dwell
 
-The denominator. Added in M3C; see
-`docs/reports/m3a-m3c-measurement-foundation-2026-08-30.md`.
+The denominator. Added in M3C and corrected in M3C.1; see
+`docs/reports/m3a-m3c-measurement-foundation-2026-08-30.md` §33.
 
 `watching_together` and `post_social_retention` both measure socially selected
 slices of viewing, so neither can say what SHARE of somebody's watching
 Watchside touched - and a future holdout would have nothing to compare, because
 a control arm produces no shared watches at all. `channel_dwell_ended` is the
-whole interval.
+whole of it.
 
 ### What it measures, precisely
 
-> How long Watchside OBSERVED this user watching one live Twitch channel.
+> How long Watchside had defensible continuing evidence that one eligible LIVE
+> Twitch stream was open and observed, **per stream**.
 
-Not how long a tab was open. Not how many tabs existed. Not how long the
-browser ran.
+Not how long a tab was focused. Not how long the browser ran. Not human
+attention.
 
-### FOCUSED TAB ONLY
+### PER STREAM, AND CONCURRENT STREAMS BOTH COUNT
 
-Locked owner decision (M3B.1 D12). If Channel A is focused and B and C are open
-behind it, **only A accrues**. Switching focus to B closes A and opens B.
+Owner decision **D12 (M3C.1)**, replacing the original focused-tab-only rule.
 
-This is **structural, not a check**. The machine holds one open interval and is
-fed `liveWatchChannel()` - the primary destination from the activity registry,
-which always prefers a visible tab, narrowed to channels Twitch says are live.
-There is nowhere to put a second interval.
+A stream does not stop counting because its tab is unfocused, because another
+Twitch stream is also open, because Twitch is on a second monitor, or because
+the viewer is briefly using another application. Two streams legitimately open
+for an hour are:
 
-Why it matters: counting three background tabs as three concurrent hours is the
-one way this system could **invent** watch time rather than merely lose some,
-and invented watch time cannot be detected afterwards.
+| Quantity | Value |
+|---|---|
+| observed **stream**-minutes | **120** |
+| **wall-clock** Twitch-observed minutes | **60** |
+
+Both are true and they are different numbers. **§14 gives each one a name, and
+the naming rule in §14.0 is not optional.**
+
+### Why the original rule was rejected
+
+Focused-only dwell could only ever under-count, which sounds safe. It is not:
+it *discards* legitimate Twitch consumption, and a viewer's second stream is
+not recoverable later from data that never recorded it. The governing principle
+is now:
+
+> **Measure observable Twitch consumption faithfully; preserve dimensions for
+> stricter analysis later; be conservative in claims rather than destructive in
+> collection.**
+
+Anyone who wants the strict reading can still have it - focused-only,
+single-stream-only, wall-clock - because every dimension needed to compute them
+is recorded. The reverse was not true.
+
+### FOCUS IS A DIMENSION, NOT A GATE
+
+Each interval carries how much of itself the stream was the viewer's **primary
+destination** - the tab the activity registry would pick, visible beating
+hidden.
+
+```
+focused_duration_ms + background_duration_ms = duration_ms      (exactly)
+```
+
+Banked at each focus **transition**, not sampled per tick, so the split is
+exact rather than smeared across the 45-second heartbeat. Clamped at close, so
+a retroactive end can never report more focused time than the interval had.
+
+At most one stream is "focused" at any moment, because the registry names one
+primary. Two visible Twitch windows on two monitors are one primary and one
+background - deliberately, so focused stream-minutes stay comparable to
+wall-clock time.
 
 ### LIVE STREAMS ONLY
 
-The same `socialViewing.ts` rule the shared watch uses, asked in the same place
-(`liveWatchChannel()`). There is deliberately no second definition of
-"watching". `unknown` is not live, so a cold cache under-counts - the intended
-direction.
+The same `socialViewing.ts` rule the shared watch uses, asked per destination.
+There is deliberately **no second definition of "watching"**: both consumers
+call `canWatchLiveTogether()`, and `socialViewing.test.ts` pins that nothing
+else in the worker decides liveness. `unknown` is not live, so a cold cache
+under-counts - the intended direction.
+
+### What establishes "observed"
+
+The minimum defensible evidence already held, with **no new polling**:
+
+| Evidence | Source |
+|---|---|
+| the tab exists on that channel | `tabActivity.destinations()` |
+| the destination was published and acknowledged | `presenceReporter.lastDestinations()` |
+| both of the above | `sessionChannels()` - their intersection |
+| the stream is live | `canWatchLiveTogether()` per channel |
+| we are still watching it happen | the 45s presence heartbeat |
+
+Metadata is now requested for **every** open destination, not only the focused
+one. Without that a background stream would read `unknown` forever, never be
+live, and the measurement would quietly collapse back to focused-only.
 
 ### The end reasons
 
 | Reason | Meaning |
 |---|---|
-| `switched_channel` | one eligible live destination handed straight over to another in the same tick. The ordinary shape of focused-tab measurement once somebody has two streams open |
-| `left_channel` | the eligible live destination went away and nothing replaced it. Covers navigating away, closing the tab, backgrounding every Twitch tab **and the stream ending** - from the worker those are one observation, and claiming to tell them apart would be inventing detail |
-| `session_ended` | sign-out or session close |
-| `observation_lost` | the gap since the last vouched moment exceeded 5 minutes. The interval is closed at the last moment we could vouch for |
+| `left_channel` | the destination left the observed set - tab closed, or navigated elsewhere |
+| `stream_ended` | the destination is still open, but Twitch no longer says it is live. Distinguishable now that the destination set and live state are tracked separately |
+| `session_ended` | sign-out, or the analytics session closed |
+| `observation_lost` | the gap since the last vouched moment exceeded 5 minutes; the interval closes at that moment |
+
+`switched_channel` was **removed** in M3C.1. It existed only because
+focused-only dwell had to close one interval to open another; per-stream dwell
+does not, so the value became unreachable.
 
 ### Detected end versus effective end
 
-Identical discipline to §8. `duration_ms` is measured to the **effective** end -
+Identical discipline to §8. `duration_ms` measures to the **effective** end -
 the last moment we could vouch for - never to when a gap was noticed. A frozen
 worker or a closed laptop can put hours between the two, and every one of those
-hours would otherwise be reported as viewing.
+hours would otherwise be reported as viewing. Unobserved gaps are never
+bridged.
 
-### `from_join` and `had_social`
+### `from_join` and `had_social` are per stream
 
-- **`from_join`** - an active JOIN attribution covered the interval, under the
-  existing rules in §7. Nothing about M3C widens the attribution lifetime, and
-  an interval that opened without an attribution never acquires one, so organic
-  viewing cannot be retroactively credited to a JOIN.
-- **`had_social`** - a shared watch was open at some point during the interval.
-  Read from the shared-watch lifecycle's own state, never from a friend count,
-  and **sticky**: a friend who watched for two minutes and left leaves the rest
-  of the evening still marked `had_social`, which is the truthful answer.
+- **`from_join`** - an active JOIN attribution covered **this** stream, under
+  the existing §7 rules. Attribution is looked up per destination, so a stream
+  open alongside an attributed one **cannot inherit its credit**. Nothing in
+  M3C.1 widens the attribution lifetime.
+- **`had_social`** - a shared watch was open **on this stream**. The
+  shared-watch lifecycle is single-channel by design, so only the stream it
+  actually held may claim it; a background stream where friends happen to be is
+  not counted as shared viewing. That under-reports, which is the right
+  direction. Sticky within the interval.
 
 ### What is stored between worker lives
 
-One value, at `kickback:analytics:dwell`: the open interval only - channel,
-start, the sticky social flag, the attribution, and when we last saw the user.
-Deleted the moment the interval closes. Somebody who is not watching has
-nothing about their viewing stored anywhere. Same recovery policy as the shared
-watch, reusing `reconcileLifecycle` rather than restating it.
+One value at `kickback:analytics:dwell`: the currently open intervals - one per
+open stream - each with its channel, start, banked focus, sticky social flag and
+attribution, plus when the user was last seen. Deleted the moment they close.
+Somebody who is not watching has nothing about their viewing stored anywhere.
+
+Recovery reuses the shared staleness rule (`isObservationLost`, same constant),
+with membership judged per stream: a restart resumes what is still observed and
+closes what is not, in one decision.
 
 ### Relationship to the shared watch
 
-A shared watch always sits **inside** a dwell interval on the same channel,
-because both are driven from the same value in the same tick. `dwell ≥
-together` on a channel is asserted by test rather than assumed.
+A shared watch always sits **inside** a dwell interval on the same channel, so
+`dwell ≥ together` on a channel. Asserted by test rather than assumed.
 
 ## 8a. Individual referral versus cluster referral
 
@@ -1140,6 +1203,28 @@ exclusions - rather than only in SQL or TypeScript.
 `analytics_reportable_events_v`). **Always filter `environment` explicitly** -
 it is deliberately never filtered for you.
 
+### 14.0 The naming rule for viewing time
+
+Since M3C.1 dwell is measured **per stream**, and concurrent streams both
+accrue. That makes two different quantities available, and one sentence that is
+false about one of them:
+
+| Say | For |
+|---|---|
+| "observed Twitch **stream**-hours", "observed stream-minutes" | summed per-stream durations (§14.6 #1) |
+| "**Watchside-attributed** stream-hours" | the `from_join` subset (#2) |
+| "**focused** stream-hours" | the focused subduration (#3) |
+| "Watchside-**observed Twitch time**" | the interval **union** (#5) |
+
+> ❌ **Never** describe summed stream-minutes as "hours the user spent watching
+> Twitch". Two streams open for an hour are two stream-hours and one hour of a
+> person's evening.
+
+Wall-clock statements must use interval-union semantics
+(`analytics_viewing_daily_v.wall_clock_ms`), which is precisely why that view
+puts both numbers in the same row: the wrong one cannot be reached for by
+accident.
+
 ### 14.1 Gravity exposure → JOIN conversion
 
 **View:** `analytics_gravity_conversion_v` · **Grain:** one row per (viewer,
@@ -1228,41 +1313,102 @@ active day).
   treatment. Any arm comparison from private-beta data would be comparing a
   constant with itself.
 
-### 14.6 Observed channel dwell
+### 14.6 Observed stream dwell, and the six quantities it yields
 
-**Event:** `channel_dwell_ended` · **Grain:** one observed viewing interval.
+**Event:** `channel_dwell_ended` · **Views:** `analytics_stream_dwell_v`
+(one row per interval), `analytics_viewing_daily_v` (per actor-day).
 
-- **Definition** — how long Watchside observed the user watching one live
-  channel, focused tab only. See §8b.
-- **Total observed viewing** — `sum(duration_ms)`.
-- **Attributed viewing** — `sum(duration_ms) where from_join`.
-- **Socially-touched viewing** — `sum(duration_ms) where had_social`.
-- **Excludes** — background tabs (never accrue), non-live channels, and any
-  period after an observation gap over 5 minutes.
-- **Known censoring** — systematically **under**-counts: a live stream whose
-  metadata has not arrived loses the opening moments, and an eviction splits
-  one interval into two. It never over-counts.
-- **Class** — observed. `from_join` makes a subset **attributed**. Neither is
-  causal; incremental watch time needs the holdout in §12.
+**Grain:** one observed stream-dwell interval. An actor may have several
+overlapping at once, and that is the point rather than a defect.
 
-### 14.7 Repeat creator viewing
+**Interval reconstruction.** The event is dated to the effective end and
+carries the duration, so `started_at = occurred_at - duration_ms` **exactly**.
+Every quantity below is derivable from that; no additional telemetry was added
+for concurrency.
+
+**Class:** all six are **observational**; `attributed_stream_dwell` is
+**attributed**. None is causal - incremental watch time needs the §12 holdout.
+
+**Valid from:** the first production release carrying M3C.1 (§15).
+
+---
+
+#### 1. `observed_stream_dwell` — unit: **stream-milliseconds**
+
+- **Numerator/value** — `sum(duration_ms)`.
+- **Overlap** — concurrent streams **SUM**. Two streams for an hour is two
+  stream-hours.
+- **Denominator** — none by itself; per actor-day, or per actor-week.
+- **⚠ Naming** — "observed Twitch stream-hours". **Never** "hours the user
+  spent watching Twitch". See §14.0.
+
+#### 2. `attributed_stream_dwell` — unit: **stream-milliseconds**
+
+- **Value** — `sum(duration_ms) where from_join`.
+- **Attribution** — per stream, under the existing §7 rules. A concurrently
+  open stream cannot inherit another's credit.
+- **Denominator** — `observed_stream_dwell` for the share attributable.
+- **Naming** — "Watchside-attributed stream-hours". Attributed, not caused.
+
+#### 3. `focused_stream_dwell` — unit: **stream-milliseconds**
+
+- **Value** — `sum(focused_duration_ms)`.
+- **Overlap** — at most one stream is focused at a time, so this **does not**
+  double-count across concurrent streams and is comparable to wall-clock time.
+- **Denominator** — `observed_stream_dwell` for the focused share.
+
+#### 4. `background_stream_dwell` — unit: **stream-milliseconds**
+
+- **Value** — `sum(background_duration_ms)`.
+- **Invariant** — `focused + background = observed`, exactly, per interval and
+  therefore in aggregate.
+- **Reading** — stream time that was running while the viewer's primary
+  attention was elsewhere. It is consumption, not attention.
+
+#### 5. `wall_clock_twitch_observed_time` — unit: **milliseconds**
+
+- **Value** — `analytics_viewing_daily_v.wall_clock_ms`: the **union** of an
+  actor's intervals in a day, by gaps-and-islands.
+- **Overlap** — concurrent streams **DO NOT** sum. This is the only dwell
+  quantity that may be described as time the person was watching Twitch.
+- **Naming** — "Watchside-observed Twitch time".
+
+#### 6. `concurrent_stream_dwell` — unit: **stream-milliseconds**
+
+- **Value** — `observed_stream_ms - wall_clock_ms` (floored at zero).
+- **Reading** — how much consumption happened alongside something else. It is
+  the exact difference between quantities 1 and 5, which is why both live in
+  one row of `analytics_viewing_daily_v`.
+
+**Known censoring, all six.** Systematically **under**-counts: a live stream
+whose metadata has not arrived loses its opening moments; an eviction splits one
+interval into two; an unobserved gap is excluded entirely; a channel that is not
+live never accrues. It never over-counts wall-clock time, and it counts
+concurrency only where concurrency genuinely occurred.
+
+### 14.7 `repeat_creator_dwell`
 
 **View:** `analytics_creator_repeat_v` · **Grain:** one row per (actor,
 environment, creator) the actor ever arrived at through a Watchside JOIN.
 
-- **Denominator** — rows (creators reached through Watchside).
-- **Numerator** — rows where `later_organic_dwell_count > 0`: observed viewing
-  of that creator **after** the first attributed arrival, on intervals **not**
-  themselves covered by a JOIN attribution.
-- **Why "organic"** — viewing that a *later* JOIN produced is counted
-  separately (`later_dwell_count`), because calling a second Watchside-driven
-  visit "they came back on their own" would be the same error twice.
-- **Time to return** — `time_to_first_organic_return`.
-- **⚠ NOT "Twitch retention".** This is repeat *observed* viewing after a
+- **Denominator** — rows: creators reached through Watchside.
+- **Numerator** — rows where `later_organic_dwell_count > 0`: a later
+  qualifying dwell interval on that creator, **not** itself covered by a JOIN
+  attribution.
+- **Focus is irrelevant here.** A return visit counts whether or not the stream
+  was in front of the viewer - it is a repeat *relationship* signal, not an
+  attention one. M3C.1 did not change this view's definition; it widened what
+  qualifies as a dwell interval feeding it, which makes it strictly more
+  complete.
+- **Unit** — counts, and `later_organic_dwell_ms` in stream-milliseconds.
+- **Overlap** — a return visit that overlapped another stream still counts once
+  for that creator.
+- **Why "organic"** — viewing a *later* JOIN produced is counted separately, so
+  a second Watchside-driven visit is not called "they came back on their own".
+- **⚠ Not "Twitch retention".** Repeat *observed* viewing after a
   Watchside-attributed visit. It sees only what Watchside sees.
-- **Known censoring** — empty until dwell data exists (§15). Rows exist for
-  historical JOINs with no later viewing; those are the denominator, not
-  missing data.
+- **Known censoring** — empty until dwell data exists (§15). Rows with zero
+  later viewing are the denominator, not missing data.
 - **Class** — observational.
 
 ---
@@ -1278,9 +1424,16 @@ number.
 | JOIN funnel, shared watch, post-social | already live; **durations before 2026-08-24 are an upper bound** (§8) |
 | `opportunity_key` on both sides | already live |
 | `analytics_gravity_conversion_v` and the other 0029 views | the moment 0029 is applied - they are views, so they see all history the events cover |
-| **`channel_dwell_ended`** | **the first production release carrying M3C.** There is no historical data and none can be reconstructed - nothing recorded viewing before this |
+| **`channel_dwell_ended`** | **the first production release carrying the M3C.1 semantics.** There is no historical data and none can be reconstructed - nothing recorded viewing before this. The corrected per-stream contract landed before any production data existed, so there is no earlier generation of rows to exclude |
+| `analytics_stream_dwell_v`, `analytics_viewing_daily_v` | the moment 0031 is applied - views, so they see whatever dwell rows exist |
 | **`experiment_arm`** | the first **production** release carrying M3A slice 5. Never present in private beta |
 | `analytics_creator_repeat_v` | depends on dwell, so effectively the same date |
 
 **The dwell start timestamp must be recorded in the release notes of whichever
 version ships M3C**, and quoted beside any watch-time figure.
+
+**No mixed-semantics window exists.** The focused-tab-only contract shipped in
+no release and produced no rows; M3C.1 replaced it while the table was empty.
+Every `channel_dwell_ended` row that will ever exist is per-stream, so no query
+needs a cut-over date and no figure needs a footnote about which rule produced
+it. That was the entire reason for correcting it now rather than after v0.7.

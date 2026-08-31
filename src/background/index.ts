@@ -64,10 +64,10 @@ import { directCount } from '../core/streamRoom'
 import { isReaction } from '../core/together'
 import { canWatchLiveTogether, watchTogetherState } from '../core/socialViewing'
 import { createStoredValue, isJoinAttribution, isSessionRecord } from './storedValue'
-import { isPersistedLifecycle, isPersistedLifecycleOf } from './togetherStore'
+import { isPersistedLifecycle } from './togetherStore'
 import type { PersistedLifecycle } from './togetherStore'
-import { isDwellState } from './channelDwell'
-import type { DwellState } from './channelDwell'
+import { isPersistedDwell } from './channelDwell'
+import type { DwellStream, PersistedDwell } from './channelDwell'
 import { resolveArm } from '../core/experiment'
 import type { SessionRecord } from './analyticsSession'
 import type { JoinAttribution } from './joinAttribution'
@@ -552,11 +552,10 @@ const analytics = createAnalyticsHub({
    * claim one "last moment we could vouch for" answer covering both, and would
    * be wrong about one of them.
    */
-  dwellStore: createStoredValue<PersistedLifecycle<DwellState>>(
+  dwellStore: createStoredValue<PersistedDwell>(
     storageArea,
     'kickback:analytics:dwell',
-    (value): value is PersistedLifecycle<DwellState> =>
-      isPersistedLifecycleOf(value, isDwellState),
+    isPersistedDwell,
   ),
   // No actor, no events sent. They queue rather than being thrown away, so a
   // session that starts before auth resolves is not lost.
@@ -1146,8 +1145,19 @@ function wantMetadata(): void {
     friendDestinationsSnapshot(),
   )
 
-  const here = currentChannel()
-  if (here) channels.push(here)
+  /*
+   * EVERY destination the viewer has open, not just the focused one.
+   *
+   * This used to push currentChannel() alone, which was right when dwell only
+   * measured the focused tab. Under per-stream dwell a background stream whose
+   * metadata was never fetched reads as `unknown`, `unknown` is not live, and
+   * the interval would never open - so the measurement would quietly collapse
+   * back to focused-only without anything looking broken.
+   *
+   * The cost is at most two extra logins per refresh against a budget of 600
+   * per five minutes, batched, and `want` is idempotent and TTL-guarded.
+   */
+  for (const open of tabActivity.destinations()) channels.push(open)
 
   metadata.want(channels)
 }
@@ -1432,6 +1442,35 @@ function coWatcherCount(channel: string | null): number {
   return count
 }
 
+/**
+ * Every destination the viewer has open that Watchside can still vouch for.
+ *
+ * Open AND published: `sessionChannels()` is the intersection of the tabs that
+ * exist with the destinations the server acknowledged, which is the strongest
+ * evidence we already hold that a stream is genuinely there. Nothing is polled
+ * for dwell's benefit.
+ */
+function observedStreams(): { streams: DwellStream[]; openChannels: string[] } {
+  const openChannels = sessionChannels()
+  const snapshot = metadata.snapshot()
+  const focused = currentChannel()
+
+  /*
+   * Live-eligible only, using the SAME rule the shared watch uses, asked of
+   * each destination in turn. `unknown` is not live, so a cold cache
+   * under-counts rather than inventing viewing.
+   *
+   * `social` is filled in by the hub from the shared-watch lifecycle's own
+   * state; a friend count here would let a background stream claim shared
+   * viewing the shared watch never opened.
+   */
+  const streams = openChannels
+    .filter((channel) => canWatchLiveTogether(channel, snapshot))
+    .map((channel) => ({ channel, focused: channel === focused, social: false }))
+
+  return { streams, openChannels }
+}
+
 function updateTogether(): void {
   if (authState.status !== 'signed_in') return
   /*
@@ -1453,7 +1492,18 @@ function updateTogether(): void {
    * closes through the path that already existed.
    */
   const channel = liveWatchChannel()
-  analytics.noteTogether({ channel, otherCount: coWatcherCount(channel) })
+  const observed = observedStreams()
+  analytics.noteTogether({
+    channel,
+    otherCount: coWatcherCount(channel),
+    /*
+     * Dwell rides the same call as the shared watch so both are computed from
+     * one metadata snapshot in one tick. Two calls would be two chances for a
+     * shared watch and the dwell interval containing it to disagree.
+     */
+    streams: observed.streams,
+    openChannels: observed.openChannels,
+  })
 }
 
 // ------------------------------------------------------------------- state

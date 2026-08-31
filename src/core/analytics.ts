@@ -226,7 +226,8 @@ export interface AnalyticsEventMap {
     detection_delay_ms: number
   }
   /**
-   * How long Watchside observed this user watching one LIVE channel.
+   * One observed stream-dwell interval: how long Watchside could see one LIVE
+   * Twitch stream.
    *
    * THE DENOMINATOR. Every other viewing measurement here is a socially
    * selected subset - watching_together is time spent with a friend,
@@ -235,9 +236,16 @@ export interface AnalyticsEventMap {
    * would have nothing to compare because the control arm produces no shared
    * watches at all.
    *
-   * FOCUSED TAB ONLY. One interval at a time, fed the same eligible live
-   * channel that drives the shared watch, so three open tabs can never become
-   * three concurrent hours. See background/channelDwell.ts.
+   * PER STREAM, AND CONCURRENT STREAMS BOTH COUNT. Two streams legitimately
+   * open for an hour are two observed stream-hours and one wall-clock hour.
+   * Both are derivable - `started_at = occurred_at - duration_ms` - and they
+   * must never be confused: summed stream-minutes are NOT "minutes the user
+   * spent watching Twitch". See docs/ANALYTICS.md §8b and §14.
+   *
+   * FOCUS IS A DIMENSION, NOT A GATE. A stream on a second monitor is still
+   * being consumed, so losing focus does not end an interval; which stream was
+   * in front of the viewer is carried alongside instead, with
+   * `focused_duration_ms + background_duration_ms = duration_ms` exactly.
    *
    * There is deliberately no matching start event, for the same reason
    * post_social_retention_ended has none: the interval is fully described by
@@ -245,9 +253,14 @@ export interface AnalyticsEventMap {
    */
   channel_dwell_ended: {
     duration_ms: number
+    /** The part of duration_ms this stream was the viewer's primary destination. */
+    focused_duration_ms: number
+    /** duration_ms - focused_duration_ms. Carried rather than derived so a
+     *  query cannot get the subtraction wrong or forget it exists. */
+    background_duration_ms: number
     /** True when an active JOIN attribution legitimately covered this viewing. */
     from_join: boolean
-    /** True when a shared watch was open at any point during the interval. */
+    /** True when a shared watch was open on THIS stream during the interval. */
     had_social: boolean
     end_reason: DwellEndReason
   }
@@ -398,22 +411,28 @@ export type PostSocialEndReason =
   | 'session_ended'
   | 'observation_lost'
 /**
- * Why an observed viewing interval stopped.
+ * Why an observed stream-dwell interval stopped.
  *
- * `left_channel` covers navigating away, closing the tab, backgrounding every
- * Twitch tab AND the stream ending, because from the worker those are the same
- * observation - the eligible live destination went away. It is the same word
- * the shared watch already uses for the same situation.
+ *   left_channel      the destination left the observed set - the tab was
+ *                     closed, or navigated somewhere else.
+ *   stream_ended      the destination is still open, but Twitch no longer says
+ *                     it is live. Distinguishable now that dwell tracks the
+ *                     destination set and live state separately, and worth
+ *                     distinguishing: a stream ending under a viewer who stays
+ *                     is a different fact from a viewer leaving.
+ *   session_ended     sign-out, or the analytics session closed.
+ *   observation_lost  the gap since the last vouched moment exceeded the resume
+ *                     window. The interval closes at that last moment; the gap
+ *                     is detection lag, never viewing.
  *
- * `switched_channel` is the one case that IS distinguishable: one eligible
- * destination handed straight over to another in a single tick. That is the
- * ordinary shape of focused-tab-only measurement once somebody has two streams
- * open, and folding it into `left_channel` would hide exactly the behaviour
- * this measurement exists to describe.
+ * `switched_channel` was removed in M3C.1. It existed only because focused-tab
+ * dwell had to close one interval to open another; per-stream dwell does not,
+ * so the value became unreachable. A vocabulary that lists outcomes which can
+ * no longer happen misleads whoever reads a group-by next.
  */
 export type DwellEndReason =
   | 'left_channel'
-  | 'switched_channel'
+  | 'stream_ended'
   | 'session_ended'
   | 'observation_lost'
 
@@ -519,7 +538,14 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'detection_delay_ms',
   ],
   post_social_retention_ended: ['duration_ms', 'from_join', 'end_reason'],
-  channel_dwell_ended: ['duration_ms', 'from_join', 'had_social', 'end_reason'],
+  channel_dwell_ended: [
+    'duration_ms',
+    'focused_duration_ms',
+    'background_duration_ms',
+    'from_join',
+    'had_social',
+    'end_reason',
+  ],
 
   gathering_notification_shown: ['friend_count'],
   gathering_notification_clicked: ['friend_count'],
@@ -631,13 +657,17 @@ export const EVENT_DATA_CATEGORY: Record<AnalyticsEventName, MozillaDataCategory
   watching_together_ended: 'browsingActivity',
   post_social_retention_ended: 'browsingActivity',
   /*
-   * How long somebody watched a channel.
+   * How long somebody had a live stream open, per stream.
    *
    * browsingActivity, the same as every other destination-bearing event: it is
    * a record of what the person did on a website, not a report about our
    * software's health. Already declared REQUIRED in the Firefox manifest, so
    * this needs no manifest change - but it IS a new KIND of record, and
    * docs/PRIVACY.md says so plainly rather than folding it in quietly.
+   *
+   * The M3C.1 correction widened WHAT is observed (background streams, several
+   * at once) without widening the CATEGORY: it is still a duration and a
+   * channel login, and still nothing about the stream itself.
    */
   channel_dwell_ended: 'browsingActivity',
   gathering_notification_shown: 'browsingActivity',

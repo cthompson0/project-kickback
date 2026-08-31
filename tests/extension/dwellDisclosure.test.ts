@@ -27,12 +27,24 @@ import { GECKO_DATA_COLLECTION } from '../../scripts/manifest.mjs'
 
 const POLICY = readFileSync('docs/PRIVACY.md', 'utf8')
 
+/**
+ * The policy with line wrapping collapsed.
+ *
+ * Markdown is hard-wrapped at 80 columns, so a sentence the policy genuinely
+ * makes can be split across two lines and a literal match fails for a reason
+ * that has nothing to do with the disclosure. Matching on the collapsed text
+ * asserts what the policy SAYS rather than how it happens to be laid out.
+ */
+const SAID = POLICY.replace(/\s+/g, ' ')
+
 describe('channel dwell is disclosed', () => {
   it('exists as an event with the properties the policy describes', () => {
     expect(ANALYTICS_EVENT_NAMES).toContain('channel_dwell_ended')
     expect([...EVENT_PROPERTIES.channel_dwell_ended].sort()).toEqual([
+      'background_duration_ms',
       'duration_ms',
       'end_reason',
+      'focused_duration_ms',
       'from_join',
       'had_social',
     ])
@@ -53,8 +65,8 @@ describe('channel dwell is disclosed', () => {
   /** Each limit the implementation actually enforces is claimed in the policy. */
   it('describes the limits the code enforces', () => {
     for (const claim of [
-      // Focused-tab only (owner decision D12).
-      'Not tabs you are not looking at',
+      // Concurrent streams are measured, and the policy says so plainly.
+      'more than one stream open',
       // The live-stream rule.
       'Not offline channels',
       // Conservative observation: a gap is never counted as viewing.
@@ -64,7 +76,7 @@ describe('channel dwell is disclosed', () => {
       // Only the open interval is on the device, and only while it is open.
       'deleted as soon as it ends',
     ]) {
-      expect(POLICY, `the policy no longer says: ${claim}`).toContain(claim)
+      expect(SAID, `the policy no longer says: ${claim}`).toContain(claim)
     }
   })
 
