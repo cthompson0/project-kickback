@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
 
 /**
@@ -300,18 +300,32 @@ describe('emote providers are reached only from the worker', () => {
     expect(background).not.toContain('Client-Id')
   })
 
-  it("reads no provider token in Watchside's own code", () => {
-    // supabase-js parses provider_token out of an auth response, so the string
-    // is in the vendored SDK. What matters is that we never touch it: the
-    // source is the honest place to assert that, since the bundle cannot tell
-    // our code from its dependencies.
-    const sources = readdirSync(SRC, { recursive: true, encoding: 'utf8' })
-      .filter((entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'))
-      .map((entry) => readFileSync(join(SRC, entry), 'utf8'))
-    expect(sources.length).toBeGreaterThan(10)
-    for (const source of sources) {
-      expect(source).not.toContain('provider_token')
-    }
+  it('names a provider token in exactly one place, and only to delete it', () => {
+    // This used to assert that NO file mentioned provider_token, reasoning that
+    // "we never touch it". It passed for the entire time Watchside was writing a
+    // live Twitch access token and refresh token to chrome.storage.local.
+    //
+    // Nothing here was touching the credential, and it was persisted anyway:
+    // supabase-js serialises the whole session object, and the storage adapter
+    // wrote whatever string it was handed. The credential reached the disk
+    // without a single Watchside file naming it, so a grep that found nothing
+    // was never evidence that it was not being stored. Only a real sign-in
+    // showed it.
+    //
+    // The rule is now narrower and actually checkable: exactly one file may name
+    // a provider credential, and its job is to remove it before anything is
+    // written. What that file has to DO is pinned by
+    // providerCredentialStripping.test.ts.
+    const entries = readdirSync(SRC, { recursive: true, encoding: 'utf8' }).filter(
+      (entry) => entry.endsWith('.ts') || entry.endsWith('.tsx'),
+    )
+    expect(entries.length).toBeGreaterThan(10)
+
+    const naming = entries
+      .filter((entry) => readFileSync(join(SRC, entry), 'utf8').includes('provider_token'))
+      .map((entry) => entry.split(sep).join('/'))
+
+    expect(naming).toEqual(['background/storage.ts'])
   })
 })
 

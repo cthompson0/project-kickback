@@ -1,0 +1,21 @@
+# Line endings are LF, in the repository and in the working tree.
+#
+# Every tracked text file is already LF in the index - `git ls-files --eol`
+# reports i/lf for all 377 of them and i/crlf for none. So this file does not
+# change any stored content; it fixes what CHECKOUT produces.
+#
+# Without it, `core.autocrlf=true` (the Windows default, and set on at least one
+# machine here) rewrites files to CRLF on the way out. Several tests assert on
+# the source text of the modules they cover, matching across line boundaries,
+# and those matches fail against CRLF. A fresh Windows clone would therefore
+# fail four tests that pass everywhere else - a failure caused by the checkout
+# rather than by any change to the code.
+#
+# `eol=lf` overrides core.autocrlf for this repository, so every clone gets the
+# same bytes regardless of the developer's global git configuration.
+* text=auto eol=lf
+
+# Binary files git must never touch. It already auto-detects these, but saying
+# so explicitly means a corrupted image can never be blamed on eol handling.
+*.png binary
+*.svg text eol=lf

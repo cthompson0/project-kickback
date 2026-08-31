@@ -19,15 +19,97 @@ export interface KeyValueStorage {
   removeItem(key: string): Promise<void>
 }
 
+/**
+ * Twitch's own OAuth credentials, which Supabase hands back at sign-in.
+ *
+ * These are NOT the tokens Watchside signs in with. Supabase's own
+ * `access_token` and `refresh_token` keep somebody logged in and must survive
+ * untouched; these two belong to Twitch, and Watchside has never had a use for
+ * them - `toSession()` throws them away the moment they arrive.
+ *
+ * They still reached the disk, because supabase-js serialises the WHOLE session
+ * object and this adapter wrote whatever string it was handed. That is invisible
+ * in Watchside's own source: nothing here mentions a provider token, so grepping
+ * for one finds nothing while a live Twitch credential sits in
+ * chrome.storage.local anyway. It took a real sign-in to see it.
+ */
+const PROVIDER_CREDENTIALS = ['provider_token', 'provider_refresh_token'] as const
+
+/**
+ * Deletes the two provider keys wherever they appear, and reports whether it
+ * found any.
+ *
+ * The walk is deliberate rather than clever. supabase-js has changed the shape
+ * it persists before - session at the top level, session nested under a wrapper
+ * - and a sanitiser pinned to one shape would fail silently and unobservably the
+ * next time it changes. Only these two exact key names are ever removed, so no
+ * amount of nesting can make it touch a Supabase token.
+ */
+function removeProviderCredentials(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    let removed = false
+    for (const entry of value) removed = removeProviderCredentials(entry) || removed
+    return removed
+  }
+  if (value === null || typeof value !== 'object') return false
+
+  const record = value as Record<string, unknown>
+  let removed = false
+  for (const key of PROVIDER_CREDENTIALS) {
+    if (key in record) {
+      delete record[key]
+      removed = true
+    }
+  }
+  for (const entry of Object.values(record)) {
+    removed = removeProviderCredentials(entry) || removed
+  }
+  return removed
+}
+
+/**
+ * Returns `value` with any Twitch provider credentials removed.
+ *
+ * Anything that is not JSON is passed through untouched - this adapter is
+ * general key/value storage and must not corrupt a value it does not understand.
+ * A clean value is returned by identity rather than re-serialised, so ordinary
+ * writes keep their exact bytes.
+ */
+export function stripProviderCredentials(value: string): string {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(value)
+  } catch {
+    return value
+  }
+  return removeProviderCredentials(parsed) ? JSON.stringify(parsed) : value
+}
+
 export function createExtensionStorage(area: AsyncStorageArea): KeyValueStorage {
   return {
     async getItem(key) {
       const result = await area.get(key)
       const value = result[key]
-      return typeof value === 'string' ? value : null
+      if (typeof value !== 'string') return null
+
+      const clean = stripProviderCredentials(value)
+      if (clean !== value) {
+        // Somebody who signed in before this shipped still has a live Twitch
+        // credential on disk. Reading is the first chance to remove it, so take
+        // it - but never let that failure become a failure to read the session,
+        // which would lock them out over a cleanup.
+        try {
+          await area.set({ [key]: clean })
+        } catch {
+          // Purged on the next write instead.
+        }
+      }
+      return clean
     },
     async setItem(key, value) {
-      await area.set({ [key]: value })
+      // The boundary. Stripping here means the credential is never written,
+      // rather than written and deleted afterwards.
+      await area.set({ [key]: stripProviderCredentials(value) })
     },
     async removeItem(key) {
       await area.remove(key)
