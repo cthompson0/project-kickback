@@ -194,8 +194,41 @@ Full definitions: `docs/ANALYTICS.md` §8b and §14.
 | **M3C / M3C.1** | Observed **per-stream** dwell, focus/background split, concurrency views, repeat-creator foundation | **IMPLEMENTED AND ACCEPTED**, awaiting v0.7. Zero production rows existed, so the contract was corrected rather than versioned around |
 | **D7** | Twitch DSA / policy read | **OPEN** - substantively researched; counsel confirmation outstanding. See `docs/reports/m3d-m3e-policy-gates-2026-08-30.md` |
 | **D8** | Mozilla `financialAndPaymentInfo` classification for `subscribed_at_join` | **OPEN - genuinely unresolved.** Mozilla publishes no category-choice guidance; **must ask AMO** |
-| **G6 + M3D + M3E-a** | Deletion architecture, `following_at_join`, `subscribed_at_join` | **AFTER the gates.** ONE Twitch OAuth change, **no token vault**. Target **v0.8** |
-| **M3E-b** | Token custody, refresh loop, scheduled polling | **DEFERRED INDEFINITELY** - a precision layer only. It buys a tighter conversion window, not the measurement itself |
+| **G6 + M3D + M3E-a** | Deletion architecture, `following_at_join`, `subscribed_at_join` | **BLOCKED on an owner decision, not on architecture.** O3 (2026-08-31) proved the Twitch credential is obtainable; what is unapproved is *holding* it. See below and `docs/reports/g6-m3d-creator-discovery-2026-08-30.md` |
+| **M3E-b** | Token custody, refresh loop, scheduled polling | **NO LONGER OPTIONAL, AND NO LONGER A PRECISION LAYER.** It is the *precondition* for any Twitch relationship baseline. Owner decision **O1** |
+
+### The M3D blocker - corrected 2026-08-30, refined 2026-08-31
+
+The earlier entries above described G6 + M3D as needing **no token vault**, and
+M3E-b as a precision layer that "buys a tighter conversion window, not the
+measurement itself". **Both statements were wrong**, and the implementation
+checkpoint that tried to build M3D is what exposed them.
+
+`Get Followed Channels` requires a **user** access token - there is no
+app-token path. Supabase emits the Twitch `provider_token` **once, immediately
+after sign-in**, and *"Supabase Auth does not manage refreshing the provider
+token for the user"*. Watchside's session is refreshed indefinitely; the provider
+token is not, and cannot be reissued. A JOIN happens hours or days after sign-in,
+with no token available.
+
+**Refined by O3 on 2026-08-31.** A live sign-in proved `provider_refresh_token`
+**is** delivered by the real flow - so a refreshable credential does exist, and
+the paragraph above is precise only about the *window*: both provider fields are
+present at sign-in and persist until the **first** session refresh, after which
+they are gone permanently. M3D is therefore feasible **if** the credential is
+captured at sign-in and held server-side. That is custody, and it is an owner
+decision (**O1**) rather than an architectural dead end.
+
+The M3B and M3D/M3E research reports both asserted the token would be "in hand
+in-session" at the JOIN. That conflated the **Supabase session** (long-lived)
+with the **provider token** (one-shot). Nothing had yet tried to obtain a token
+at JOIN time, so the error survived two research checkpoints and was caught at
+the first implementation attempt - before any write, migration or release.
+
+Consequence: **M3D and M3E-a are both gated on provider-token custody**, which is
+what M3E-b is. Deferring custody means deferring relationship measurement
+entirely; it is a legitimate choice, but it is now an explicit trade rather than
+a free one.
 
 ### Two findings that constrain everything downstream
 
@@ -277,18 +310,71 @@ while v0.6 is in review would replace the pending submission.
 Tagging is **deferred**: the repository has no git tags, so there is no
 established convention, and one was not invented.
 
-### v0.8 - relationship measurement, subject to the gates
+### v0.8 - relationship measurement, BLOCKED
 
-- **G6 deletion architecture** - must land *before* the first Twitch-derived write
-- `following_at_join` (M3D)
-- `subscribed_at_join` (M3E-a) - **conditional on D8**
+**The v0.8 content below is not currently buildable.** The fallback previously
+recorded here - "ship **M3D alone** and hold M3E-a" - **is no longer available**,
+because M3D and M3E-a are blocked by the same token constraint, not by D8.
+
+- **G6 deletion architecture** - must land *before* the first Twitch-derived
+  write, and its shape **depends on the custody decision**: with custody,
+  revocation must also shred the stored refresh token, which is a different
+  security posture rather than an extension of the same one. Building it now
+  would build the wrong G6
+- `following_at_join` (M3D) - **blocked**, see above
+- `subscribed_at_join` (M3E-a) - blocked by the same constraint, **and**
+  conditional on D8
 - **ONE** Twitch OAuth authorization change: `user:read:follows` +
-  `user:read:subscriptions`
-- **no provider-token vault**
+  `user:read:subscriptions` - not made
+- **no provider-token vault** - *this is the constraint that blocks the release*
 
-If D8 is still unanswered when v0.8 is otherwise ready: ship **M3D alone** and
-hold M3E-a, accepting a second consent change later. Do not guess a financial
-declaration, and do not request a scope that is not yet used.
+Do not guess a financial declaration, and do not request a scope that is not yet
+used.
+
+**RESOLVED 2026-08-31 - outcome A.** A real Watchside Twitch sign-in confirmed
+that `provider_refresh_token` **is** delivered, non-null, by the actual flow. So
+M3D is *technically* feasible; it is blocked by a **policy decision**, not by the
+architecture. See §38-§47 of
+`docs/reports/g6-m3d-creator-discovery-2026-08-30.md`.
+
+The credential does **not** survive the first Supabase session refresh, so it
+would have to be captured at sign-in and stored server-side - which is custody,
+and remains unapproved. §44 of that report lists the twelve requirements custody
+would commit us to before a single token is stored.
+
+**Also found, and NOT gated on the custody decision:** Watchside currently
+persists a live Twitch access token and refresh token to `chrome.storage.local`
+on every sign-in, as an unintended side effect of `persistSession: true`. It is
+invisible in Watchside's own source because the write happens inside supabase-js.
+This wants stripping under either answer to the custody question.
+
+### Pre-public hardening - ACCOUNT DELETION (COMMITTED)
+
+**Committed pre-public-launch requirement. Not started. Independent of M3D.**
+
+Watchside has **no user-triggerable account-deletion path** - no UI, no RPC, no
+function. 24 tables carry `references public.users (id) on delete cascade`, so
+the cascade is correct and complete, but **nothing lets a user trigger it**. The
+only way an account is deleted today is somebody removing a `public.users` row by
+hand.
+
+This was previously filed as an M5 UX item. **That was the wrong milestone.** It
+is a hardening requirement and it blocks public launch:
+
+- Watchside holds user-owned persisted data across 24 user-scoped tables
+- it also persists **live third-party credentials** to `chrome.storage.local`
+  (see the M3D blocker above)
+- shipping a public product with neither a delete path nor a credential-teardown
+  path is a GDPR/CCPA exposure regardless of anything Twitch requires
+
+Not conditional on M3D, on custody, or on D7/D8. If relationship measurement is
+deferred indefinitely, this is still required.
+
+**Scope when it is built:** a user-triggerable deletion that removes the account
+and everything cascading from it, destroys any stored provider credential, and
+is verifiable by test. Deletion semantics for relationship observations are
+already designed (§6-§10 of the G6/M3D report) and must be honoured if they exist
+by then.
 
 ### M4.5 - architecture, legacy and feature audit
 
