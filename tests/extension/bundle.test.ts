@@ -325,7 +325,9 @@ describe('emote providers are reached only from the worker', () => {
       .filter((entry) => readFileSync(join(SRC, entry), 'utf8').includes('provider_token'))
       .map((entry) => entry.split(sep).join('/'))
 
-    expect(naming).toEqual(['background/storage.ts'])
+    // Two, since the Phase 2 custody gate: storage.ts strips them, and
+    // supabaseBackend.ts hands them to the server once and keeps nothing.
+    expect(naming).toEqual(['background/storage.ts', 'background/supabaseBackend.ts'])
   })
 })
 

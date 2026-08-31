@@ -91,8 +91,16 @@ Deno.serve(async (request: Request) => {
     global: { headers: { authorization } },
   })
 
-  const { data: userData, error: userError } = await caller.auth.getUser()
-  const actorId = userData?.user?.id
+  // The JWT is passed EXPLICITLY.
+  //
+  // getUser() with no argument reads the client's own session, and a function
+  // has none - the global Authorization header is not used for this call. Bare
+  // getUser() therefore returns "unauthorized" for a perfectly valid caller,
+  // which is exactly what it did the first time this ran against production.
+  const { data: claimsData, error: userError } = await caller.auth.getClaims(
+    authorization.slice('Bearer '.length),
+  )
+  const actorId = claimsData?.claims?.sub
   if (userError || !actorId) {
     return json({ error: 'unauthorized' }, 401)
   }

@@ -3648,3 +3648,684 @@ Three things are worth carrying forward as findings rather than mechanics:
 
 **Production credential writers: ZERO.** The invariant holds, and it is enforced
 by tests that will fail loudly the moment phase 2 deliberately changes it.
+
+---
+
+# Phase 2 — Secure Twitch credential custody
+
+**Date:** 2026-08-31
+**Type:** IMPLEMENTATION
+**Entering:** `d3d3af2` · 2,489/2,489 · hosted schema 32 · v0.7.0
+
+---
+
+## 127. Phase 2 verdict
+
+## **GO**
+
+Watchside now holds a Twitch credential, encrypted, server-side, and every way
+of destroying it was live and proven before the first one was written.
+
+| | |
+|---|---|
+| Production credential writer | **LIVE** — `twitch-credential`, capture at sign-in |
+| Credentials stored | **1** (the owner's, from the real end-to-end exercise) |
+| Stored form | AES-256-GCM ciphertext, 125 bytes, key version 1 |
+| Plaintext anywhere at rest | **none** |
+| Browser retention | **none** — O7 holds, observed in production |
+| Destruction paths | deployed **before** the writer, EventSub subscription `enabled` |
+| Twitch scopes | **unchanged** |
+| Migration | **none needed** — `0032` already carried the schema |
+
+The atomic safety rule held throughout: secrets, then destruction paths, then
+the EventSub subscription verified `enabled`, and only then the writer.
+
+**Two things this checkpoint found that no amount of unit testing would have.**
+A latent 401 in `delete-account` that would have failed account deletion for
+every user (§141), and an auth-library failure that took four of the owner's
+sign-ins to isolate (§145.2). Both existed only in the real platform, which is
+exactly what the required end-to-end exercise is for.
+
+---
+
+## 128. Starting state
+
+`d3d3af2`, clean · 2,489 tests · schema 32 · `0032` applied · debt: analytics 6,
+presence 0, layout 0, lab 11 · `twitch-eventsub` built but **not deployed** ·
+production credential writers **zero**.
+
+---
+
+## 129. Credential capture implementation
+
+`supabase/functions/twitch-credential/`, three actions on one endpoint:
+
+| Action | Purpose |
+|---|---|
+| `capture` | validate, bind, encrypt, store |
+| `status` | shape only — presence, key version, scope count, expiry |
+| `ensure_fresh` | refresh if spent; returns a **state**, never a token |
+
+Flow, unchanged from the approved design:
+
+```
+exchangeCodeForSession → provider tokens in worker memory
+  → POST twitch-credential { action: 'capture', access_token, refresh_token }
+     Authorization: the session's own access token, passed explicitly
+  → actor = verified JWT   (never from the body)
+  → validate at id.twitch.tv/oauth2/validate
+  → bind: Twitch's answer must match this actor's connected identity
+  → AES-256-GCM seal, AAD = actor_id
+  → upsert on actor_id
+```
+
+The request carries **no identifier of any kind**. There is nothing in it for a
+client to put somebody else's account into, at any layer.
+
+`upsert` on the primary key means re-signing in replaces rather than
+accumulates. Capture failure is silent and non-fatal: the person stays signed
+in, everything visible works, and measurement is simply unavailable until their
+next sign-in. **There is no retry loop**, deliberately — a retry loop is a
+reason to keep a plaintext credential alive in memory.
+
+---
+
+## 130. Actor / Twitch identity binding
+
+**A credential arriving from actor A is not assumed to be A's.**
+
+```
+POST id.twitch.tv/oauth2/validate  →  { client_id, user_id, login, scopes, expires_in }
+        │
+        ├─ client_id must equal Watchside's own          → else foreign_client
+        └─ user_id → connected_accounts → must equal actor → else identity_mismatch
+```
+
+Twitch's answer is the only trustworthy one; the client asserting ownership is
+not evidence. The decision is extracted into `decideCapture()` so it is provable
+offline rather than only through a deployed function, and one case deserves
+naming: **an unknown Twitch identity is a mismatch, not a pass.** The tempting
+shape — "no conflict, so allow it" — would let anybody store any Twitch
+credential under their own account.
+
+Five deterministic tests cover it, including that a foreign `client_id` is
+refused *before* identity is even considered.
+
+---
+
+## 131. Client-memory lifecycle
+
+| Property | State |
+|---|---|
+| Where the tokens exist | one function's arguments, for the duration of one `await` |
+| Durable client copy | **none** — not `chrome.storage.local`, not `storage.session`, not module state |
+| New browser storage location | **none** |
+| Logged | never — one fixed string on failure, no values, no lengths |
+| Returned upward | never — `Promise<void>` |
+| If O7 somehow leaked | the adapter still strips both fields from anything persisted |
+
+Belt and braces: the extension does not try to keep them, and could not if it
+did. **Observed in production** (§146).
+
+---
+
+## 132. Encryption implementation
+
+`supabase/functions/twitch-credential/crypto.ts`.
+
+| Property | Implementation |
+|---|---|
+| Primitive | **AES-256-GCM** via Web Crypto |
+| Nonce | 96-bit, fresh from `crypto.getRandomValues` on every seal |
+| AAD | **`actor_id`** — a row copied into another actor's row fails to open |
+| Envelope | `[format:1][key_version:1][nonce:12][ciphertext‖tag]`, self-describing |
+| Where | Edge Function runtime only |
+| Postgres sees | ciphertext, and never the key |
+| Client decrypt path | **none exists** |
+| Custom cryptography | **none** |
+
+Nonce reuse is catastrophic for GCM, so there is no code path that *chooses* a
+nonce — the only one draws fresh randomness. Twenty-five seals in a test produce
+twenty-five distinct nonces and twenty-five distinct ciphertexts for identical
+input.
+
+Every failure is fail-closed with a fixed code: wrong key, wrong actor, unknown
+format, truncated envelope, flipped bit, flipped nonce, wrong key length, no key
+at all. None yields a partial result.
+
+---
+
+## 133. Key management
+
+| Question | Answer |
+|---|---|
+| Production key | `TWITCH_CREDENTIAL_KEY_V1`, a Supabase Function secret — **CONFIGURED** |
+| Generated | 32 random bytes, base64, out of band, written to a temp env file and set from it. **Never printed, never committed** |
+| In SQL or the client | never |
+| Returned to anyone | never |
+| Dev/test | fixed synthetic literals in the test file; production key never leaves production |
+| Rotation | additive — set `…_V2`, new writes use it, old rows still open, lazy re-encrypt on next refresh |
+| Unknown key version | **fail closed** (`key_unavailable`) |
+| No key at all | **fail closed** — the function refuses to serve |
+
+Rotation is proven deterministically with synthetic keys: a row sealed under v1
+still opens once v2 exists, and a row sealed under v2 cannot be opened by a
+runtime that only has v1. **No production rotation was performed** to test
+architecture.
+
+---
+
+## 134. Credential schema
+
+**No migration was needed.** `0032` already created the table with exactly the
+columns custody uses, which is what building the destruction paths against the
+real shape bought:
+
+`actor_id` · `secret` · `key_version` · `scopes` · `status` · `version` ·
+`access_expires_at` · `created_at` · `updated_at`
+
+The ciphertext format version lives in the envelope's first byte rather than a
+column, so the blob is self-describing and no schema change was required for it.
+
+**Not stored:** raw OAuth response, Supabase JWT, authorization headers, Twitch
+profile data, subscription state, follow state, API responses.
+
+---
+
+## 135. Access-token expiry semantics
+
+**Nothing is hard-coded.** `access_expires_at` is derived from the `expires_in`
+Twitch actually returns:
+
+- on capture, from `/oauth2/validate`
+- on refresh, from the token response
+
+Twitch guarantees no fixed lifetime — *"the `expires_in` field indicates how
+long, in seconds, the token is valid for"* — so a four-hour constant would be a
+latent bug the day it changes. A test asserts the source contains no `14400` and
+no `4 * 60 * 60`, and that two different `expires_in` values produce two
+different expiries.
+
+A missing or unparseable expiry is treated as **spent**, never as "probably
+fine". The real captured row carries `access_expires_at` ≈ 4h out, which is
+Twitch's number and not ours.
+
+---
+
+## 136. Twitch refresh implementation
+
+`POST id.twitch.tv/oauth2/token`, `grant_type=refresh_token`, with
+`client_id` + `client_secret` — server-only by necessity, since a confidential
+client's secret can never be in an extension.
+
+| Outcome | Handling |
+|---|---|
+| Success | new access + **replacement refresh** + scopes + expiry, re-sealed and stored |
+| `400`/`401` | dead grant (password change, app disconnect) → `needs_reauthorization` |
+| `5xx` / network | outage → degrade, retry later, credential untouched |
+| Malformed / no replacement token | **refused** — a half-understood response is not a partial success |
+
+The client never receives the stored access token, the stored refresh token, or
+the replacement. `ensure_fresh` returns `fresh` / `refreshed` / `refreshing` /
+`unavailable` and nothing else.
+
+**Phase 2 has no `user:read:follows`,** and the absence of it is not treated as
+a failure anywhere.
+
+---
+
+## 137. Refresh-token rotation
+
+Twitch rotates. The replacement is sealed and written in **one** conditional
+update, so the row holds exactly one credential at any moment — there is no
+history table and no "previous token" column for a superseded credential to
+survive in.
+
+The dangerous case is Twitch rotating and our write failing. The row is then
+marked `needs_reauthorization` in a separate minimal statement — the one write
+that must land — rather than left silently holding a token that may no longer
+work.
+
+---
+
+## 138. Concurrency — a deviation from the approved design, and why
+
+**Approved:** `pg_advisory_xact_lock` per actor, plus compare-and-swap.
+**Built:** compare-and-swap **claim**, no advisory lock.
+
+The lock is not reachable from an Edge Function. PostgREST runs each statement
+on a pooled connection, so a transaction-scoped lock taken in one call is not
+held for the next call in the same logical operation — the Twitch round trip
+sits between them.
+
+The smallest thing that genuinely serialises is to **claim the work atomically**:
+
+```
+read row (version N)
+  → UPDATE … SET version = N+1 WHERE actor_id = … AND version = N
+       0 rows → somebody else is refreshing → stand down
+       1 row  → we own this refresh
+  → talk to Twitch
+  → UPDATE … SET secret = … WHERE actor_id = … AND version = N+1
+```
+
+Exactly one caller reaches Twitch, so a second rotation from the same parent
+token cannot happen; and the final write is conditioned on the claimed version,
+so a stale generation cannot overwrite a newer one. This is the "smallest
+equivalent that preserves the approved invariant" the brief allowed, and the
+invariant it preserves is the one that mattered.
+
+---
+
+## 139. Scope handling
+
+`scopes` is recorded from validation at capture and from the `scope` array on
+every refresh, so it is maintained for free and a future follow check can decide
+**without** performing a refresh.
+
+The real captured credential reports `scope_count: 1` — the base
+`user:read:email` GoTrue requests, and nothing more. **No new scope was
+requested.** Scope-loss enforcement is Phase 3's use-time detector, which calls
+the deletion primitive Phase 1 already built (§112).
+
+---
+
+## 140. G6 integration
+
+Unchanged and now live. `purge_twitch_derived(actor)` is still the single
+deletion primitive; custody added a real row for it to delete rather than a new
+code path.
+
+| Event | Effect |
+|---|---|
+| Twitch deauthorization | credential + Twitch-derived observations destroyed; **Watchside analytics preserved** |
+| Account deletion | credential destroyed **first**, then everything |
+| Sign-out | **nothing**, server-side |
+
+Proven by 33 database tests and mutation-proven in both directions. The
+EventSub receiver that invokes it is deployed and its subscription is `enabled`.
+
+---
+
+## 141. Account-deletion integration — and a latent bug this caught
+
+Account deletion calls the same primitive first, then `auth.admin.deleteUser`.
+
+**A real defect surfaced.** `delete-account`, shipped in Phase 1 and never
+exercised end to end, called `getUser()` with no argument. That reads the
+*client's own* session — and an Edge Function has none — so **account deletion
+would have returned 401 for every user**. Its tests passed because they exercise
+the auth state machine against a fake backend, which is the right thing for them
+to test and cannot see this.
+
+Fixed in both functions, and both redeployed. It is worth stating plainly that
+this was found only because the brief required a real end-to-end exercise, and
+that Phase 1's "GO" was issued with this sitting in it.
+
+---
+
+## 142. EventSub deployment
+
+| Step | Result |
+|---|---|
+| `twitch-eventsub` deployed | ✅ `--no-verify-jwt` (Twitch has no Supabase JWT; the HMAC is the authentication) |
+| `delete-account` deployed | ✅ |
+| Subscription created | ✅ `user.authorization.revoke` v1, condition `client_id`, app access token |
+| Verification challenge | ✅ **answered correctly in production** |
+| Final status | ✅ **`enabled`** |
+| Writer deployed | ✅ **last**, only after the above |
+
+The subscription reaching `enabled` is itself a production proof of the
+receiver: Twitch sent a signed `webhook_callback_verification` and would not
+have enabled it unless the deployed code echoed the challenge correctly.
+
+The Message-Type distinction is unchanged and still covered: a `notification` of
+`user.authorization.revoke` purges an actor; a `revocation` message type means
+Twitch dropped **our subscription** and touches no user data.
+
+---
+
+## 143. EventSub subscription state
+
+Owner-invoked, not automatic:
+
+| Action | Reports |
+|---|---|
+| `subscription_status` | total, ours, enabled, statuses, whether the callback matches |
+| `ensure_subscription` | lists first, creates only if none is enabled |
+
+Deliberately **not** self-healing. A receiver that recreates its own
+subscription whenever it feels unhealthy is the uncontrolled creation loop the
+architecture warned against; listing before creating is what keeps
+`ensure_subscription` idempotent.
+
+Gated by a **dedicated management secret** in its own header —
+`TWITCH_EVENTSUB_ADMIN_TOKEN` — rather than the service-role key. That is least
+privilege (proving "the owner sent this" is not the same as "the bearer may do
+anything to the database"), and it does not depend on how the gateway treats
+`Authorization`. The first attempt did depend on that, and silently failed.
+
+---
+
+## 144. Logging and redaction
+
+Fixed codes only: `captured`, `refreshed`, `refresh_rejected`,
+`refresh_claim_lost`, `rotation_write_failed`, `decrypt_failed`,
+`capture_refused`, `unauthorized`, `purged`, `subscription_dropped`.
+
+Never logged: access token · refresh token · plaintext · `Authorization` header ·
+ciphertext · any Twitch response containing credentials · any actor id.
+
+Counts and versions are logged; contents never are. The temporary diagnostics
+used during the end-to-end exercise reported **shape only** — `PRESENT`/`ABSENT`,
+a length, a three-character prefix, a segment count — and all of them were
+removed (§156).
+
+---
+
+## 145. Real shape-only end-to-end exercise
+
+### 145.1 What was established
+
+| # | Proof | Result |
+|---|---|---|
+| 1 | Real OAuth completes | ✅ |
+| 2 | `provider_token` exists transiently | ✅ **PRESENT (len 30)** |
+| 3 | `provider_refresh_token` exists transiently | ✅ **PRESENT (len 50)** |
+| 4 | Authenticated custody handoff succeeds | ✅ |
+| 5 | Server binds to the correct Twitch identity | ✅ **implied by success** — capture cannot store a row unless validation and the binding both pass |
+| 6 | Postgres holds a credential for the right actor | ✅ `has_credential: true`, `status: active`, `key_version: 1`, `version: 1` |
+| 7 | Persisted values are ciphertext | ✅ §147 |
+| 8 | Browser holds neither provider token | ✅ §146 |
+| 9 | Supabase session still persisted | ✅ §146 |
+| 10 | Trusted server can use the credential | ✅ §148 |
+| 11 | Refresh exercised live | ⚠️ **not observed** — the access token was fresh, and manufacturing an expiry was out of scope |
+| 12 | Destruction still capable of deleting it | ⚠️ **not exercised on this row** — proven deterministically instead |
+
+No credential value was printed, recorded, or written anywhere.
+
+### 145.2 It took four sign-ins, and it should have taken one
+
+The handoff failed with `401 unauthorized` three times. Two hypotheses were
+wrong:
+
+1. *`functions.invoke` sends the anon key because the client's session has not
+   settled.* Passing the session token explicitly was correct practice but did
+   not fix it.
+2. *`getUser()` needs the JWT explicitly.* Also correct — and a genuine latent
+   bug in `delete-account` (§141) — but still not the cause.
+
+The fourth attempt used a shape-only diagnostic instead of a hypothesis, and
+answered it immediately:
+
+```
+presented_len: 1572, presented_prefix: "eyJ", presented_segments: 3
+auth_error: "Unexpected token '<', \"<html>\r\n<h\"... is not valid JSON"
+```
+
+The JWT was arriving perfectly all along. **auth-js's own JWKS retrieval returns
+an HTML error page on this project**, so verification never got a verdict and a
+valid caller was rejected. A plain `fetch` of the same URL from the same runtime
+returns JSON reliably — confirmed from inside the function — so the keys are now
+fetched directly and handed to `getClaims(jwt, { jwks })`. The library still
+performs the signature verification; only its broken key retrieval is bypassed.
+No hand-rolled cryptography, and local verification is strictly stronger than a
+server lookup.
+
+**The lesson is the order.** The diagnostic cost one reload and produced a
+definitive answer; the two hypotheses cost three of the owner's sign-ins and
+produced none. When a failure is opaque, building the instrument comes before
+guessing at the cause — and that is now recorded here rather than learned again.
+
+---
+
+## 146. Browser persistence proof
+
+Observed on a real sign-in, in production:
+
+```
+persisted: provider_token=ABSENT
+           provider_refresh_token=ABSENT
+           supabase access_token=PRESENT
+           supabase refresh_token=PRESENT
+```
+
+**O7 holds under custody.** The Twitch credentials are stripped from persistent
+browser storage while Watchside's own session survives untouched — which is the
+exact invariant, confirmed against the real platform rather than a fixture.
+
+---
+
+## 147. Database ciphertext proof
+
+```
+rows: 1
+bytes: 125 · format_version: 1 · key_version: 1 · status: active
+scope_count: 1 · longest_printable_run: 8
+```
+
+**The longest run of printable ASCII in the stored bytes is 8.** A stored
+plaintext token would show a run of 30 or 50; AES-GCM output effectively never
+does. The size corroborates it exactly: 2 header + 12 nonce + ~95 plaintext JSON
++ 16 GCM tag = 125.
+
+The column holds ciphertext. That is the claim the entire design rests on, and
+it is now checked against the database rather than inferred from the code.
+
+---
+
+## 148. Credential use and decrypt proof
+
+`ensure_fresh` on the real row returned a live state rather than an error, which
+means the trusted runtime read the row, selected the key by version, and opened
+the envelope with `actor_id` as AAD. Decryption works in production.
+
+The client received a **state**, not a token — as designed.
+
+---
+
+## 149. Post-test credential disposition
+
+## **A — retained.**
+
+Custody is now intentionally enabled; that was the point of Phase 2, and the
+destruction paths that justify it are deployed and proven.
+
+**Why not the safer-looking option.** Destroying the row while the writer is
+live would be undone by the owner's next sign-in, so "destroyed" would be a
+false assurance rather than a safer state. The row belongs to the owner, who
+authorised custody, and it is the artefact that proves the boundary works.
+
+**If dormancy is preferred**, the correct action is to undeploy
+`twitch-credential` — not to delete the row. Deleting the row without removing
+the writer changes nothing durable.
+
+No test credential was left anywhere: the only row is the owner's own, created
+by the real exercise, and every fixture in the repository is synthetic.
+
+---
+
+## 150. Privacy deployment
+
+Deployed atomically with the live writer, as required.
+
+`docs/PRIVACY.md` gains a table row and a section stating plainly: the
+credential is stored **encrypted on the server**, removed from the browser
+entirely, never sent to another user, never returned even to its owner, and
+destroyed by Twitch disconnection or account deletion. Sign-out is explicitly
+called out as **not** removing it.
+
+It says the measurement it exists for **is not built**, and does not claim any
+capability that does not exist.
+
+One correction worth recording. The first draft said Watchside "does not read
+your follow list, does not read your subscriptions" — which tripped an existing
+test asserting the policy makes no claim about follows or subscriptions. That
+test's comment is right: *"Describing collection we do not perform is as wrong
+as the reverse."* Naming data types Watchside has nothing to do with invites the
+reader to wonder why they were mentioned. The paragraph was rewritten rather
+than the test weakened.
+
+The public page was regenerated from the policy and is committed to the Pages
+repository.
+
+---
+
+## 151. Chrome impact
+
+**None.** No permission, host permission, CSP, manifest or version change. The
+credential endpoint is a route on the already-granted Supabase origin.
+
+Privacy-practice answers will need updating at the next submission, since the
+substance changed even though the technical surface did not.
+
+---
+
+## 152. Firefox impact
+
+**None.** Declared categories remain `authenticationInfo`, `browsingActivity`,
+`personalCommunications`, `websiteActivity` — `scripts/manifest.mjs` untouched.
+Storing a Twitch authorisation credential is authentication information, already
+declared. `technicalAndInteraction` still zero.
+
+---
+
+## 153. Migration and hosted state
+
+**No migration.** Hosted schema remains **32**, `0033` unused. `0032` already
+carried the exact table custody needed — the benefit of having built the
+destruction paths against the real shape rather than a placeholder.
+
+---
+
+## 154. Deterministic security tests
+
+**+46 tests**, 2,489 → **2,535**.
+
+`tests/extension/credentialCustody.test.ts` — 40 tests: round-trip; plaintext
+never in the stored bytes; self-describing envelope; fresh nonce every seal;
+distinct ciphertext for identical input; wrong actor, wrong key, wrong key
+version, unknown format, truncated envelope, modified ciphertext, modified
+nonce, wrong key length, no key — all fail closed; additive rotation; key ring
+from environment; validation parsing and failure modes; refresh success,
+rotation, dead grant, outage, malformed; client secret sent; expiry derived from
+`expires_in`; no hard-coded lifetime; and five identity-binding cases including
+that an unknown Twitch identity is refused rather than allowed.
+
+Plus the updated custody guards (§156) and the Phase 1 suites, unchanged.
+
+---
+
+## 155. Mutation proofs
+
+`npm run test:destruction` — **11 / 11 detected**, unchanged.
+
+The O7 lever still fires, which is the one that matters most now that a real
+credential exists: reintroducing the unstripped write is caught immediately.
+
+---
+
+## 156. Regression results
+
+| Gate | Result |
+|---|---|
+| `npm test` | ✅ **2,535 / 2,535** (100 files) |
+| lint / tsc / build | ✅ clean |
+| `test:destruction` | ✅ 11/11 |
+| Diagnostics removed | ✅ **0** `PHASE2-E2E` in source or bundle |
+| Capture path present | ✅ in the built bundle |
+
+The custody guards were widened **deliberately**, which is what they were built
+for. Two files may now name a provider credential — `storage.ts`, which removes
+them, and `supabaseBackend.ts`, which hands them off once — and a third would
+still fail. New tests assert the handoff never persists, caches or logs them,
+and does not retry.
+
+One near-miss worth recording: reverting `supabaseBackend.ts` to remove the
+diagnostics also removed the production capture code. It was caught by reading
+the resulting file rather than trusting the revert, and restored clean.
+
+---
+
+## 157. Known-debt delta
+
+| Harness | Baseline | Now | Delta |
+|---|---|---|---|
+| `test:presence` | 0 / 21 | **0 / 21** | ✅ none |
+| `test:layout` | 0 / 23 | **0 / 23** | ✅ none |
+| `test:destruction` | 11 / 11 | **11 / 11** | ✅ none |
+| `test:analytics` | 6 | **6** | ✅ none — its levers touch `analyticsHub.ts` and `togetherWatch.ts`, neither of which this checkpoint changed |
+| `verify:lab` | 11 | **11** | ✅ none |
+
+Source verified clean of harness residue after every run, per the operational
+rule from §123.1.
+
+---
+
+## 158. Operational components
+
+| Component | State |
+|---|---|
+| `twitch-credential` | deployed, `verify_jwt=true` |
+| `twitch-eventsub` | deployed, `verify_jwt=false` |
+| `delete-account` | deployed, `verify_jwt=true` |
+| `twitch-metadata` | unchanged |
+| EventSub subscription | **enabled** |
+| `TWITCH_CREDENTIAL_KEY_V1` | **CONFIGURED** |
+| `TWITCH_EVENTSUB_SECRET` | **CONFIGURED** |
+| `TWITCH_EVENTSUB_ADMIN_TOKEN` | **CONFIGURED** |
+| Scheduled jobs | none |
+
+No secret was printed, committed, or written into this report.
+
+---
+
+## 159. Remaining risks
+
+| # | Risk | Position |
+|---|---|---|
+| 1 | **Refresh never exercised against real Twitch** | The highest-value gap. Deterministic coverage is thorough, but §145.2 is a reminder that the platform is where surprises live. It will exercise itself within hours of real use; watch `refreshed` / `refresh_failed` |
+| 2 | auth-js JWKS retrieval is broken on this project | Worked around, not fixed upstream. If the workaround is ever removed, every authenticated function call 401s |
+| 3 | Destruction not exercised on a real credential | Proven deterministically and the subscription is live; a real deauthorization was deliberately not forced on the owner |
+| 4 | One credential exists in production | The owner's own, knowingly. Blast radius of one |
+| 5 | Subscription could be dropped silently | Logged loudly; `subscription_status` reports it. No alerting yet |
+| 6 | Chrome privacy answers not yet updated | Due at next submission, not now |
+
+---
+
+## 160. Phase 3 / M3D readiness
+
+**Ready.** M3D consumes a working credential subsystem through the narrow
+interface already designed (§80): `{ broadcaster_login, attribution_id }` →
+`{ state }`, with the relationship fact written server-side and no token
+crossing the boundary.
+
+What Phase 3 must add: the `user:read:follows` scope and its authorization UX,
+the use-time scope-loss detector calling the existing primitive, `following_at_join`
+writing to the table `0032` already created, and the privacy page updated to say
+the measurement is live.
+
+---
+
+## 161. Final verdict
+
+## **GO**
+
+The credential is encrypted with a key the database does not hold, bound to the
+Twitch identity Twitch itself names, reachable only by one trusted runtime,
+destroyed by three separate paths that were live before it existed, and absent
+from the browser entirely — each of those observed in production rather than
+asserted.
+
+Two findings justify the exercise on their own. **Account deletion was broken
+for every user** and had been since Phase 1, passing its tests the whole time
+because they mock the boundary where the bug lived. And a working
+platform-library call **is not a safe assumption**: auth-js's key retrieval
+returns HTML here, which no unit test could have found.
+
+The one thing I would do differently is the order of the last stretch. Four
+sign-ins went into an opaque 401, and the diagnostic that answered it in a single
+reload should have been built before the first hypothesis rather than after the
+third. The instrument comes first when the failure is silent — that is the same
+lesson §48.1 recorded about grepping for a credential and finding nothing, and I
+did not apply it quickly enough here.

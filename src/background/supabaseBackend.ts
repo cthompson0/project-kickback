@@ -93,6 +93,58 @@ function toIdentity(row: MeRow): KickbackIdentity {
   }
 }
 
+/**
+ * The one moment a Twitch credential is in this worker's hands.
+ *
+ * Supabase returns Twitch's own tokens exactly once, on the session it hands
+ * back from the code exchange, and never again - they do not survive its first
+ * refresh. So this is the only opportunity to give them to the server, and it
+ * is taken here rather than anywhere the values could be held onto.
+ *
+ * WHAT HAPPENS TO THEM AFTERWARDS
+ *
+ * Nothing. They are read off the returned session into arguments, sent, and go
+ * out of scope. They are never assigned to module state, never returned upward,
+ * never logged, and never written to storage - O7's adapter strips both fields
+ * from anything supabase-js persists, so even a mistake here could not put them
+ * on disk.
+ *
+ * The session's own access token is passed EXPLICITLY. functions.invoke
+ * otherwise uses whatever session the client has settled on internally, and
+ * this runs in the instant after the exchange.
+ *
+ * WHY FAILURE IS SILENT
+ *
+ * Custody is measurement infrastructure. If it fails the person is still signed
+ * in and everything they can see works exactly as before; relationship
+ * measurement is simply unavailable until their next sign-in. A retry loop is
+ * deliberately absent, because a retry loop is a reason to keep a plaintext
+ * credential alive in memory.
+ */
+async function handOffTwitchCredential(
+  supabase: SupabaseClient,
+  session: unknown,
+): Promise<void> {
+  const raw = session as Record<string, unknown> | null
+  const accessToken = raw?.provider_token
+  const refreshToken = raw?.provider_refresh_token
+  const sessionToken = raw?.access_token
+  if (typeof accessToken !== 'string' || accessToken.length === 0) return
+  if (typeof refreshToken !== 'string' || refreshToken.length === 0) return
+  if (typeof sessionToken !== 'string' || sessionToken.length === 0) return
+
+  try {
+    const { error } = await supabase.functions.invoke('twitch-credential', {
+      headers: { Authorization: `Bearer ${sessionToken}` },
+      body: { action: 'capture', access_token: accessToken, refresh_token: refreshToken },
+    })
+    // A fixed string on failure. Never the values, never their lengths.
+    if (error) console.info('[Watchside] twitch credential handoff unavailable')
+  } catch {
+    console.info('[Watchside] twitch credential handoff unavailable')
+  }
+}
+
 export function createSupabaseBackend(supabase: SupabaseClient): AuthBackend {
   return {
     async getSession(): Promise<BackendResult<SessionLike>> {
@@ -137,6 +189,7 @@ export function createSupabaseBackend(supabase: SupabaseClient): AuthBackend {
       try {
         const { data, error } = await supabase.auth.exchangeCodeForSession(code)
         if (error) return { value: null, error: describe(error) }
+        await handOffTwitchCredential(supabase, data.session)
         return { value: toSession(data.session) }
       } catch (error) {
         return { value: null, error: describe(error) }

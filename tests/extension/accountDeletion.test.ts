@@ -1,5 +1,5 @@
 import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { createAuthService } from '../../src/background/auth'
 import type { AuthBackend, BackendResult, SessionLike } from '../../src/background/auth'
@@ -224,14 +224,67 @@ describe('no production path can store a Twitch credential', () => {
     return out
   }
 
-  it('mentions a provider credential in exactly one source file, which strips it', () => {
+  /*
+   * UPDATED AT THE PHASE 2 CUSTODY GATE.
+   *
+   * This used to permit exactly one file. It was written to fail loudly the
+   * moment custody was implemented, so widening it would be a deliberate act
+   * rather than a line that quietly stopped being true - and it did fail, which
+   * is the only reason this comment exists.
+   *
+   * Two files may now name a provider credential, and their roles are opposite:
+   *
+   *   storage.ts          REMOVES them from anything persisted (O7)
+   *   supabaseBackend.ts  reads them once, in memory, to hand to the server
+   *
+   * A third would mean somebody started handling a Twitch credential somewhere
+   * new, and should have to change this list on purpose.
+   */
+  it('names a provider credential in exactly two source files, with known roles', () => {
     const offenders = walk('src')
-      .filter((path) => /\.tsx?$/.test(path))
+      .filter((path) => path.endsWith('.ts') || path.endsWith('.tsx'))
       .filter((path) => /provider_token|provider_refresh_token/.test(readFileSync(path, 'utf8')))
-      .map((path) => path.replace(/\\/g, '/'))
+      .map((path) => path.split(sep).join('/'))
+      .sort()
 
-    // storage.ts names them in order to REMOVE them (O7). Nothing else may.
-    expect(offenders).toEqual(['src/background/storage.ts'])
+    expect(offenders).toEqual([
+      'src/background/storage.ts',
+      'src/background/supabaseBackend.ts',
+    ])
+  })
+
+  /** The capture path may READ them. It may not keep them. */
+  it('never persists, caches or logs the credential it hands off', () => {
+    const source = readFileSync('src/background/supabaseBackend.ts', 'utf8')
+    const handoff = source.slice(
+      source.indexOf('async function handOffTwitchCredential'),
+      source.indexOf('export function createSupabaseBackend'),
+    )
+
+    expect(handoff).toContain("action: 'capture'")
+    for (const forbidden of ['setItem', 'localStorage', 'chrome.', 'storage']) {
+      expect(handoff).not.toContain(forbidden)
+    }
+    // No log line anywhere near a token value.
+    const NEWLINE = String.fromCharCode(10)
+    for (const logged of handoff.split(NEWLINE).filter((l) => l.includes('console.'))) {
+      expect(logged).not.toContain('accessToken')
+      expect(logged).not.toContain('refreshToken')
+    }
+    // Declared Promise<void>: the tokens cannot travel back upward.
+    expect(handoff).toContain('Promise<void>')
+  })
+
+  /** A retry loop is a reason to keep a plaintext credential alive. */
+  it('does not retry the handoff', () => {
+    const source = readFileSync('src/background/supabaseBackend.ts', 'utf8')
+    const handoff = source.slice(
+      source.indexOf('async function handOffTwitchCredential'),
+      source.indexOf('export function createSupabaseBackend'),
+    )
+    for (const looping of ['for (', 'while (', 'setTimeout']) {
+      expect(handoff).not.toContain(looping)
+    }
   })
 
   it('has no Edge Function that reads or writes a provider credential', () => {

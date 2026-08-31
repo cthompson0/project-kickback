@@ -42,14 +42,31 @@ import {
   HEADER,
   challengeFrom,
   decideAction,
+  isOwnerRequest,
   verifyRequest,
 } from './verify.ts'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
 const EVENTSUB_SECRET = Deno.env.get('TWITCH_EVENTSUB_SECRET') ?? ''
+const CLIENT_ID = Deno.env.get('TWITCH_CLIENT_ID') ?? ''
+const CLIENT_SECRET = Deno.env.get('TWITCH_CLIENT_SECRET') ?? ''
+const CALLBACK_URL = `${Deno.env.get('SUPABASE_URL') ?? ''}/functions/v1/twitch-eventsub`
+
+const HELIX_SUBSCRIPTIONS = 'https://api.twitch.tv/helix/eventsub/subscriptions'
+const TOKEN_URL = 'https://id.twitch.tv/oauth2/token'
+const REVOKE_TYPE = 'user.authorization.revoke'
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? ''
 const SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? ''
+/*
+ * A dedicated management token, not the service-role key.
+ *
+ * Least privilege: subscription management needs to prove "the owner sent
+ * this", not "the bearer may do anything to the database". Using a separate
+ * secret also avoids depending on which key shape Supabase happens to inject,
+ * which is not a contract worth building an authorisation check on.
+ */
+const ADMIN_TOKEN = Deno.env.get('TWITCH_EVENTSUB_ADMIN_TOKEN') ?? ''
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -68,6 +85,82 @@ function note(code: string, extra: Record<string, unknown> = {}): void {
   console.info(JSON.stringify({ at: 'twitch-eventsub', code, ...extra }))
 }
 
+/** A client-credentials token, minted per call. Never stored, never returned. */
+async function appToken(): Promise<string | null> {
+  const body = new URLSearchParams({
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    grant_type: 'client_credentials',
+  })
+  const response = await fetch(TOKEN_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: body.toString(),
+  })
+  if (!response.ok) return null
+  const payload = (await response.json()) as { access_token?: unknown }
+  return typeof payload.access_token === 'string' ? payload.access_token : null
+}
+
+/**
+ * Reports what Twitch thinks of our subscription, and creates it if absent.
+ *
+ * Idempotent by listing first: the interesting failure here is an uncontrolled
+ * creation loop that racks up duplicate subscriptions, so nothing is created
+ * while an enabled one already exists.
+ *
+ * Deliberately owner-invoked rather than automatic. A receiver that recreates
+ * its own subscription whenever it feels unhealthy is exactly the loop the
+ * architecture warned against.
+ */
+async function subscriptionState(create: boolean): Promise<Record<string, unknown>> {
+  if (!CLIENT_ID || !CLIENT_SECRET) return { error: 'not_configured' }
+  const token = await appToken()
+  if (!token) return { error: 'app_token_unavailable' }
+
+  const headers = { authorization: `Bearer ${token}`, 'client-id': CLIENT_ID }
+  const listed = await fetch(`${HELIX_SUBSCRIPTIONS}?type=${REVOKE_TYPE}`, { headers })
+  if (!listed.ok) return { error: 'list_failed', status: listed.status }
+
+  const body = (await listed.json()) as { data?: { id: string; status: string; transport?: { callback?: string } }[] }
+  const ours = (body.data ?? []).filter((entry) => entry.transport?.callback === CALLBACK_URL)
+  const enabled = ours.filter((entry) => entry.status === 'enabled')
+
+  if (!create || enabled.length > 0) {
+    return {
+      total: (body.data ?? []).length,
+      ours: ours.length,
+      enabled: enabled.length,
+      statuses: ours.map((entry) => entry.status),
+      callback_matches: ours.length > 0,
+    }
+  }
+
+  const created = await fetch(HELIX_SUBSCRIPTIONS, {
+    method: 'POST',
+    headers: { ...headers, 'content-type': 'application/json' },
+    body: JSON.stringify({
+      type: REVOKE_TYPE,
+      version: '1',
+      condition: { client_id: CLIENT_ID },
+      transport: { method: 'webhook', callback: CALLBACK_URL, secret: EVENTSUB_SECRET },
+    }),
+  })
+
+  const createdBody = (await created.json().catch(() => ({}))) as {
+    data?: { id: string; status: string }[]
+    message?: string
+  }
+  note('subscription_create', { status: created.status })
+  return {
+    created: created.ok,
+    status: created.status,
+    subscription_status: createdBody.data?.[0]?.status ?? null,
+    // Twitch's own message, which never contains a credential.
+    message: created.ok ? null : (createdBody.message ?? null),
+  }
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
@@ -81,6 +174,27 @@ Deno.serve(async (request: Request) => {
   // The RAW body, read once, before anything parses or re-serialises it.
   // Twitch signed these exact bytes.
   const rawBody = await request.text()
+
+  /*
+   * Owner-only management, checked before the Twitch path and never mixed with
+   * it. A request without the service-role key falls straight through to
+   * signature verification, so this branch cannot be used to skip it.
+   */
+  if (isOwnerRequest(request.headers.get('x-watchside-admin') ?? '', ADMIN_TOKEN)) {
+    let admin: { action?: unknown } = {}
+    try {
+      admin = rawBody ? JSON.parse(rawBody) : {}
+    } catch {
+      return json({ error: 'bad_request' }, 400)
+    }
+    if (admin.action === 'subscription_status') {
+      return json(await subscriptionState(false))
+    }
+    if (admin.action === 'ensure_subscription') {
+      return json(await subscriptionState(true))
+    }
+    return json({ error: 'bad_request' }, 400)
+  }
 
   const headers: Record<string, string | null> = {}
   for (const name of Object.values(HEADER)) headers[name] = request.headers.get(name)

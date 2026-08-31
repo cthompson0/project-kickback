@@ -41,6 +41,7 @@ your identity, not who your friends are, not what you type.
 | **Twitch identity** (your Twitch user id, login, display name, avatar URL) | session only | yes | your display name, avatar and Twitch username are visible to your friends and to people in your groups | no | until you ask us to delete your account |
 | **Watchside account** (user id, friend code) | session only | yes | friend code only if you share it | no (ids are never event properties) | same |
 | **Sign-in session** (Supabase access/refresh tokens) | **yes** | — | never | never | until sign-out or expiry |
+| **Twitch authorisation** (the credential Twitch issues when you connect Watchside) | **never** — removed from your browser | **yes, encrypted** | never | never | until you disconnect Watchside on Twitch, or delete your account |
 | **Friendships, friend requests** | no | yes | to the people involved | counts only | until removed, or account deleted |
 | **Groups and membership** | no | yes | to group members | counts only | until you leave, or the group is deleted |
 | **Presence** (online, and the Twitch channel you are watching) | no | yes | to friends, and to people you share a group with — subject to your visibility setting | no channel identity beyond the destination of a JOIN | rows are transient and overwritten; nothing historical is kept |
@@ -55,6 +56,42 @@ your identity, not who your friends are, not what you type.
 | **JOIN attribution** | a random id, for minutes | yes | never | yes, that is its purpose | the id is dropped after the window closes |
 | **Feedback you send** | no | yes | never | only the category | kept until it has been acted on |
 | **Diagnostics attached to feedback** | no | yes | never | no | with the feedback |
+
+### The Twitch authorisation Watchside stores
+
+When you sign in, Twitch issues Watchside a credential that represents your
+connection. Watchside stores it **on its server, encrypted**, and removes it
+from your browser entirely.
+
+**Why it is kept.** Watchside is trying to answer one question honestly: does
+seeing where your friends are watching actually lead you to creators? Answering
+it means asking Twitch a question at the moment a friend leads you somewhere,
+and Twitch only hands over the means to ask once, when you sign in. Keeping it
+is the only way to ask later.
+
+**How it is protected.**
+
+- It is encrypted before it is written down, with a key that is **not** stored
+  in the database. Someone with a complete copy of the database still cannot
+  read it.
+- It is never sent to another user, never shown in the extension, and never
+  written into analytics or logs.
+- It never comes back to your browser. Not even to you.
+
+**How it ends.**
+
+- **Disconnect Watchside on Twitch** and the credential is destroyed, along with
+  anything Watchside worked out about your relationship with creators. Your
+  Watchside account and friends are untouched.
+- **Delete your Watchside account** and it goes with everything else.
+- **Signing out does not remove it** — signing out ends a session, it does not
+  withdraw a permission.
+
+**What Watchside is not doing with it yet.** Nothing is read from it and nothing
+is measured with it. The measurement it exists for is not built. Watchside asks
+Twitch for no permission beyond the basic one you already granted at sign-in, so
+there is nothing more it could read even if it tried. This page will say plainly
+what changed, before anything does.
 
 ### Two kinds of chat, with two different lifetimes
 

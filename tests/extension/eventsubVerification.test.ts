@@ -8,6 +8,7 @@ import {
   computeSignature,
   decideAction,
   isFresh,
+  isOwnerRequest,
   signedMessage,
   timingSafeEqual,
   verifyRequest,
@@ -305,5 +306,33 @@ describe('identity comes from user_id and nothing else', () => {
       kind: 'ignore',
       reason: 'no_user_id',
     })
+  })
+})
+
+describe('the owner-only management gate', () => {
+  const KEY = 'service-role-key-value'
+
+  it('accepts the management token', () => {
+    expect(isOwnerRequest(KEY, KEY)).toBe(true)
+  })
+
+  it('refuses anything else', () => {
+    expect(isOwnerRequest(KEY + 'x', KEY)).toBe(false)
+    expect(isOwnerRequest(KEY.slice(0, -1), KEY)).toBe(false)
+    expect(isOwnerRequest('', KEY)).toBe(false)
+  })
+
+  /*
+   * The receiver runs with --no-verify-jwt, so if the key were unset an empty
+   * comparison could let anybody through. Unconfigured must mean closed.
+   */
+  it('refuses everyone when no key is configured', () => {
+    expect(isOwnerRequest('anything', '')).toBe(false)
+    expect(isOwnerRequest('', '')).toBe(false)
+  })
+
+  /** A signed Twitch notification is not an owner request. */
+  it('does not mistake a Twitch delivery for the owner', () => {
+    expect(isOwnerRequest('', KEY)).toBe(false)
   })
 })

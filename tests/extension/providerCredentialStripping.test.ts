@@ -277,8 +277,20 @@ describe('the boundary is the only place this happens', () => {
    * Nothing else in Watchside may read, copy or store a provider credential.
    * If some future code starts handling one, it should have to change this
    * test deliberately rather than inherit an exemption by accident.
+   *
+   * WIDENED AT THE PHASE 2 CUSTODY GATE, ON PURPOSE.
+   *
+   * It listed one file until Watchside began deliberately handing the
+   * credential to its own server. Two files may name one now, and their roles
+   * are opposite: storage.ts REMOVES them from anything persisted, and
+   * supabaseBackend.ts reads them once, in memory, to hand off. The persistence
+   * guarantee above is unchanged - custody made the credential go somewhere
+   * new, not stay somewhere new.
+   *
+   * A third file would mean somebody started handling a Twitch credential
+   * somewhere nobody has thought about.
    */
-  it('is the only file in the product that mentions a provider credential', () => {
+  it('is one of only two files in the product that mention a provider credential', () => {
     const offenders: string[] = []
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -293,6 +305,9 @@ describe('the boundary is the only place this happens', () => {
     }
     walk('src')
 
-    expect(offenders).toEqual(['src/background/storage.ts'])
+    expect(offenders.sort()).toEqual([
+      'src/background/storage.ts',
+      'src/background/supabaseBackend.ts',
+    ])
   })
 })

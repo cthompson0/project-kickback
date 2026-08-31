@@ -214,3 +214,26 @@ export function challengeFrom(body: unknown): string | null {
   const challenge = (body as Record<string, unknown> | null)?.challenge
   return typeof challenge === 'string' ? challenge : null
 }
+
+/**
+ * The owner-only gate for subscription management.
+ *
+ * This receiver is deployed with --no-verify-jwt, because Twitch has no
+ * Supabase JWT to present. That is correct for notifications, where the HMAC is
+ * the authentication - but it means the endpoint is reachable by anyone who
+ * knows the URL, so the management actions need their own door.
+ *
+ * The door is a dedicated management secret carried in its own header, and
+ * deliberately NOT the service-role key: this needs to prove "the owner sent
+ * this", not "the bearer may do anything to the database". It also travels in a
+ * header the Supabase gateway does not interpret, so the check does not depend
+ * on how Authorization is handled upstream.
+ *
+ * Constant-time comparison, so a wrong guess does not leak how much of it was
+ * right. An unconfigured token refuses everybody rather than everybody.
+ */
+export function isOwnerRequest(presented: string, adminToken: string): boolean {
+  if (!adminToken) return false
+  if (!presented) return false
+  return timingSafeEqual(presented, adminToken)
+}
