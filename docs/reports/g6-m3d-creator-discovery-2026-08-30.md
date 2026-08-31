@@ -1137,3 +1137,379 @@ inspect Chrome's credential storage was abandoned rather than circumvented.
 question, and reduces exposure that exists right now. Then O1, which is a policy
 judgement rather than a technical one, and no longer needs any further
 investigation to make.
+
+---
+
+# O7 — Client credential stripping + line-ending determinism
+
+**Date:** 2026-08-31
+**Type:** NARROW IMPLEMENTATION checkpoint
+**Commit:** `6740af4`
+**Outcome:** **O7 CLOSED.** Twitch credentials no longer reach the disk. Line
+endings are pinned, and doing so retired 21 items of known debt that were never
+real.
+
+---
+
+## 48. O7 — the exact cause
+
+Signing in to Watchside returns a session carrying **four** tokens, and they
+belong to two different parties:
+
+| Token | Whose | What it does |
+|---|---|---|
+| `access_token` | **Supabase** | authenticates Watchside's own API calls |
+| `refresh_token` | **Supabase** | keeps somebody signed in |
+| `provider_token` | **Twitch** | nothing — Watchside has never used it |
+| `provider_refresh_token` | **Twitch** | nothing — Watchside has never used it |
+
+Watchside's application code discards the Twitch pair the instant it arrives:
+`toSession()` returns `{ expiresAt }` and nothing else. Every product surface
+downstream sees only an expiry.
+
+**They reached `chrome.storage.local` anyway**, through a seam below Watchside's
+own boundary:
+
+1. `persistSession: true` tells supabase-js to persist the session.
+2. `_saveSession` shallow-copies the **entire** session object — it has no
+   concept of a provider field and strips nothing.
+3. It serialises that whole object: `storage.setItem(key, JSON.stringify(data))`.
+4. `createExtensionStorage.setItem` wrote **whatever string it was handed**.
+
+So a live Twitch access token and a live Twitch refresh token were written to
+disk on every sign-in, for a credential the product neither requested nor read.
+
+### 48.1 Why it went unseen for so long
+
+This is the part worth keeping, because a test was actively asserting the
+opposite.
+
+`bundle.test.ts` contained a check named *"reads no provider token in
+Watchside's own code"*, which walked every `.ts`/`.tsx` file under `src/` and
+asserted none contained the string `provider_token`. Its comment read:
+
+> *"What matters is that we never touch it."*
+
+**That test passed for the entire time the credential was being persisted.** It
+was accurate and irrelevant at the same time: nothing in Watchside *was*
+touching the token, and it was stored regardless, because the write happened
+inside a dependency. §3.1 of this report repeated the same reasoning from the
+same grep and reached the same false comfort.
+
+A grep that finds nothing is evidence about **naming**, not about **behaviour**.
+Only a real sign-in (§41.1) showed what was actually on disk.
+
+---
+
+## 49. The sanitisation boundary
+
+**`createExtensionStorage` in `src/background/storage.ts`** — the single
+`KeyValueStorage` adapter handed to `createSupabaseClient`.
+
+This is the narrowest point that is also complete: it is the one seam every
+supabase-js session write passes through, and it sits *before* the write rather
+than after it. Requirement 10 of the brief — prevent persistence rather than
+delete afterwards — is satisfied literally: **the credential is never written.**
+
+Establishing that it really is the only writer took more than reading the
+adapter, given §48.1:
+
+| Question | Answer |
+|---|---|
+| Is a second Supabase storage configured? | No — `userStorage` is never set; the client takes exactly one `storage` |
+| How many Supabase clients exist? | One, `index.ts:154`, constructed with the sanitising adapter |
+| Does anything else write session data? | No. The raw `AsyncStorageArea` is also used by `attention.ts`, `groups.ts`, `preferences.ts` and a channel-name cache — none of which ever receive a session |
+| Could a future file reintroduce it? | Only by changing a test that names the one permitted file (§52) |
+
+### 49.1 Fields removed, fields retained
+
+| Field | Persisted? |
+|---|---|
+| `provider_token` | ❌ **removed** |
+| `provider_refresh_token` | ❌ **removed** |
+| `access_token` | ✅ retained |
+| `refresh_token` | ✅ retained |
+| `expires_at`, `expires_in`, `token_type`, `user` | ✅ retained |
+
+Exactly two keys are ever deleted, matched by exact name. The sanitiser walks
+nested structures — supabase-js has changed its persisted shape before, and a
+sanitiser pinned to one layout would fail silently and unobservably the next
+time it changes — but it can never touch a Supabase token no matter how deep it
+recurses, because it only ever removes those two names.
+
+Anything that is not JSON passes through untouched; a value with nothing to
+strip is returned **by identity**, so ordinary writes keep their exact bytes.
+
+### 49.2 The direction that would have been worse
+
+`refresh_token` and `provider_refresh_token` differ by a prefix. A substring or
+regex sanitiser would take both and **sign every Watchside user out
+permanently**. That failure is louder than the one being fixed but far more
+damaging, so it is covered by its own test asserting the surviving Supabase
+values, not merely the surviving key names.
+
+### 49.3 Somebody who signed in before this shipped
+
+Stripping on write does nothing about a credential already on disk. Reading is
+the first opportunity to remove it, so `getItem` sanitises what it returns and
+rewrites storage when the stored copy was dirty.
+
+A failed purge is swallowed: a cleanup that cannot be written must never become
+a failure to read the session, which would lock somebody out of Watchside over
+housekeeping. The credential is then removed on the next write instead.
+
+---
+
+## 50. Authentication behaviour — unchanged
+
+| Requirement | Result |
+|---|---|
+| Supabase auth persistence keeps working | ✅ `persistSession: true` untouched |
+| Browser restart does not sign anybody out | ✅ the Supabase tokens are still written and restored |
+| OAuth callback still works | ✅ untouched; PKCE `code` → `exchangeCodeForSession` |
+| Sign-out still works | ✅ `removeItem` unchanged |
+| Session refresh still works | ✅ a refreshed session round-trips **byte-identical** |
+| Anything disabled to achieve this | ❌ **nothing** |
+
+No Supabase option changed. `persistSession`, `autoRefreshToken`, `flowType` and
+`detectSessionInUrl` are exactly as they were. The change is confined to what
+the adapter writes.
+
+---
+
+## 51. Chrome and Firefox
+
+**No divergence, and none was possible.** Chromium and Gecko each supply an
+`AsyncStorageArea` (`chrome.storage.local` / `browser.storage.local`) with the
+same three methods, and both are wrapped by the same `createExtensionStorage`.
+
+The sanitiser therefore sits **above** the browser split, so neither platform can
+opt out of it and no `IS_GECKO` branch was needed. Watchside's two genuine
+product differences are untouched.
+
+---
+
+## 52. Deterministic proofs
+
+`tests/extension/providerCredentialStripping.test.ts` — **16 tests**, covering
+every proof the brief enumerated:
+
+| # | Proof | Test |
+|---|---|---|
+| 1 | `provider_token` not persisted | strips it on the way in |
+| 2 | `provider_refresh_token` not persisted | strips it on the way in |
+| 3 | both stripped together | asserts the exact surviving object |
+| 4 | Supabase fields intact | asserts surviving **values**, not just keys |
+| 5 | sanitised session restores | round-trip through `getItem` |
+| 6 | refresh still works | refreshed session byte-identical |
+| 7 | sign-out still works | `removeItem` clears both views |
+| 8 | sign-in path unaffected | full sign-in-shaped session persists and restores |
+| 9 | no other persistent store holds one | `src/` walk: exactly one file may name a provider credential |
+| 10 | Chrome/Firefox equivalent | identical output across two areas; boundary sits above the split |
+
+Plus: nested/wrapped session shapes, non-JSON passthrough, byte-identity for
+clean values, legacy purge on read, and a failed purge not breaking sign-in.
+
+### 52.1 Mutation proof — 7/7 detected
+
+A test that cannot fail on a broken sanitiser is worthless, so each mutation was
+applied to `storage.ts` and the suite re-run:
+
+| Mutation | Result |
+|---|---|
+| write the value unstripped (**the original bug**) | ✅ DETECTED |
+| forget `provider_refresh_token` | ✅ DETECTED |
+| forget `provider_token` | ✅ DETECTED |
+| over-strip: take Supabase's `refresh_token` too | ✅ DETECTED |
+| stop recursing (top-level keys only) | ✅ DETECTED |
+| skip the legacy purge on read | ✅ DETECTED |
+| let a failed purge break the session read | ✅ DETECTED |
+
+Reintroducing the original defect fails deterministically.
+
+### 52.2 The test that gave false assurance was rewritten, not deleted
+
+`bundle.test.ts`'s *"reads no provider token"* check could not survive as
+written: the fix must name `provider_token` in order to remove it.
+
+It was **narrowed rather than weakened**. It now asserts that exactly one file in
+`src/` names a provider credential, and that the file is
+`background/storage.ts`. That is a stronger and more honest guarantee than the
+original blanket grep, and it carries a comment recording that the original
+passed throughout the period the credential was being stored.
+
+The content-script rule — the page has no notion of a provider token at all — is
+unchanged and still passing.
+
+---
+
+## 53. Real-flow verification
+
+**Not re-run in this checkpoint, deliberately.**
+
+The brief prefers deterministic proof to unsafe inspection, and the remaining
+question a live sign-in would answer — *is the adapter really the only writer?* —
+was settled deterministically in §49 instead: one client, one storage, no
+`userStorage`, and no other consumer that ever receives a session.
+
+A confirming real-flow check is available and safe whenever wanted: the same
+shape-only diagnostic used in §38, reporting `PRESENT`/`ABSENT` and a length and
+never a value. Expected result after this change:
+
+| | |
+|---|---|
+| `provider_token` persisted | **NO** |
+| `provider_refresh_token` persisted | **NO** |
+| Supabase session persists | **YES** |
+
+Recorded as expected-not-observed rather than claimed, because the distinction
+between those two is what this whole section exists to make.
+
+---
+
+## 54. Line endings — root cause and policy
+
+### 54.1 Root cause
+
+Every tracked text file was **already LF in the index** — `git ls-files --eol`
+reported `i/lf` for all 377 and `i/crlf` for none. Nothing about the repository's
+stored content was inconsistent.
+
+The inconsistency was in **checkout**. With `core.autocrlf=true` (the Windows
+default, and set here) git rewrites files to CRLF on the way out. Several tests
+assert on the source text of the modules they cover and match **across line
+boundaries**; those matches fail against CRLF. The result was that a fresh
+Windows clone failed four tests that pass everywhere else — a failure caused
+entirely by the checkout, not by any change to the code.
+
+The working tree had drifted into a mixture: 271 files LF, 100 CRLF, 6 mixed,
+depending on which had last been rewritten by a tool.
+
+### 54.2 Policy
+
+`.gitattributes`:
+
+```
+* text=auto eol=lf
+*.png binary
+*.svg text eol=lf
+```
+
+`eol=lf` overrides `core.autocrlf` **for this repository**, so every clone gets
+the same bytes regardless of a developer's global git configuration.
+
+Chosen after checking what the repository actually needs, not by convention:
+
+| Checked | Finding |
+|---|---|
+| Tracked line endings | 377/377 text files already LF in the index |
+| Files that genuinely need CRLF | **none** — no `.bat`, `.cmd`, `.ps1`, `.sln` |
+| Binaries needing explicit handling | 7 PNGs, already auto-detected; made explicit anyway |
+| Existing conventions | no `.gitattributes`, no `.editorconfig` |
+
+**No content was reformatted.** Because the index was already LF, this changes
+what checkout produces and nothing else — `git diff --cached` over the whole
+repository showed content changes in exactly the two files this checkpoint
+edited.
+
+### 54.3 The false-dirty files, resolved
+
+The two files previously reported as modified with no content difference were an
+index/worktree normalisation mismatch. `git add --renormalize .` refreshed the
+index; 110 phantom entries disappeared and **no meaningless content change was
+committed** to clear them.
+
+---
+
+## 55. Fresh-checkout proof
+
+Not asserted — **executed**, in a disposable worktree created with
+`core.autocrlf=true` forced on, then destroyed.
+
+| Step | Result |
+|---|---|
+| `git -c core.autocrlf=true worktree add` | fresh checkout of `6740af4` |
+| Line endings, **counted by byte** | `CRLF=0`, `bareLF=2631` — pure LF |
+| The four previously-affected tests | ✅ **55 passed** |
+| Presence mutation harness | ✅ **21/21 detected** |
+| Full suite | ✅ **2,409 / 2,409 passed** |
+
+One correction along the way, because it nearly produced a wrong conclusion: the
+first line-ending measurement used `grep -c $'\r'`, which reported 2,631 CR
+lines and appeared to show the fix had failed. That was the measurement being
+wrong, not the fix — the pattern matched every line. Counting the actual bytes
+showed `CRLF=0`. The lesson is the same one §48.1 records: check what the tool is
+really telling you before believing the conclusion.
+
+The five files that failed on the first full run were all reading build
+artifacts absent from a bare checkout (`dist/`, `dist-demo/`,
+`supabase/.generated/apply_all.sql`). After building them the suite was fully
+green. None was line-ending related, and saying so required building them rather
+than assuming.
+
+---
+
+## 56. Known-debt delta — 21 items retired, and they were never real
+
+The line-ending fix had an effect well beyond the four failing tests.
+
+| Harness | Before | After | Delta |
+|---|---|---|---|
+| `test:analytics` | 18 / 87 | **6 / 87** | ✅ −12 |
+| `test:presence` | 4 / 21 | **0 / 21** | ✅ −4 |
+| `test:layout` | 5 / 23 | **0 / 23** | ✅ −5 |
+| `verify:lab` | 11 | **11** | ✅ unchanged |
+
+**No test was changed to achieve this**, which is exactly why it needed
+explaining rather than celebrating.
+
+The mutation harnesses apply a mutation by string replacement, and when the
+anchor is not found they print `SKIPPED … anchor no longer present` and count it
+as an undetected mutation. Multi-line anchors could not match CRLF source, so
+the mutation never applied and was recorded as a test failing to catch it.
+
+Proven causally rather than inferred: converting `src/` back to CRLF and
+re-running reproduced the failures as `SKIPPED … anchor no longer present`, and
+restoring LF made all 21 detect again.
+
+So a large part of the recorded known debt was **an artifact of Windows
+checkout**, not weak tests.
+
+Of the 6 analytics items that remain: **4 are stale anchors** in
+`analyticsHub.ts` — genuinely out of date since that file was rewritten at
+M3C.1 — and **2 are genuine undetected mutations**. Left alone as pre-existing
+debt outside this checkpoint's scope, but now correctly attributed.
+
+---
+
+## 57. Deltas and status
+
+| | |
+|---|---|
+| Twitch scopes | ✅ **unchanged** — still none requested |
+| Schema / migration | ✅ **none** — `0032` still free, hosted marker 31 |
+| Version | ✅ **0.7.0** unchanged, manifest unchanged |
+| Release movement | ✅ none — nothing packaged, uploaded, tagged or submitted |
+| Chrome v0.7 / Firefox v0.6 | ✅ untouched |
+| `npm test` | ✅ **2,409 / 2,409** (2,393 baseline + 16 new) |
+| lint / tsc / build | ✅ clean |
+| `verify:store` / `verify:firefox` / `verify:analytics` | ✅ pass; nothing client-readable |
+
+### 57.1 O1 — still open, still the same decision
+
+Nothing here approves or forecloses server-side credential custody.
+
+O7 was always the item **not gated on O1** (§45.1), and it is now closed under
+either answer: if custody is declined the extension holds nothing it never used,
+and if custody is approved requirement 3 of §44 — *capture at sign-in, straight
+to the backend, and stop persisting client-side* — is now half-built, because the
+client no longer retains anything.
+
+Future capture remains possible and is not made harder: the sign-in result
+returned by `exchangeCodeForSession` still carries both provider fields, exactly
+as before. Only **persistence** changed. A deliberate O1 implementation would
+take the credential from that result and hand it to a server-only boundary,
+which this checkpoint has neither built nor blocked.
+
+**O1 remains the owner's open decision**, with §44's twelve requirements
+unchanged.

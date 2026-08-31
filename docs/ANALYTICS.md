@@ -1052,10 +1052,16 @@ Two of the metrics above need to know whether the viewer already followed the
 creator when they joined, and whether they followed afterwards. **Watchside
 cannot know either today**, and nothing in the schema pretends otherwise.
 
-The reason is architectural, not an oversight: Watchside deliberately retains no
-usable Twitch provider token. Supabase holds the OAuth result, the extension
-never sees a provider access token, and no scope beyond the default has been
-requested. Inventing `following_at_join` from anything we *do* have would be
+The reason is architectural: Watchside retains no usable Twitch provider token,
+and no scope beyond the default has been requested.
+
+Stated precisely, because a looser version of this sentence was wrong until
+2026-08-31: the extension *does* receive `provider_token` and
+`provider_refresh_token` in the sign-in result - Supabase returns them - and it
+used to persist both to `chrome.storage.local` without anybody intending it.
+The storage adapter now strips them before writing (O7), so what Watchside
+retains is nothing. Receiving a credential and retaining one are different
+claims, and only the second is true. Inventing `following_at_join` from anything we *do* have would be
 fabrication.
 
 ### What would be needed

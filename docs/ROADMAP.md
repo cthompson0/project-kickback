@@ -342,11 +342,18 @@ would have to be captured at sign-in and stored server-side - which is custody,
 and remains unapproved. §44 of that report lists the twelve requirements custody
 would commit us to before a single token is stored.
 
-**Also found, and NOT gated on the custody decision:** Watchside currently
-persists a live Twitch access token and refresh token to `chrome.storage.local`
-on every sign-in, as an unintended side effect of `persistSession: true`. It is
-invisible in Watchside's own source because the write happens inside supabase-js.
-This wants stripping under either answer to the custody question.
+**Also found, and NOT gated on the custody decision - now FIXED (O7, `6740af4`).**
+Watchside was persisting a live Twitch access token and refresh token to
+`chrome.storage.local` on every sign-in, as an unintended side effect of
+`persistSession: true`. It was invisible in Watchside's own source because the
+write happened inside supabase-js - a test asserting that no Watchside file
+mentioned `provider_token` passed the entire time.
+
+The Supabase storage adapter now strips both provider fields before writing, so
+the credential is never persisted rather than persisted and deleted; a session
+left by an earlier sign-in is purged on first read. Supabase's own tokens are
+untouched and sign-in behaviour is unchanged. See §48-§57 of
+`docs/reports/g6-m3d-creator-discovery-2026-08-30.md`.
 
 ### Pre-public hardening - ACCOUNT DELETION (COMMITTED)
 
@@ -362,10 +369,11 @@ This was previously filed as an M5 UX item. **That was the wrong milestone.** It
 is a hardening requirement and it blocks public launch:
 
 - Watchside holds user-owned persisted data across 24 user-scoped tables
-- it also persists **live third-party credentials** to `chrome.storage.local`
-  (see the M3D blocker above)
-- shipping a public product with neither a delete path nor a credential-teardown
-  path is a GDPR/CCPA exposure regardless of anything Twitch requires
+- shipping a public product with no way for a user to delete any of it is a
+  GDPR/CCPA exposure regardless of anything Twitch requires
+- if O1 is ever approved, account deletion also has to destroy a stored Twitch
+  credential - so the delete path wants to exist **before** there is one to
+  destroy, not after
 
 Not conditional on M3D, on custody, or on D7/D8. If relationship measurement is
 deferred indefinitely, this is still required.
