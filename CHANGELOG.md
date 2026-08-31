@@ -8,6 +8,68 @@ there — the version in the account panel tells you which build you are running
 
 ---
 
+## 0.7.0 — Measuring whether any of this works
+
+An unusual release: almost nothing about Watchside looks different. Your
+friends, invites, badges, groups and Stream Rooms all behave exactly as before,
+and there is nothing new to learn.
+
+What changed is that Watchside can now tell whether it is doing its job.
+
+### Watchside now records how long you watch
+
+Until now Watchside recorded how long you watched **with a friend**. It now
+also records how long you watched.
+
+We are saying that plainly because it is a real change in what Watchside keeps.
+The reason is simple: Watchside exists to bring people to streams together, and
+we could not tell whether that worked. We could only see the part of your
+viewing that happened to involve somebody else, which says nothing about how
+much difference Watchside made.
+
+For each stretch of viewing, Watchside records how long it lasted, which
+channel, whether you got there by pressing JOIN, whether a friend was watching
+with you at any point, and why it ended.
+
+**If you have more than one stream open, each one is counted separately.** Two
+streams open for an hour are two one-hour stretches, not one — that is how we
+can tell how much Twitch viewing Watchside is part of. It is not a claim that
+you sat there for two hours, and we do not describe it that way.
+
+A stream still counts while its tab is in the background, on another monitor or
+behind something else. Watchside also records how much of each stretch the
+stream was the one in front of you, because "playing in the background" and
+"the thing you were watching" are genuinely different.
+
+**What is never recorded:** not the video, the title, the category or the
+viewer count. Not other tabs — Watchside only ever looks at Twitch. Not
+channels with no stream running. Not time Watchside could not observe: if your
+computer sleeps, the stretch ends at the last moment we could actually see, and
+the gap is never counted as viewing.
+
+Only the stretches currently in progress are stored on your device, and each is
+deleted the moment it ends. If you are not watching anything, there is nothing
+about your viewing stored on your device at all.
+
+The full explanation is in the [privacy
+policy](https://anoteros-labs.github.io/watchside/privacy/).
+
+### What Watchside still does not ask Twitch for
+
+Nothing new. Signing in requests **exactly the same permissions as before** —
+Watchside does not ask Twitch who you follow, who you subscribe to, or anything
+about payments. You will not see a new permission screen because of this
+release.
+
+### On Firefox
+
+Firefox continues to send **no** technical or interaction data at all — no
+device information, no browser information, no crash or error reports. That is
+unchanged, and this release adds no new kind of data collection to the Firefox
+install prompt.
+
+---
+
 ## 0.6.0 — Friends Beta
 
 ### Kickback is now Watchside

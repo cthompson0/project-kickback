@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Watchside",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "See where your friends are watching on Twitch, and jump in with one click.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA17qXvqj8lezc1soeH1gPo+5D2vzsItEXAZjWCxcbaD8l9R4JhK9AFfX9yIadH8eUGJ8gPX9bVfG58vI3NNXxBtESte/KTRx84hlEvHWrGm9gIPy5qIm9l4Wa+1OdcONNQYj0WXGYz53q1CvV95w3jNFa0CISRqMTERLHs9M42zTpscNAnf2BBT/QIDC6bxRCtlcLNqEZcLJbXzOiha6xbdF8O2WM8+kpczhewUq2nSOrSsDQytxTIfZnnhMSyMxIefx0Rvw0IgaSop9Up8C7yMRsq7ZZELydxTTjjKj7efpAE/KmsOLitK2dnBsq1VQfxY7KQE+4fclmvtX35abtWwIDAQAB",
   "icons": {

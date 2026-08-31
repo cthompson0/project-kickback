@@ -238,11 +238,16 @@ M3C.1 accepted
 
   F7  Firefox signed-build acceptance - INDEPENDENT, whenever Mozilla
       approves the pending v0.6 submission. Does not block development.
+      NOT the same as v0.7 RC acceptance: F7 tests the SIGNED v0.6 artifact
+      from AMO; the v0.7 checklist tests an UNSIGNED v0.7 package locally.
 ```
 
-### v0.7 - the next coherent cross-browser measurement release
+### v0.7.0 - RELEASE CANDIDATE / PACKAGED / NOT SUBMITTED
 
-**Not created, packaged, submitted or released.** Contents:
+**Cut 2026-08-30.** See
+`docs/reports/v0.7.0-release-candidate-2026-08-30.md`.
+
+Contents:
 
 - experiment-arm instrumentation (production randomisation only)
 - corrected **observed per-stream dwell**
@@ -251,6 +256,26 @@ M3C.1 accepted
 - **no Twitch OAuth scope change**, no new Firefox data category
 
 **Not blocked by D7 or D8.**
+
+#### Release state - do not read past what is written here
+
+| State | Chrome | Firefox |
+|---|---|---|
+| development HEAD | v0.7.0 source | v0.7.0 source |
+| release candidate | **v0.7.0** | **v0.7.0** |
+| packaged artifact | `Watchside-Store-v0.7.0.zip` | `Watchside-AMO-Candidate-v0.7.0.zip` + source archive |
+| **submitted** | **v0.6.0 - UNCHANGED** | **v0.6.0 r2 - UNCHANGED, awaiting Mozilla** |
+| **published** | **v0.6.0 - LIVE** | **not assumed** - whatever AMO's actual state is |
+| installed by testers | unknown - publication does not prove propagation | unknown |
+
+**v0.7.0 is NOT live and NOT submitted.** A package is not a submission; a
+submission is not publication.
+
+⚠️ **Firefox v0.7 must wait for Mozilla to finish with v0.6.** Uploading it
+while v0.6 is in review would replace the pending submission.
+
+Tagging is **deferred**: the repository has no git tags, so there is no
+established convention, and one was not invented.
 
 ### v0.8 - relationship measurement, subject to the gates
 
