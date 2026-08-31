@@ -123,7 +123,7 @@ function account(blocked: { user: { id: string; displayName: string } }[], muted
       onDeleted={() => {}}
       measurementReadiness={null}
       onVisibilityChange={() => {}}
-      preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
+      preferences={{ gatheringNotifications: true }}
       onPreferencesChange={() => {}}
       mutedUserIds={muted}
       knownPeople={[{ id: 'them', displayName: 'AnoterosTV' }]}

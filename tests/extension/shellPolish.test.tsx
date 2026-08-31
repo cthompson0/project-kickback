@@ -122,7 +122,7 @@ function account(
       onDeleted={() => {}}
       measurementReadiness={null}
       onVisibilityChange={() => calls.push('visibility')}
-      preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
+      preferences={{ gatheringNotifications: true }}
       onPreferencesChange={() => calls.push('preferences')}
       mutedUserIds={muted}
       knownPeople={muted.map((id) => ({ id, displayName: `Muted ${id}` }))}

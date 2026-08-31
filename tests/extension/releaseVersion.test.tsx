@@ -77,7 +77,6 @@ const IDENTITY: KickbackIdentity = {
 
 const PREFERENCES: KickbackPreferences = {
   gatheringNotifications: false,
-  followPermissionDismissed: false,
 }
 
 function renderAccount(): string {

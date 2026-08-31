@@ -311,29 +311,24 @@ export function FeedbackForm({
 }
 
 /**
- * The optional permission that lets Watchside measure whether friends help
- * people find creators - as a control somebody can come back to.
+ * The account-panel control that adds `user:read:follows` to a credential which
+ * predates it.
  *
- * WHAT THIS IS NOT
+ * WHY IT IS SMALL
  *
- * It is not how anybody is expected to discover this permission. It was, and
- * that was the wrong product: nobody goes looking through account settings for
- * something they have never heard of. New authorizations now request the scope
- * on the ordinary Twitch consent screen, and people whose credential predates
- * that are invited once on the main panel surface (see MeasurementInvitation).
+ * Because it is not the product. New authorizations request the scope on the
+ * ordinary Twitch consent screen, so for anybody who joins Watchside from here
+ * on there is nothing to grant and this renders nothing at all.
  *
- * WHAT IT IS FOR
+ * It exists for the pre-M3D beta accounts - a cohort of roughly three, which
+ * only shrinks - and for the rare person whose authorization returned without
+ * the scope and who later wants it. A one-time migration for three people does
+ * not earn prompts, dismissal state, or a place on the main surface; it earns
+ * one honest control somewhere stable. This is that control.
  *
- * The deliberate way back. Somebody who said "not now" and later changed their
- * mind needs a place to go, and it has to be somewhere stable that does not
- * depend on a prompt reappearing - because the prompt deliberately never does.
- *
- * WHAT "DISMISSED" MEANS
- *
- * The explanation collapses to a single line. It is not a refusal and it is not
- * remembered as one - the control stays, so granting later is one click away,
- * and nothing ever asks again on its own. The same flag silences the invitation
- * on the main surface, so "not now" is answered once and honoured everywhere.
+ * An earlier version put an automatic invitation on the panel body and tracked
+ * whether it had been waved away. That machinery existed solely to migrate this
+ * cohort, and it was removed rather than debugged.
  *
  * WHAT IT DOES NOT SAY
  *
@@ -343,20 +338,23 @@ export function FeedbackForm({
 function MeasurementPermission({
   client,
   readiness,
-  dismissed,
-  onDismissedChange,
 }: {
   client: KickbackClient
   readiness: MeasurementReadiness | null
-  dismissed: boolean
-  onDismissedChange: (dismissed: boolean) => void
 }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Only offered to people who could actually grant it. Someone already
-  // measured is shown nothing, and someone whose authorization is genuinely
-  // broken is not told a story about optional permissions.
+  /*
+   * One state is offered the control, and the exclusions are the point:
+   *
+   *   ready                    nothing to grant
+   *   needs_reauthorization    genuinely broken; an optional-permission story
+   *                            would send them down entirely the wrong path
+   *   temporarily_unavailable  Watchside's problem, not theirs
+   *   null                     we could not ask the server, which is not the
+   *                            same as "not permitted"
+   */
   if (readiness !== 'needs_follow_permission') return null
 
   const grant = (): void => {
@@ -376,14 +374,6 @@ function MeasurementPermission({
       })
   }
 
-  if (dismissed) {
-    return (
-      <button type="button" className="kb-ghost-btn" disabled={busy} onClick={grant}>
-        {busy ? 'Opening Twitch…' : 'Help measure discovery'}
-      </button>
-    )
-  }
-
   return (
     <div className="kb-permission">
       <p>
@@ -399,14 +389,6 @@ function MeasurementPermission({
       <div className="kb-danger-actions">
         <button type="button" className="kb-signin-btn" disabled={busy} onClick={grant}>
           {busy ? 'Opening Twitch…' : 'Allow on Twitch'}
-        </button>
-        <button
-          type="button"
-          className="kb-ghost-btn kb-ghost-btn-inline"
-          disabled={busy}
-          onClick={() => onDismissedChange(true)}
-        >
-          Not now
         </button>
       </div>
     </div>
@@ -692,14 +674,7 @@ export function AccountCard({
         Feedback
       </button>
 
-      <MeasurementPermission
-        client={client}
-        readiness={measurementReadiness}
-        dismissed={preferences.followPermissionDismissed}
-        onDismissedChange={(followPermissionDismissed) =>
-          onPreferencesChange({ followPermissionDismissed })
-        }
-      />
+      <MeasurementPermission client={client} readiness={measurementReadiness} />
 
       <button type="button" className="kb-ghost-btn" onClick={onSignOut}>
         Sign out

@@ -5582,3 +5582,264 @@ original Account-only discoverability model was rejected during human product
 review, before acceptance, on evidence a fully green test suite could not
 produce.** The suite proved the control worked. The owner proved nobody would
 ever find it. Both were true, and only one of them mattered.
+
+---
+
+# SLICE C — SCOPE REDUCTION
+
+*Appended 2026-08-31, immediately after §212–§226. Those sections stand: they
+are the record of a design that was built, reviewed, and then judged not worth
+keeping. This section is the second half of that judgement.*
+
+## 227. The decision
+
+**The automatic legacy migration UX is intentionally removed.** Not deferred
+pending a fix, not disabled behind a flag — deleted, along with the state it
+carried and the tests that proved it.
+
+**Reason: approximately three active pre-M3D beta users.**
+
+§212–§226 corrected a real product error: `user:read:follows` had been reachable
+only from the account panel, and the owner signed in and saw nothing. The
+correction had two independent halves, and only one of them was load-bearing:
+
+| Half | Serves | Verdict |
+| --- | --- | --- |
+| Request the scope in the initial OAuth | **every future user** | **kept — this is the product contract** |
+| Prominent one-time invitation + dismissal | ~3 beta accounts, once | **removed** |
+
+The second half was correct, tested, and mutation-proven. It was also a prompt
+system — placement, gating across four readiness states, persisted dismissal, an
+anti-nag guarantee, and a component whose non-interference with JOIN had to be
+asserted in three separate ways — built to carry roughly three people across a
+one-time threshold they can cross by clicking one button.
+
+That is the overengineering. The migration is real; the machinery is not
+proportionate to it. **The beta cohort will be asked to reauthorize once,
+explicitly, by a human — which is what one does with three users.**
+
+This is a deliberate trade recorded as such, not an unresolved defect: the
+invitation was removed *because* the flow it fixed no longer needs fixing for
+anybody but a cohort that only shrinks.
+
+## 228. What was removed
+
+| Removed | Why it existed |
+| --- | --- |
+| `src/ui/components/MeasurementInvitation.tsx` (deleted) | the automatic legacy prompt |
+| its render site in `KickbackPanel.tsx` | placement on the main surface |
+| `.kb-invite*` CSS block | styling for that prompt |
+| `followPermissionDismissed` — `preferences.ts`, `client/types.ts`, both UI call sites, 6 test fixtures | dismissal memory, legacy-only |
+| the "Not now" button in the account control | dismissal, legacy-only |
+| the collapsed one-line account variant | what dismissal collapsed *to* |
+| invitation and dismissal tests | proved the removed machinery |
+| mutation levers `invite: prompt somebody whose authorization is broken`, `invite: keep asking after "Not now"` | guarded the removed machinery |
+| `[SLICE-C]` console diagnostic | already removed in §220; re-verified absent |
+
+A side effect worth recording: the new `.kb-invite` class **collided with the
+pre-existing `.kb-invite` friend-invite-link styles** already in
+`kickback.css`. Deleting the block resolved a real bug that the deterministic
+suite did not catch, because no test rendered both surfaces together.
+
+Asserted, not assumed. `MeasurementInvitation.tsx` is proven absent from disk,
+and `followPermissionDismissed` is proven absent from four source files, by
+tests that fail if either returns.
+
+## 229. What was preserved
+
+Everything the reduction was not about:
+
+* **`user:read:follows` in the normal initial OAuth** — the product contract
+* **`needs_follow_permission` as a truthful server readiness state** — never
+  collapsed into `needs_reauthorization`, never inferred client-side, never
+  allowed to mean "broken"
+* Phase 2 secure credential custody — unchanged; both authorizations still end
+  at the single `handOffTwitchCredential(supabase, data.session)` call site
+* O7 browser-persistence stripping
+* G6 deletion boundary
+* identity binding
+* trusted server-side scope truth — the server decides, never the redirect
+* core Watchside works completely when the scope is unavailable
+* **zero automatic relationship observations**
+* **zero JOIN relationship callers**
+* `user:read:subscriptions` absent · `user:read:emotes` absent
+* Chrome MV3 / Firefox MV3 parity
+
+## 230. Steady-state OAuth — the product contract
+
+```
+install → Sign in with Twitch → one consent screen (incl. user:read:follows)
+        → secure custody → readiness = ready → use Watchside
+```
+
+Scope construction is a value and a builder, so it is asserted rather than
+grepped:
+
+```ts
+export const FOLLOWS_SCOPE = 'user:read:follows'
+export const REQUESTED_SCOPES: readonly string[] = [FOLLOWS_SCOPE]
+export function scopeRequest(scopes = REQUESTED_SCOPES): string { return scopes.join(' ') }
+```
+
+Both `signIn()` and `grantFollowPermission()` call `scopeRequest()`; no bare
+`startOAuth(deps.redirectUrl)` exists anywhere, and a test asserts that absence.
+One construction, two call sites — they cannot drift.
+
+**Optional keeps its meaning.** If Twitch returns without the scope: sign-in
+succeeds, Watchside works completely, readiness resolves honestly to
+`needs_follow_permission`, M3D stays unavailable, and **nothing is fabricated**.
+
+`user:read:email` is deliberately absent from the list — it is Supabase's own
+Twitch provider scope, not Watchside's to restate.
+
+## 231. Beta reauthorization mechanism
+
+The **existing account control**, and nothing new:
+
+```
+Watchside panel → account (avatar) → "Allow on Twitch" → Twitch OAuth → return
+```
+
+It renders for `needs_follow_permission` only, and for nobody else — a user who
+is `ready`, `needs_reauthorization`, `temporarily_unavailable`, or whose
+readiness could not be read sees nothing at all. For everyone who authorizes
+after M3D it therefore renders nothing, ever.
+
+Explicitly **not** designed as a product feature. It is an explicit one-time
+beta migration procedure, and it is not the expected future-user flow.
+
+Safety properties, all test-asserted:
+
+* no sign-out first — `signOut` is never called
+* no account deletion — `deleteAccount` is never called
+* no manual storage or token manipulation
+* the session survives; cancelling costs nothing and reports no error
+* the upgraded credential goes through the **existing** custody path
+
+## 232. Twitch scopes
+
+| Scope | Status |
+| --- | --- |
+| `user:read:follows` | requested — initial OAuth and reauthorization alike |
+| `user:read:email` | Supabase's provider scope, not restated by Watchside |
+| `user:read:subscriptions` | **ABSENT** — 6 source files, both bundles, 1 mutation lever |
+| `user:read:emotes` | **ABSENT** — 6 source files, both bundles |
+| any write / moderation scope | absent |
+
+## 233. Deterministic tests
+
+Full suite: **104 files, 2,627 tests, 0 failures.**
+`followPermission.test.tsx`: **36 tests** (was 43 — the invitation and dismissal
+tests went with the machinery they proved).
+`tsc -b` clean · `eslint` clean · `verify:firefox` clean and reproducible.
+
+The proof the owner asked to survive every UX decision, exercised through the
+real `createAuthService` state machine against a fake backend — asserting what
+the OAuth layer was **handed**, not what a source file says:
+
+> **"asks Twitch for the measurement scope during the initial authorization"**
+> `signIn()` → `backend.scopesAsked` deep-equals `['user:read:follows']`,
+> contains neither `subscriptions` nor `emotes`.
+
+Plus, by construction:
+
+```
+REQUESTED_SCOPES  deep-equals ['user:read:follows']
+scopeRequest()    === 'user:read:follows'
+scopeRequest()    contains none of: subscriptions, emotes, moderat, edit, manage
+```
+
+Acceptance items 1–12 map to: the readiness assertions above (2, 3), the shared
+custody-handoff pin (1, 4), the `providerCredentialStripping` suite plus the
+storage-strip pin (5, 6), the never-signs-out test (7, 8), the no-caller test
+(9, 10), and the scope sweep (11, 12) — with the runtime half of 1–9 confirmed
+at real acceptance (§234).
+
+## 234. Mutation proofs
+
+`npm run test:destruction` — **25 of 25 detected** (was 26; two invitation
+levers removed, one retargeted to the account control).
+
+| Lever | Caught by |
+| --- | --- |
+| `auth: drop the follow scope from the initial sign-in` | asks Twitch for the measurement scope during the initial authorization |
+| `auth: widen the requested scope set` (adds `user:read:subscriptions`) | asks for nothing beyond that one scope |
+| `auth: believe OAuth succeeded rather than asking the server` | does not call itself ready just because OAuth came back |
+| `auth: sign the user out when they decline the permission` | leaves the person signed in when they back out |
+| `account: offer the permission to somebody whose authorization is broken` | is offered to nobody whose authorization is actually broken |
+| `o7: persist the session without stripping` | strips both when a real sign-in carries both |
+
+The two things that still matter — **the new-user scope set** and **the readiness
+gate on the only remaining control** — remain mutation-proven.
+
+## 235. Shipped-bundle evidence
+
+```
+dist/kickback-background.js   user:read:follows ×1
+                              subscriptions ×0   emotes ×0   SLICE-C ×0
+                              followPermissionDismissed ×0
+dist/kickback-content.js      "Allow on Twitch" ×1   kb-permission ×5
+                              kb-invite-title ×0   "Help measure creator discovery" ×0
+                              subscriptions ×0   emotes ×0   SLICE-C ×0
+                              followPermissionDismissed ×0
+relationship action           ×0 in both bundles
+```
+
+## 236. Production callers and observations
+
+| | |
+| --- | --- |
+| Production relationship callers | **ZERO** — asserted across five source files, ×0 in both bundles |
+| Production observations | **ZERO** — no caller exists to create one |
+| JOIN trigger | not wired |
+
+Slice C changes who is asked for a permission. It does not move M3D one step
+closer to writing a row.
+
+## 237. Real acceptance — OUTSTANDING
+
+The owner's account is pre-M3D, so this is the one-time beta reauthorization.
+
+**Owner action:**
+
+1. `chrome://extensions` → **Reload** Watchside
+2. Open the Watchside panel → click your **avatar** (account)
+3. Click **"Allow on Twitch"** and complete the Twitch authorization
+4. Return to Watchside and say so
+
+No settings hunting beyond the account panel, no devtools, no tokens, no
+revocation, no sign-out, no deletion.
+
+Then verified automatically, shape only, no credential values:
+
+1. same Twitch identity remains connected
+2. `user:read:follows` present in trusted stored scopes
+3. readiness = `ready`
+4. secure custody succeeded
+5. `provider_token` absent from persistent browser storage
+6. `provider_refresh_token` absent from persistent browser storage
+7. Supabase session remains functional
+8. Watchside remains functional
+9. production relationship observations remain ZERO
+10. production JOIN relationship callers remain ZERO
+11. `user:read:subscriptions` remains absent
+12. `user:read:emotes` remains absent
+
+## 238. Slice C status
+
+**NOT GO — pending the one-time real reauthorization (§237).**
+
+Every deterministic gate passes. Slice C was never blocked on determinism; it
+is blocked on one real Twitch authorization through the real flow, which is the
+only thing that can prove custody, scope storage and readiness together.
+
+**Slice C goes GO once §237 passes.** Nothing else is outstanding.
+
+**Slice D is not started**, per instruction. The JOIN trigger, the M3D analytics
+views, and the public privacy disclosure — which must ship atomically with the
+first production observation — all remain ahead.
+
+Recorded for the next person reading this file: **two UX designs were built and
+removed here, and the deterministic proof that outlived both is a single
+assertion about what the initial OAuth requests.** That is the part that was
+always the product. The rest was a migration for three people.

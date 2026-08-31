@@ -311,7 +311,7 @@ export const INITIAL_STATE: KickbackState = {
   demo: false,
   attention: [],
   unread: [],
-  preferences: { gatheringNotifications: true, followPermissionDismissed: false },
+  preferences: { gatheringNotifications: true },
   groups: [],
   groupInvites: [],
   groupSentInvites: {},
@@ -604,7 +604,6 @@ export interface AttentionItem {
 
 export interface KickbackPreferences {
   gatheringNotifications: boolean
-  followPermissionDismissed: boolean
 }
 
 /**

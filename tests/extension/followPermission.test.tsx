@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { AccountCard } from '../../src/ui/components/AuthStates'
-import { MeasurementInvitation } from '../../src/ui/components/MeasurementInvitation'
 import { REQUESTED_SCOPES, createAuthService, scopeRequest } from '../../src/background/auth'
 import type { AuthBackend, BackendResult, SessionLike } from '../../src/background/auth'
 import type {
@@ -13,35 +12,34 @@ import type {
 } from '../../src/client/types'
 
 /**
- * Asking for an optional permission without making it feel required.
+ * `user:read:follows`: who is asked, when, and what happens when the answer is
+ * no.
  *
- * THE PRODUCT SHAPE THIS FILE ENCODES
+ * THE PRODUCT CONTRACT
  *
- * A new user meets `user:read:follows` exactly once, on the ordinary Twitch
- * consent screen they were always going to see. There is no second trip, no
- * hunting through settings, and nothing to discover later.
+ * A new user meets this permission exactly once, on the ordinary Twitch consent
+ * screen they were always going to see. That is the whole flow. There is no
+ * second trip, nothing to discover later, and no state tracking whether they
+ * have been asked.
  *
- * The people who signed in BEFORE that was true are a migration cohort, and a
- * shrinking one. They resolve to `needs_follow_permission`, they are invited
- * once somewhere they will actually see it, and if they say "not now" that is
- * the end of the asking.
+ * WHAT THIS FILE NO LONGER TESTS, AND WHY
  *
- * WHAT WAS REJECTED, AND WHY IT IS WORTH RECORDING
+ * Two earlier designs were built and rejected before acceptance. First, the
+ * permission was reachable ONLY from the account panel - the owner signed in,
+ * used Watchside, and saw nothing, because nobody goes hunting in settings for
+ * a permission they have never heard of. Second, a prominent one-time
+ * invitation on the panel body, with dismissal state, prompt gating and an
+ * anti-nag guarantee.
  *
- * The first implementation made the account panel the ONLY place this could be
- * found. That was designed around a handful of beta accounts rather than around
- * the steady state, and it failed the most basic test there is: the owner
- * signed in, looked at Watchside, and saw nothing. A permission nobody
- * encounters is not an optional permission - it is an absent one.
+ * That second design was correct and still not worth having. It existed solely
+ * to migrate roughly three pre-M3D beta accounts, all of whom can simply
+ * reauthorize once. The machinery was removed rather than debugged, and the
+ * tests that proved it went with it. What remains is the steady state plus one
+ * small account control for the cohort that predates it.
  *
- * The two failure modes still pull in opposite directions:
- *
- *   tell them they are broken   -> untrue, and pushes them through repair UX
- *   never mention it at all     -> no coverage, and no measurement
- *
- * Above all, none of this may appear between a JOIN click and arriving on
- * Twitch, which would both annoy people and contaminate the measurement it
- * exists to enable.
+ * `needs_follow_permission` survives all of this as a TRUTHFUL server state: it
+ * is what an authorization without the scope honestly resolves to, and it is
+ * never allowed to mean "broken" or to become a fabricated measurement.
  */
 
 const IDENTITY: KickbackIdentity = {
@@ -53,10 +51,7 @@ const IDENTITY: KickbackIdentity = {
   presenceVisibility: 'visible',
 }
 
-const PREFS: KickbackPreferences = {
-  gatheringNotifications: true,
-  followPermissionDismissed: false,
-}
+const PREFS: KickbackPreferences = { gatheringNotifications: true }
 
 function installWindow(): void {
   if (typeof globalThis.window === 'undefined') {
@@ -66,10 +61,7 @@ function installWindow(): void {
 
 const CLIENT = { badges: async () => [] } as unknown as KickbackClient
 
-function account(
-  readiness: MeasurementReadiness | null,
-  preferences: KickbackPreferences = PREFS,
-): string {
+function account(readiness: MeasurementReadiness | null): string {
   installWindow()
   return renderToStaticMarkup(
     <AccountCard
@@ -79,7 +71,7 @@ function account(
       onDeleted={() => {}}
       measurementReadiness={readiness}
       onVisibilityChange={() => {}}
-      preferences={preferences}
+      preferences={PREFS}
       onPreferencesChange={() => {}}
       mutedUserIds={[]}
       knownPeople={[]}
@@ -93,25 +85,14 @@ function account(
   )
 }
 
-/** The migration invitation, as it renders on the main panel surface. */
-function invitation(readiness: MeasurementReadiness | null, dismissed = false): string {
-  installWindow()
-  return renderToStaticMarkup(
-    <MeasurementInvitation
-      client={CLIENT}
-      readiness={readiness}
-      dismissed={dismissed}
-      onDismissedChange={() => {}}
-    />,
-  )
-}
+// ------------------------------------------- what a NEW user is asked for
 
-// ------------------------------------------------- what a NEW user is asked
-
-describe('a new user is asked once, on the consent screen they already expected', () => {
+describe('the steady state: one consent screen, one authorization', () => {
   /**
-   * The correction. Requesting the scope up front is what makes the account
-   * control a fallback rather than the product.
+   * THE PRODUCT CONTRACT, AS A VALUE.
+   *
+   * Everything else in M3D depends on new users arriving already measurable.
+   * If this list is wrong, the measurement quietly has no population.
    */
   it('includes the measurement scope in the initial authorization', () => {
     expect(REQUESTED_SCOPES).toContain('user:read:follows')
@@ -120,8 +101,9 @@ describe('a new user is asked once, on the consent screen they already expected'
 
   it('asks for nothing beyond that one scope', () => {
     expect(REQUESTED_SCOPES).toEqual(['user:read:follows'])
-    // Not a scope Watchside has any business holding, in any list, ever.
-    expect(scopeRequest()).not.toContain('subscriptions')
+    for (const forbidden of ['subscriptions', 'emotes', 'moderat', 'edit', 'manage']) {
+      expect(scopeRequest()).not.toContain(forbidden)
+    }
   })
 
   /**
@@ -133,47 +115,50 @@ describe('a new user is asked once, on the consent screen they already expected'
     expect(REQUESTED_SCOPES).not.toContain('user:read:email')
   })
 
-  it('builds both authorizations from the same list, so they cannot drift', () => {
+  it('builds every authorization from the same list, so they cannot drift', () => {
     const source = readFileSync('src/background/auth.ts', 'utf8')
-    // Two call sites, one construction. A scope added for new users is by
-    // construction the same scope offered to existing ones.
+    // Two call sites, one construction: the initial sign-in and the one-time
+    // reauthorization ask for exactly the same thing, by construction.
     expect(source.match(/startOAuth\(deps\.redirectUrl, scopeRequest\(\)\)/g)).toHaveLength(2)
     expect(source).not.toMatch(/startOAuth\(deps\.redirectUrl\)/)
   })
 })
 
-// ------------------------------------------------ who sees the invitation
+// ---------------------------------------------------- the account control
 
-describe('who is invited', () => {
-  /** The migration cohort: a perfectly good credential that simply predates this. */
-  it('invites somebody whose credential predates the permission', () => {
-    const markup = invitation('needs_follow_permission')
-    expect(markup).toContain('Continue with Twitch')
-    expect(markup).toContain('kb-invite')
+describe('the one-time reauthorization control', () => {
+  /**
+   * Deliberately small. It serves the pre-M3D beta cohort and nobody else, and
+   * it renders nothing at all for anyone who authorized after M3D.
+   */
+  it('is offered to somebody whose credential predates the scope', () => {
+    const markup = account('needs_follow_permission')
+    expect(markup).toContain('Allow on Twitch')
+    expect(markup).toContain('kb-permission')
   })
 
-  it('invites nobody who is already measured', () => {
-    expect(invitation('ready')).toBe('')
+  it('is offered to nobody who is already measured', () => {
+    expect(account('ready')).not.toContain('Allow on Twitch')
   })
 
   /**
    * Somebody whose authorization is genuinely broken must not be told a story
-   * about an optional permission - that would send them down the wrong path
-   * entirely, and the thing they actually need is to sign in again.
+   * about an optional permission - that would send them down entirely the wrong
+   * path, and what they actually need is to sign in again.
    */
-  it('invites nobody whose authorization is actually broken', () => {
-    expect(invitation('needs_reauthorization')).toBe('')
-    expect(invitation('temporarily_unavailable')).toBe('')
+  it('is offered to nobody whose authorization is actually broken', () => {
+    expect(account('needs_reauthorization')).not.toContain('Allow on Twitch')
+    expect(account('temporarily_unavailable')).not.toContain('Allow on Twitch')
   })
 
   /** Unknown is not the same as "not permitted". A blip must not prompt. */
-  it('invites nobody when readiness could not be established', () => {
-    expect(invitation(null)).toBe('')
+  it('is offered to nobody when readiness could not be established', () => {
+    expect(account(null)).not.toContain('Allow on Twitch')
   })
 })
 
-describe('what the invitation says, and what it refuses to say', () => {
-  const markup = invitation('needs_follow_permission')
+describe('what the control says, and what it refuses to say', () => {
+  const markup = account('needs_follow_permission')
 
   it('explains what is checked and why, in plain terms', () => {
     expect(markup).toContain('already follow')
@@ -202,101 +187,38 @@ describe('what the invitation says, and what it refuses to say', () => {
   })
 })
 
-describe('"Not now" ends the asking', () => {
-  it('offers a way to decline that is not a dead end', () => {
-    expect(invitation('needs_follow_permission')).toContain('Not now')
-  })
-
+describe('no migration UX survives', () => {
   /**
-   * The anti-nag guarantee. Not "shows less often" - stops. The prompt is
-   * one-time, and the only thing that brings the subject back is the person
-   * going looking for it.
+   * The removal, asserted rather than assumed. A prompt that comes back on its
+   * own is the failure mode this cohort would actually experience, and the
+   * cheapest guarantee against it is that no such machinery exists.
    */
-  it('stops appearing once it has been waved away', () => {
-    expect(invitation('needs_follow_permission', true)).toBe('')
-  })
-
-  it('is remembered, so a restart does not start the conversation again', () => {
-    const source = readFileSync('src/background/preferences.ts', 'utf8')
-    expect(source).toContain('followPermissionDismissed')
-    // Persisted, and defaulted false: nothing is dismissed until somebody
-    // dismisses it, and a dismissal survives the worker being torn down.
-    expect(source).toMatch(/followPermissionDismissed: false/)
-    expect(source).toContain('storage.set')
-  })
-
-  it('nothing re-raises it on a schedule or a page change', () => {
-    const source = readFileSync('src/ui/components/MeasurementInvitation.tsx', 'utf8')
-    for (const forbidden of ['setTimeout', 'setInterval', 'useEffect']) {
-      expect(source).not.toContain(forbidden)
+  it('has no automatic invitation component', () => {
+    let found = true
+    try {
+      readFileSync('src/ui/components/MeasurementInvitation.tsx', 'utf8')
+    } catch {
+      found = false
     }
-  })
-})
+    expect(found).toBe(false)
 
-describe('declining does not remove the way back', () => {
-  /**
-   * Dismissal is not refusal. Somebody who said "not now" and later changed
-   * their mind needs somewhere stable to go - stable precisely BECAUSE the
-   * prompt deliberately never returns on its own.
-   */
-  it('keeps a one-line grant control in the account panel', () => {
-    const markup = account('needs_follow_permission', {
-      ...PREFS,
-      followPermissionDismissed: true,
-    })
-    // The explanation is gone; the way to grant it later is not.
-    expect(markup).not.toContain('kb-permission')
-    expect(markup).toContain('Help measure discovery')
-  })
-
-  it('is not recorded anywhere as a refusal', () => {
-    const source = readFileSync('src/ui/components/AuthStates.tsx', 'utf8')
-    const section = source.slice(
-      source.indexOf('The optional permission that lets Watchside'),
-      source.indexOf('function DeleteAccountSection'),
-    )
-    expect(section).toContain('not a refusal')
-    const dismissed = section.slice(section.indexOf('if (dismissed)'))
-    expect(dismissed).toContain('onClick={grant}')
-  })
-
-  it('answers "not now" once and honours it in both places', () => {
-    // One flag. Dismissing on the main surface must not leave the account
-    // panel still telling the same story at full length.
     const panel = readFileSync('src/ui/KickbackPanel.tsx', 'utf8')
-    expect(panel).toContain('followPermissionDismissed')
-    expect(invitation('needs_follow_permission', true)).toBe('')
-    expect(account('needs_follow_permission', { ...PREFS, followPermissionDismissed: true }))
-      .not.toContain('kb-permission')
-  })
-})
-
-describe('nothing interrupts a JOIN', () => {
-  /**
-   * The invitation is visible, which is the whole point of the correction - so
-   * "visible" has to be pinned down as ordinary panel content and nothing more.
-   * A modal, an overlay or anything that intercepts a click could land between
-   * a JOIN and arriving on Twitch, which would delay the social moment AND
-   * contaminate the baseline it is meant to measure.
-   */
-  it('is ordinary panel content, not an overlay that can catch a click', () => {
-    const source = readFileSync('src/ui/components/MeasurementInvitation.tsx', 'utf8')
-    for (const forbidden of ['position: fixed', 'kb-modal', 'kb-overlay', 'createPortal']) {
-      expect(source).not.toContain(forbidden)
-    }
-    const css = readFileSync('src/ui/kickback.css', 'utf8')
-    const block = css.slice(css.indexOf('.kb-invite {'), css.indexOf('.kb-invite-title'))
-    expect(block).not.toContain('position')
-    expect(block).not.toContain('z-index')
-  })
-
-  it('renders in exactly one place, and it is not the JOIN path', () => {
-    const panel = readFileSync('src/ui/KickbackPanel.tsx', 'utf8')
-    expect(panel.match(/<MeasurementInvitation/g)).toHaveLength(1)
-
-    // The account control is still the only MeasurementPermission, and it is
-    // still only in the account panel.
+    expect(panel).not.toContain('MeasurementInvitation')
     expect(panel).not.toContain('MeasurementPermission')
+  })
+
+  it('carries no dismissal state anywhere', () => {
+    for (const file of [
+      'src/background/preferences.ts',
+      'src/client/types.ts',
+      'src/ui/KickbackPanel.tsx',
+      'src/ui/components/AuthStates.tsx',
+    ]) {
+      expect(readFileSync(file, 'utf8')).not.toContain('followPermissionDismissed')
+    }
+  })
+
+  it('lives in exactly one place, and it is not the JOIN path', () => {
     const auth = readFileSync('src/ui/components/AuthStates.tsx', 'utf8')
     expect(auth.match(/<MeasurementPermission/g)).toHaveLength(1)
   })
@@ -326,7 +248,6 @@ describe('nothing interrupts a JOIN', () => {
       if (joinAt < 0) continue
       const around = source.slice(Math.max(0, joinAt - 2000), joinAt + 2000)
       expect(around).not.toContain('grantFollowPermission')
-      expect(around).not.toContain('MeasurementInvitation')
     }
   })
 })
@@ -388,7 +309,13 @@ const succeeds = () => Promise.resolve('https://redirect.test?code=abc')
 /** Lets the un-awaited readiness refresh inside loadIdentity settle. */
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
-describe('signing in for the first time', () => {
+describe('a brand-new user signing in', () => {
+  /**
+   * THE DETERMINISTIC PROOF THAT MUST OUTLIVE EVERY UX DECISION.
+   *
+   * Exercised through the real state machine, asserting what the OAuth layer
+   * was actually handed - not what a source file says.
+   */
   it('asks Twitch for the measurement scope during the initial authorization', async () => {
     const backend = new FakeBackend()
     const auth = service(backend, succeeds)
@@ -396,6 +323,7 @@ describe('signing in for the first time', () => {
 
     expect(backend.scopesAsked).toEqual(['user:read:follows'])
     expect(backend.scopesAsked.join(' ')).not.toContain('subscriptions')
+    expect(backend.scopesAsked.join(' ')).not.toContain('emotes')
   })
 
   it('lands ready when Twitch grants it, with no second trip', async () => {
@@ -409,7 +337,7 @@ describe('signing in for the first time', () => {
     expect(auth.getState().measurementReadiness).toBe('ready')
     // One authorization. Nothing about the normal path asks twice.
     expect(backend.calls.filter((call) => call === 'startOAuth')).toHaveLength(1)
-    expect(invitation(auth.getState().measurementReadiness)).toBe('')
+    expect(account('ready')).not.toContain('Allow on Twitch')
   })
 
   /**
@@ -430,7 +358,7 @@ describe('signing in for the first time', () => {
   })
 })
 
-describe('an existing user whose credential predates this', () => {
+describe('a pre-M3D beta user reauthorizing once', () => {
   it('resolves to needs_follow_permission, not to broken', async () => {
     const backend = new FakeBackend()
     backend.readiness = 'needs_follow_permission'
@@ -442,30 +370,6 @@ describe('an existing user whose credential predates this', () => {
     expect(auth.getState().measurementReadiness).toBe('needs_follow_permission')
   })
 
-  it('is invited on the surface they are already looking at', async () => {
-    const backend = new FakeBackend()
-    const auth = service(backend, succeeds)
-    await auth.initialize()
-    await settle()
-
-    expect(invitation(auth.getState().measurementReadiness)).toContain('Continue with Twitch')
-  })
-
-  it('can grant it later, and the server is what says so', async () => {
-    const backend = new FakeBackend()
-    const auth = service(backend, succeeds)
-    await auth.initialize()
-
-    backend.readiness = 'ready'
-    const result = await auth.grantFollowPermission()
-
-    expect(result).toEqual({ ok: true, error: null })
-    expect(auth.getState().measurementReadiness).toBe('ready')
-    expect(invitation(auth.getState().measurementReadiness)).toBe('')
-  })
-})
-
-describe('granting the permission', () => {
   it('asks Twitch for exactly one extra scope', async () => {
     const backend = new FakeBackend()
     const auth = service(backend, succeeds)
@@ -509,6 +413,21 @@ describe('granting the permission', () => {
 
     expect(result).toEqual({ ok: true, error: null })
     expect(auth.getState().measurementReadiness).toBe('ready')
+  })
+
+  it('never signs them out or deletes anything to do it', async () => {
+    const backend = new FakeBackend()
+    const auth = service(backend, succeeds)
+    await auth.initialize()
+
+    backend.readiness = 'ready'
+    await auth.grantFollowPermission()
+
+    expect(backend.calls).not.toContain('signOut')
+    expect(backend.calls).not.toContain('deleteAccount')
+    expect(backend.session).not.toBeNull()
+    expect(auth.getState().status).toBe('signed_in')
+    expect(auth.getState().identity).not.toBeNull()
   })
 
   it('uses the existing custody path rather than a second writer', () => {
@@ -592,27 +511,30 @@ describe('declining costs nothing', () => {
 })
 
 describe('the scope delta is exactly one', () => {
+  const FILES = [
+    'src/background/auth.ts',
+    'src/background/supabaseBackend.ts',
+    'src/ui/components/AuthStates.tsx',
+    'src/ui/KickbackPanel.tsx',
+    'supabase/functions/twitch-credential/twitch.ts',
+    'supabase/functions/twitch-credential/index.ts',
+  ]
+
   it('requests user:read:follows and nothing else, anywhere', () => {
     const auth = readFileSync('src/background/auth.ts', 'utf8')
     expect(auth).toContain("export const FOLLOWS_SCOPE = 'user:read:follows'")
-    expect(auth).not.toContain('user:read:subscriptions')
-
-    const backend = readFileSync('src/background/supabaseBackend.ts', 'utf8')
-    expect(backend).not.toContain('user:read:subscriptions')
   })
 
-  /** Nowhere in the shipped extension, not merely nowhere in these two files. */
-  it('never asks for a subscription scope anywhere in the source', () => {
-    const files = [
-      'src/background/auth.ts',
-      'src/background/supabaseBackend.ts',
-      'src/ui/components/MeasurementInvitation.tsx',
-      'src/ui/components/AuthStates.tsx',
-      'supabase/functions/twitch-credential/twitch.ts',
-      'supabase/functions/twitch-credential/index.ts',
-    ]
-    for (const file of files) {
-      expect(readFileSync(file, 'utf8')).not.toContain('user:read:subscriptions')
+  /**
+   * The two scopes that must never appear. Watchside reads one relationship -
+   * do you already follow this creator - and the scope set is the enforceable
+   * statement of that.
+   */
+  it('never asks for a subscription or emote scope anywhere in the source', () => {
+    for (const file of FILES) {
+      const source = readFileSync(file, 'utf8')
+      expect(source).not.toContain('user:read:subscriptions')
+      expect(source).not.toContain('user:read:emotes')
     }
   })
 
@@ -634,7 +556,7 @@ describe('no production caller records anything yet', () => {
       'src/background/auth.ts',
       'src/background/supabaseBackend.ts',
       'src/background/index.ts',
-      'src/ui/components/MeasurementInvitation.tsx',
+      'src/ui/components/AuthStates.tsx',
       'src/ui/KickbackPanel.tsx',
     ]) {
       expect(readFileSync(file, 'utf8')).not.toContain("action: 'relationship'")

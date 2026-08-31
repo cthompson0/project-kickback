@@ -69,7 +69,7 @@ function account(calls: string[] = []) {
       onDeleted={() => {}}
       measurementReadiness={null}
       onVisibilityChange={() => calls.push('visibility')}
-      preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
+      preferences={{ gatheringNotifications: true }}
       onPreferencesChange={() => calls.push('preferences')}
       mutedUserIds={[]}
       knownPeople={[]}

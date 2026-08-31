@@ -42,7 +42,7 @@ function account(): string {
       onDeleted={() => {}}
       measurementReadiness={null}
       onVisibilityChange={() => {}}
-      preferences={{ gatheringNotifications: true, followPermissionDismissed: false }}
+      preferences={{ gatheringNotifications: true }}
       onPreferencesChange={() => {}}
       mutedUserIds={[]}
       knownPeople={[]}
