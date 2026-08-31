@@ -4329,3 +4329,91 @@ reload should have been built before the first hypothesis rather than after the
 third. The instrument comes first when the failure is silent — that is the same
 lesson §48.1 recorded about grepping for a credential and finding nothing, and I
 did not apply it quickly enough here.
+
+---
+
+# Phase 3 — M3D, started and NOT completed
+
+**Date:** 2026-08-31
+**Type:** IMPLEMENTATION — **incomplete, stopped deliberately**
+
+---
+
+## 162. M3D verdict
+
+## **NOT GO — M3D is not implemented**
+
+What exists is the server-side measurement core, dormant and behaviour-neutral.
+What does not exist is most of the checkpoint. This section says which is which,
+because a report shaped like a finished checkpoint would misrepresent a build
+that is roughly a sixth done.
+
+### 162.1 What was built and proven
+
+`supabase/functions/twitch-credential/twitch.ts` gains the M3D primitives, and
+`tests/extension/followBaseline.test.ts` covers them with **16 tests**:
+
+| Built | Proven |
+|---|---|
+| `followsBroadcaster()` — one viewer, one creator | follow → true; **empty array → a genuine false**; 401/403/500/network/malformed → *no* answer |
+| `broadcasterIdFor()` — login → Twitch id | resolution, URL encoding, unknown login, expired token |
+| `readinessFor()` — the four-state model | `ready` / `needs_follow_permission` / `needs_reauthorization` / `temporarily_unavailable` |
+| `hasFollowsScope()` | exact-name match, not prefix or substring |
+
+The two things most worth having early are done properly. **Twitch signals "not
+following" with an empty array**, which looks identical to "nothing came back" —
+every failure path returns `ok: false` and carries no `following` value at all,
+so there is no shape in which a failure can be read as an answer. And the
+**existing-user transition** is a distinct state: a credential that predates the
+permission is `needs_follow_permission`, never `needs_reauthorization`, because
+nothing about it is broken.
+
+**Endpoint verified** against current Twitch documentation:
+`GET helix/channels/followed?user_id=…&broadcaster_id=…`, scope
+`user:read:follows`, `broadcaster_id` filtering to a single channel so the
+viewer's follow list is never retrieved.
+
+### 162.2 What was NOT built
+
+- the OAuth scope change (`user:read:follows` is **still not requested**)
+- the permission UX, decline/cancel handling, and anti-nag behaviour
+- the `relationship` server action wiring these primitives to custody
+- the eligible-JOIN trigger at `recordJoin`
+- the observation write
+- idempotency semantics tied to `attribution_id`
+- migration `0033`, analytics views, coverage and discovery metrics
+- the remaining ~34 of the 50 required proofs, and all mutation proofs
+- privacy disclosure for M3D
+- the real-flow verification
+
+### 162.3 Why it stopped here
+
+I ran out of room to do the rest at the standard Phases 1 and 2 were held to.
+Continuing would have produced a large, thinly-tested change across OAuth, the
+client, the database and the privacy policy — in a system that now holds real
+credentials — and the last two checkpoints are the argument against that: Phase
+2 found account deletion had been broken for every user since Phase 1, passing
+its tests the whole time, because the tests mocked the boundary the bug lived in.
+A rushed M3D is exactly how the next one of those gets shipped.
+
+**Nothing here changes behaviour.** No scope is requested, no client path calls
+the new code, nothing was deployed, and the running function does not reference
+it. The suite is green at 2,551 and every Phase 1 and Phase 2 invariant is
+untouched.
+
+### 162.4 What the next session should do first
+
+1. Wire the `relationship` action: readiness gate → `ensureFresh` → resolve
+   broadcaster → `followsBroadcaster` → write observation → return
+   `recorded` / `unavailable`. The primitives are ready; this is assembly.
+2. Add the scope and the account-surface permission prompt, **after** the server
+   can act on it — granting a permission nothing consumes is worse than not
+   asking.
+3. Trigger at `recordJoin` where an attribution is minted and `socialCount > 0`;
+   that is the eligible population, and the attribution id is already the
+   idempotency key.
+4. Migration `0033` for the views, then the proofs, then privacy, then the
+   owner's single OAuth interaction.
+
+**M3E-a remains HOLD.** No subscription scope, state, or measurement exists
+anywhere.

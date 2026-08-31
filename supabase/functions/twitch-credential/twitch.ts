@@ -230,3 +230,139 @@ export function decideCapture(input: {
   }
   return { ok: true }
 }
+
+// --------------------------------------------------------------- M3D lookup
+
+export const HELIX_USERS = 'https://api.twitch.tv/helix/users'
+export const HELIX_FOLLOWED = 'https://api.twitch.tv/helix/channels/followed'
+
+/** The one scope M3D needs. Nothing else is ever requested. */
+export const FOLLOWS_SCOPE = 'user:read:follows'
+
+export function hasFollowsScope(scopes: readonly string[]): boolean {
+  return scopes.includes(FOLLOWS_SCOPE)
+}
+
+export type FollowLookup =
+  | { ok: true; following: boolean }
+  | {
+      ok: false
+      reason: 'unknown_broadcaster' | 'scope_missing' | 'invalid_token' | 'twitch_unavailable'
+    }
+
+/**
+ * Resolves a Twitch login to its immutable user id.
+ *
+ * The follow endpoint takes a broadcaster_id, not a login, so this hop is
+ * unavoidable. It is a public lookup - any valid user token can make it - so it
+ * needs no extra scope and no app token.
+ */
+export type LookupFailure =
+  | 'unknown_broadcaster'
+  | 'scope_missing'
+  | 'invalid_token'
+  | 'twitch_unavailable'
+
+export async function broadcasterIdFor(
+  login: string,
+  accessToken: string,
+  clientId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: true; id: string } | { ok: false; reason: LookupFailure }> {
+  let response: Response
+  try {
+    response = await fetchImpl(`${HELIX_USERS}?login=${encodeURIComponent(login)}`, {
+      headers: { authorization: `Bearer ${accessToken}`, 'client-id': clientId },
+    })
+  } catch {
+    return { ok: false, reason: 'twitch_unavailable' }
+  }
+  if (response.status === 401) return { ok: false, reason: 'invalid_token' }
+  if (!response.ok) return { ok: false, reason: 'twitch_unavailable' }
+
+  let body: { data?: { id?: unknown }[] }
+  try {
+    body = (await response.json()) as { data?: { id?: unknown }[] }
+  } catch {
+    return { ok: false, reason: 'twitch_unavailable' }
+  }
+
+  const id = body.data?.[0]?.id
+  // A login Twitch does not know is not an error to store - it is simply not a
+  // creator, and no observation should be invented for it.
+  if (typeof id !== 'string' || id.length === 0) return { ok: false, reason: 'unknown_broadcaster' }
+  return { ok: true, id }
+}
+
+/**
+ * Does this viewer already follow this one creator?
+ *
+ * `broadcaster_id` filters the answer to a single channel, so Watchside never
+ * retrieves - and could not retrieve - the viewer's follow list. Twitch returns
+ * that broadcaster if the follow exists, and an EMPTY array if it does not.
+ *
+ * The empty array is the whole subtlety. "No rows" means genuinely not
+ * following, and is a real observation. It must never be confused with a call
+ * that failed, which is an ABSENCE of observation.
+ */
+export async function followsBroadcaster(
+  viewerId: string,
+  broadcasterId: string,
+  accessToken: string,
+  clientId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<FollowLookup> {
+  const url = `${HELIX_FOLLOWED}?user_id=${encodeURIComponent(viewerId)}&broadcaster_id=${encodeURIComponent(broadcasterId)}`
+
+  let response: Response
+  try {
+    response = await fetchImpl(url, {
+      headers: { authorization: `Bearer ${accessToken}`, 'client-id': clientId },
+    })
+  } catch {
+    return { ok: false, reason: 'twitch_unavailable' }
+  }
+
+  // 401 covers both an expired token and a token that lost the scope; the
+  // caller distinguishes them from the recorded scope set rather than guessing.
+  if (response.status === 401) return { ok: false, reason: 'invalid_token' }
+  if (response.status === 403) return { ok: false, reason: 'scope_missing' }
+  if (!response.ok) return { ok: false, reason: 'twitch_unavailable' }
+
+  let body: { data?: unknown[] }
+  try {
+    body = (await response.json()) as { data?: unknown[] }
+  } catch {
+    return { ok: false, reason: 'twitch_unavailable' }
+  }
+
+  if (!Array.isArray(body.data)) return { ok: false, reason: 'twitch_unavailable' }
+  return { ok: true, following: body.data.length > 0 }
+}
+
+/**
+ * What M3D can do for an actor right now.
+ *
+ * Deliberately four states rather than one failure. An existing user whose
+ * credential predates the follow permission is NOT broken - their credential is
+ * perfectly valid, it simply cannot answer this question - and collapsing that
+ * into "needs reauthorization" would tell them something untrue and lose the
+ * distinction the account surface needs to ask the right thing.
+ */
+export type MeasurementReadiness =
+  | 'ready'
+  | 'needs_follow_permission'
+  | 'needs_reauthorization'
+  | 'temporarily_unavailable'
+
+export function readinessFor(input: {
+  hasCredential: boolean
+  status: string
+  scopes: readonly string[]
+}): MeasurementReadiness {
+  if (!input.hasCredential) return 'needs_reauthorization'
+  if (input.status === 'needs_reauthorization') return 'needs_reauthorization'
+  if (input.status !== 'active') return 'temporarily_unavailable'
+  if (!hasFollowsScope(input.scopes)) return 'needs_follow_permission'
+  return 'ready'
+}
