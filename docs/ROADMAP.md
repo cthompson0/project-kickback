@@ -149,50 +149,233 @@ In this order, none of it now:
 
 ---
 
-## Measurement — M3
+## Measurement — M3, and the road to public launch
 
 The measurement work is core product infrastructure, not telemetry: the
 strategic bet is that Watchside can show it contributes to Twitch consumption,
 and that argument is only as good as the evidence recorded while it happened.
 
-### The permanent measurement principle
+### Two permanent principles
 
-> **Measure observable Twitch consumption faithfully; preserve dimensions for
-> stricter analysis later; be conservative in claims rather than destructive in
-> collection.**
+> **NO MEANINGFUL PUBLIC GROWTH WHILE A HIGH-STRATEGIC-VALUE H2 MEASUREMENT
+> WITH REASONABLE COLLECTION COST IS KNOWINGLY MISSING.**
 
-Adopted in M3C.1 after focused-tab-only dwell was rejected. A metric made
-artificially conservative by *discarding* legitimate behaviour cannot be
-widened afterwards - the behaviour is simply gone. Collect the dimensions;
-argue about the claim in the query, where it can be argued with.
+> **MEASURE OBSERVABLE TWITCH CONSUMPTION FAITHFULLY; PRESERVE DIMENSIONS FOR
+> STRICTER ANALYSIS LATER; BE CONSERVATIVE IN CLAIMS RATHER THAN DESTRUCTIVE IN
+> COLLECTION.**
+
+The second was adopted in M3C.1 after focused-tab-only dwell was rejected. A
+metric made artificially conservative by *discarding* legitimate behaviour
+cannot be widened afterwards - the behaviour is simply gone. Collect the
+dimensions; argue about the claim in the query, where it can be argued with.
+
+### Canonical dwell definition
+
+> How long Watchside had defensible continuing evidence that one eligible **live**
+> Twitch stream was open and observed - **per stream**, not gated on focus, not
+> human attention.
+
+Unit: **stream-milliseconds**. Concurrent legitimate streams count
+independently: two streams open for an hour are **120 observed stream-minutes**
+and **60 wall-clock Twitch-observed minutes**. Never describe summed
+stream-minutes as time a person spent watching Twitch.
+
+Focus is a **diagnostic subduration**, not a gate:
+`focused_duration_ms + background_duration_ms = duration_ms`.
+
+Full definitions: `docs/ANALYTICS.md` §8b and §14.
 
 ### State
 
 | Phase | What | State |
 |---|---|---|
-| **M3A** | Five reporting views + experiment-arm instrumentation | **DONE.** Views live server-side; the arm property ships with v0.7 |
+| **M3A** | Five reporting views + experiment-arm instrumentation | **DONE.** Views live server-side (schema 31); the arm property ships with v0.7 |
 | **M3B** | Economic attribution research, incl. M3B.1 D9 resolution | **CLOSED** |
-| **M3C** | Observed stream dwell + repeat-creator foundation | **IMPLEMENTED**, corrected by M3C.1, awaiting v0.7 |
-| **M3C.1** | Per-stream dwell, focus/background split, concurrency views | **IMPLEMENTED**. Zero production rows existed, so the contract was corrected rather than versioned around |
-| **D7 / D8** | Twitch DSA legal read; Mozilla `financialAndPaymentInfo` classification | **OPEN**, running in parallel. Both gate M3D/M3E-a, neither gates v0.7 |
-| **G6 + M3D + M3E-a** | Deletion architecture, `following_at_join`, `subscribed_at_join` | **AFTER the policy gates.** One Twitch OAuth authorisation change, target **v0.8** |
+| **M3C / M3C.1** | Observed **per-stream** dwell, focus/background split, concurrency views, repeat-creator foundation | **IMPLEMENTED AND ACCEPTED**, awaiting v0.7. Zero production rows existed, so the contract was corrected rather than versioned around |
+| **D7** | Twitch DSA / policy read | **OPEN** - substantively researched; counsel confirmation outstanding. See `docs/reports/m3d-m3e-policy-gates-2026-08-30.md` |
+| **D8** | Mozilla `financialAndPaymentInfo` classification for `subscribed_at_join` | **OPEN - genuinely unresolved.** Mozilla publishes no category-choice guidance; **must ask AMO** |
+| **G6 + M3D + M3E-a** | Deletion architecture, `following_at_join`, `subscribed_at_join` | **AFTER the gates.** ONE Twitch OAuth change, **no token vault**. Target **v0.8** |
+| **M3E-b** | Token custody, refresh loop, scheduled polling | **DEFERRED INDEFINITELY** - a precision layer only. It buys a tighter conversion window, not the measurement itself |
 
-### v0.7 — the next coherent cross-browser measurement release
+### Two findings that constrain everything downstream
 
-Not created yet. Contents:
+**Aggregation is not an exit from Twitch's terms.** The DSA's change-of-control
+clause requires Twitch's prior written permission before an acquirer may process
+Twitch Data *"including any insights or aggregated information derived from such
+data"*. Any plan that assumes "we will just aggregate it" is wrong.
+
+**The hybrid architecture is load-bearing twice over.** It was adopted so
+Twitch-derived data could be deleted on de-authorization without destroying
+Watchside-owned analytics. It turns out to also be what keeps the majority of
+the strategic evidence - exposure, JOIN, arrival, **observed stream dwell**,
+repeat viewing, randomised lift - **outside Twitch's data terms entirely**,
+because those are Watchside observing its own product rather than reading
+Twitch's API. Keep Twitch-derived data minimal, separable and small.
+
+---
+
+## The road to public launch
+
+```
+M3C.1 accepted
+      ├── D7 (counsel)  ── in parallel ──┐
+      ├── D8 (ask AMO)  ── in parallel ──┤
+      ▼                                  │
+    v0.7   NO consent change             │
+      ▼                                  ▼
+    v0.8   ONE consent change, no token vault
+      ▼
+    M4.5   architecture/legacy audit + docs/FEATURES.md
+      ▼
+    M5     public product pack + watchside.app migration
+      ▼
+  Store Assets
+      ▼
+    M6     public release candidate
+      ▼
+    M7     PUBLIC LAUNCH   (gated by the G1-G9 checks in
+                            m3b-twitch-economic-attribution-2026-08-30.md §26.9)
+
+  F7  Firefox signed-build acceptance - INDEPENDENT, whenever Mozilla
+      approves the pending v0.6 submission. Does not block development.
+```
+
+### v0.7 - the next coherent cross-browser measurement release
+
+**Not created, packaged, submitted or released.** Contents:
 
 - experiment-arm instrumentation (production randomisation only)
-- corrected **observed stream dwell**, per stream
-- focus / background diagnostic subdurations
+- corrected **observed per-stream dwell**
+- focused / background diagnostic subdurations
 - repeat-creator measurement foundation
 - **no Twitch OAuth scope change**, no new Firefox data category
 
-### After v0.7
+**Not blocked by D7 or D8.**
 
-**F7** is independent and happens whenever Mozilla approves the pending v0.6
-submission. Then **M5** → Store assets → **M6** → **M7 public launch**, gated by
-the irreversible-data checks in
-`docs/reports/m3a-m3c-measurement-foundation-2026-08-30.md` §26.9.
+### v0.8 - relationship measurement, subject to the gates
+
+- **G6 deletion architecture** - must land *before* the first Twitch-derived write
+- `following_at_join` (M3D)
+- `subscribed_at_join` (M3E-a) - **conditional on D8**
+- **ONE** Twitch OAuth authorization change: `user:read:follows` +
+  `user:read:subscriptions`
+- **no provider-token vault**
+
+If D8 is still unanswered when v0.8 is otherwise ready: ship **M3D alone** and
+hold M3E-a, accepting a second consent change later. Do not guess a financial
+declaration, and do not request a scope that is not yet used.
+
+### M4.5 - architecture, legacy and feature audit
+
+**Committed pre-M5 milestone. Not started.** Purpose: enter public-product
+hardening with a coherent codebase and an authoritative account of what
+Watchside actually exposes to users.
+
+Audit and classify (**KEEP** / **REMOVE** / **CONSOLIDATE** / **RENAME** /
+**DEFER**): Kickback→Watchside legacy references · compatibility-sensitive
+`kickback:*` identifiers · `kickback_invite` · salts · badge keys · DB names ·
+`kb-` CSS · historical docs and migrations · obsolete human-facing branding ·
+stale brand assets · old URLs · **old single-destination assumptions** ·
+superseded Gravity and Stream Room paths · duplicate presence/cache/invalidation
+architecture · stale analytics assumptions · **abandoned focused-only dwell
+assumptions** · Chromium/Firefox adapter leakage · obsolete beta flags and
+scaffolding · dead code, files, scripts and assets · unused dependencies ·
+TODO/FIXME/HACK inventory · stale tests and fixtures.
+
+**Do NOT indiscriminately rename compatibility-sensitive identifiers.** Some are
+effectively immutable, and the audit must say why rather than rename them:
+
+| Identifier | Why it is held |
+|---|---|
+| `kickback:*` storage keys | Renaming orphans live state on every installed client - open dwell intervals, sessions, attributions, layout |
+| `SALT = 'kickback:social-gravity:v1'` | Changing it **re-randomises every user's experiment arm** and destroys longitudinal comparability |
+| `KB-` friend-code prefix | Enforced by a DB `CHECK` constraint; existing codes are shared with real people |
+| `kickback-host`, `kb-` CSS | A full-surface CSS migration with visual-regression risk and no user benefit |
+| `kickback-background.js`, `kickback-content` | Named in both manifests; a packaging change |
+| Migration comments 0001-0027 | History. 0028 already recorded that rewriting them would falsify the record |
+
+**Exit criterion:** every remaining Kickback reference is provably either
+compatibility/history-sensitive **or** scheduled for removal/rename, with the
+reason recorded.
+
+### M4.5 - docs/FEATURES.md
+
+**Does not exist yet.** M4.5 must create and maintain it as the authoritative
+user-facing feature inventory and how-to.
+
+Per feature: name · product purpose · implementation status · first release
+version · currently released platforms · **exact UI entry point** · literal user
+flow · visibility conditions · empty state · backend dependency · relevant
+analytics · known UX limitation.
+
+Lifecycle states: `PLANNED` · `IMPLEMENTED` · `USER-FACING` · `RELEASED` ·
+`VERIFIED`.
+
+> **Nothing is "shipped" because backend infrastructure exists.**
+
+Must cover at minimum: Twitch authentication · Friends · Friend Requests ·
+Suggested Friends · Invite Friends · referral attribution · referral milestones ·
+referral badges · presence · multi-destination presence · Social Gravity · JOIN ·
+Stream Rooms · room chat · emotes · reactions · combos · Groups · group chat ·
+notifications · blocking · muting · privacy controls · feedback · Twitch
+metadata · analytics-visible product behaviour · Chrome support · Firefox
+support.
+
+**Suggested Friends, referrals and badges** additionally need a discoverability
+verdict: `DISCOVERABLE` · `DISCOVERABLE BUT WEAK` · `CONDITIONAL / INVISIBLE
+WHEN EMPTY` · `BURIED` · `INFRASTRUCTURE ONLY` · `BROKEN / UNREACHABLE`. All
+three have substantial server-side implementation in `0026_growth_loop.sql`
+whose user-facing surface has never been audited against it - which is exactly
+the failure mode this inventory exists to catch.
+
+> **Permanent invariant: a feature is not user-facing complete unless we can
+> explain where a user encounters it and how they use it.**
+
+### M5 - public product pack
+
+New-user onboarding · **zero-friend experience** · Suggested Friends
+discoverability · Invite Friends discoverability · referral UX · badge and
+milestone discoverability · empty states · failure and recovery states ·
+privacy/trust presentation · **branded public-domain migration** · full
+referral-flow acceptance.
+
+M4.5's inventory is the input to M5's design, which is why it is sequenced
+first.
+
+### watchside.app - canonical public domain, LOCKED
+
+The owner has reserved **`watchside.app`**. It is the canonical public Watchside
+domain. Target URLs:
+
+```
+https://watchside.app/
+https://watchside.app/i/<referral-code>
+https://watchside.app/privacy
+https://watchside.app/support
+```
+
+**Existing `https://anoteros-labs.github.io/watchside/…` URLs must keep
+working.** They appear in a published privacy policy, in both Store listings,
+and in invite links already shared with real testers. Current GitHub Pages
+hosting may remain underneath the custom domain.
+
+**Migrated in M5, not before.** The migration must cover: GitHub Pages
+custom-domain configuration · domain ownership verification · DNS · HTTPS ·
+canonical URLs · referral-link generation · old-link compatibility ·
+**invite → install → auth → referral attribution verified end to end** · Chrome
+listing URLs · Firefox listing URLs.
+
+The current long GitHub Pages referral URLs are accepted **beta-era
+compatibility URLs**, not the intended public presentation.
+
+### Store assets
+
+**After** major M3/M5 product and UI work settles - not now. Requirements:
+intentional seeded/demo states · capture automated with the two-actor E2E
+harness where practical · polished Chrome Store screenshots and assets ·
+source captures reused/adapted for AMO · **no stale Kickback branding** · Chrome
+and Firefox listings telling the same product story · branded `watchside.app`
+URLs.
 
 ---
 
@@ -259,25 +442,40 @@ usernames.
 organic acquisition.** Do not let a good beta result be read as evidence that a
 stranger can find their way in — that has not been tested and will not be.
 
-### Invites — **DEFER**
+### Invites — **BUILT.** Discoverability unaudited
 
-During the hand-distributed cohort, distribution *is* the invitation. An invite
-affordance means "send your friend a way to get Watchside", and there is no such
-way while installation is a ZIP.
+**Superseded 2026-08-30 by the M3D/M3E policy-gate roadmap sync.** The condition
+this entry set - "revisit the day Watchside is listed" - was met when Chrome
+v0.6.0 went live, and the work was done: `invite_codes` and `claim_invite` in
+`0026_growth_loop.sql`, referral attribution with a four-condition success rule,
+the `invite_link_created` / `_shared` / `invite_claimed` events, an invite
+landing page in `docs/web/invite-landing/`, and `InviteFriends` in
+`src/ui/components/GrowFriends.tsx`.
 
-**Revisit before organic or public distribution.** It becomes P0 the day
-Watchside is listed.
+**What is NOT established is whether a user can find any of it.** That is an
+M4.5 question (`docs/FEATURES.md` discoverability verdict) and an M5 design
+task, not a build task.
 
-### Suggested Friends — **DEFER**
+### Suggested Friends — **BUILT.** Discoverability unaudited
 
-Not implemented, verified against the repository.
+**Superseded 2026-08-30 by the M3D/M3E policy-gate roadmap sync.** This entry
+said "not implemented, verified against the repository", and that is no longer
+true: `suggest_friends()` exists in `0026_growth_loop.sql`, is wired through
+`src/background/index.ts`, surfaces as `FriendSuggestions` in
+`src/ui/components/GrowFriends.tsx`, and emits
+`friend_suggestion_impression` / `_add_clicked` / `_request_created`.
 
-In a 4–6 person cluster where everyone knows everyone, friend-of-friend
-suggestions surface people already added. It also solves the wrong problem: it
-cannot introduce you to somebody who has not installed anything.
+The original reasoning still stands as a *caution about value*, not about
+existence: in a dense cluster, friend-of-friend suggestions surface people
+already added, and they cannot introduce you to somebody who has not installed
+anything. Whether the feature earns its place is a **beta-evidence** question -
+and M3A's `analytics_growth_funnel_v` is now the instrument for answering it.
 
-**Revisit on beta evidence** about friend density and how people actually
-discover each other. Do not build it because social apps have it.
+**Discoverability is unaudited**; see M4.5 and `docs/FEATURES.md`.
+
+> This entry going stale is the clearest argument for the FEATURES.md invariant:
+> the roadmap asserted something was unbuilt while it was shipping in
+> production. A feature inventory that is checked is the fix.
 
 ### Analytics dashboard — **DEFER**
 
