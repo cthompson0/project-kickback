@@ -4417,3 +4417,418 @@ untouched.
 
 **M3E-a remains HOLD.** No subscription scope, state, or measurement exists
 anywhere.
+
+---
+
+# M3D Slice B — the server relationship action
+
+**Date:** 2026-08-31
+**Type:** IMPLEMENTATION — narrow seam
+**Entering:** `b817ee1` · 2,551/2,551 · hosted schema 32
+
+---
+
+## 163. Slice B verdict
+
+## **GO** — for this slice only. M3D remains NOT GO.
+
+The trusted server can now take an authenticated actor, a creator and an
+attribution, decide whether a baseline may be recorded, ask Twitch, and write
+one server-only observation — returning nothing but `recorded` or
+`unavailable`.
+
+**Nothing invokes it.** No scope is requested, no permission has been asked
+for, no client path calls it, and the privacy policy still does not describe
+follow measurement. That is enforced by a test, not by intention.
+
+| | |
+|---|---|
+| Relationship action | implemented |
+| Production client callers | **ZERO**, test-enforced |
+| Twitch scope delta | **none** |
+| Follow result exposed to client | **NO** |
+| Migration | `0033`, applied |
+| Hosted schema | 32 → **33** |
+| Tests | 2,551 → **2,591** |
+| Mutations | **20 / 20** |
+
+No STOP condition triggered. The one that came closest — attribution binding —
+turned out to be securely establishable (§167), which is the finding that made
+the rest of the slice possible.
+
+---
+
+## 164. Starting state
+
+`b817ee1`, clean · 2,551 tests · schema 32 · `0033` free · M3D primitives from
+§162 present but unreferenced · no scope requested · no relationship writer.
+
+---
+
+## 165. Relationship action
+
+`POST twitch-credential { action: 'relationship', broadcaster_login, attribution_id }`
+→ `{ state: 'recorded' } | { state: 'unavailable', reason }`
+
+Eight steps, in this order, and the order is the design:
+
+1. **readiness** — can this actor measure at all?
+2. **attribution binding** — is this JOIN theirs, aimed here, and recent?
+3. **already answered?** — before Twitch is touched
+4. **credential** — through the existing subsystem, never a second one
+5. **decrypt** — in the function runtime only
+6. **viewer identity** — from `connected_accounts`
+7. **creator identity** — login → Twitch id
+8. **ask, then write**
+
+Steps 1–3 are all refusals that cost no Twitch call. A request that cannot
+produce a legitimate baseline is rejected before anything external happens,
+which keeps both the API budget and the failure surface small.
+
+---
+
+## 166. Authentication and actor binding
+
+The actor comes from the verified JWT (`getClaims`, §145.2). The request body
+carries `broadcaster_login` and `attribution_id` and **nothing else** — no
+`actor_id`, no `user_id`, no Twitch viewer id, no credential reference.
+
+A client cannot name whose credential is used, whose JOIN is quoted, or whose
+row is written. Those all follow from one fact: the only identity in the whole
+operation is derived server-side.
+
+---
+
+## 167. Attribution binding — the question this slice existed to answer
+
+The brief listed "valid attribution cannot be securely bound to actor" as a STOP
+condition. It can be, and the reason is worth recording.
+
+When somebody clicks JOIN, the worker mints an attribution and the resulting
+`join_clicked` event reaches `analytics_events` through `analytics_track` —
+**whose actor is `auth.uid()` server-side**. So the JOIN record is not something
+a client can forge on another person's behalf, and it already carries everything
+a binding needs:
+
+| From the JOIN event | Establishes |
+|---|---|
+| `actor_id` | whose JOIN it was |
+| `attribution_id` | which JOIN |
+| `destination_channel` | which creator it was aimed at |
+| `occurred_at` | when |
+| `properties.social_count` | whether it was socially initiated |
+
+`join_context_for_attribution(actor, attribution)` reads it back, and is
+**scoped to the actor in its own WHERE clause** rather than returning a row for
+the caller to compare. A function that can only ever answer about the actor it
+was asked about cannot be misused by a caller that forgets to check — a
+different and better property than "the caller currently checks".
+
+Four refusals, each with its own reason:
+
+| Refusal | What it prevents |
+|---|---|
+| `unknown_attribution` | a random or stolen id — and "no such JOIN" and "somebody else's JOIN" are indistinguishable to the caller, deliberately |
+| `destination_mismatch` | quoting a genuine JOIN of your own and naming any creator you like |
+| `not_socially_initiated` | measuring outside the eligible population |
+| `outside_baseline_window` | a lookup too late to still be "at the JOIN" |
+
+The second is the forgery that would otherwise be invisible: every fabricated
+row would look perfectly legitimate downstream.
+
+---
+
+## 168. Broadcaster binding
+
+The creator is **not** taken on the caller's word. It must equal the
+`destination_channel` recorded on that JOIN, and it is validated against Twitch's
+own login grammar (`^[a-z0-9_]{1,25}$`) before it reaches a URL — so nothing that
+is not a login can escape into a request path.
+
+The follow endpoint takes a `broadcaster_id`, so the login is resolved through
+Helix `users` with the viewer's own token. A login Twitch does not know is
+`unknown_broadcaster` and writes nothing, rather than becoming an error to
+store.
+
+---
+
+## 169. Observation schema
+
+Unchanged from `0032`. No new table, no duplicate. `0033` adds only what a
+writer needs:
+
+- a **partial unique index** on `(actor_id, attribution_id) where attribution_id is not null`
+- `join_context_for_attribution(uuid, uuid)`, service-role only
+
+The index is partial because `attribution_id` is nullable and NULLs are not
+equal to each other, so a plain unique index would not constrain them anyway.
+Saying `where attribution_id is not null` states the intent rather than relying
+on the reader knowing that.
+
+---
+
+## 170. Observation semantics
+
+| Twitch said | Recorded |
+|---|---|
+| the broadcaster is in `data` | `relationship_present = true` |
+| **`data` is empty** | `relationship_present = false` — a real observation |
+| 401 / 403 / 5xx / network / malformed | **nothing at all** |
+| permission missing | **nothing** |
+| credential unavailable | **nothing** |
+| attribution invalid | **nothing** |
+
+The empty array is the whole subtlety: it looks exactly like "nothing came
+back". Every failure path returns `ok: false` and carries no `following` value
+in any shape, so there is no structure in which a timeout can be read as an
+answer. Mutation-proven in **both** directions — failure becoming false, and a
+genuine false being discarded as failure.
+
+---
+
+## 171. Idempotency
+
+**One baseline per attributed JOIN**, enforced by the database rather than by
+convention.
+
+| Situation | Behaviour |
+|---|---|
+| duplicate request, same attribution | `recorded`, no second Twitch call, no second row |
+| retry after the response was lost | same — the pre-check sees the existing row |
+| concurrent duplicate | loses to the unique index; treated as success, because the baseline it wanted exists |
+| retry after a failure *before* an answer | may measure again, if still inside the baseline window |
+| a later independent JOIN to the same creator | **a new legitimate observation** |
+| different actors, same attribution id | separate rows — the constraint is per actor, as the deletion key is |
+
+Tied to the attribution identity, not to a creator/time cache. A time cache
+would silently answer a new question with an old answer, which is the failure
+this whole section exists to avoid.
+
+---
+
+## 172. Baseline timing contract
+
+`BASELINE_WINDOW_MS = 120_000`.
+
+Wider than the 90-second arrival window — enough for the arrival and a Twitch
+round trip — and nowhere near enough for the answer to drift into "followed some
+time later". Outside it, the request is **refused rather than recorded with a
+caveat**, because a caveat in a column nobody reads becomes a false baseline in
+every downstream number.
+
+**The contract the future caller must respect:** fire at the JOIN, synchronously
+with the click. No queue, no long backoff, no background sweep — each of those
+would silently turn `following_at_join` into `following_some_time_later`, and
+nothing downstream could ever detect it.
+
+---
+
+## 173. Credential subsystem integration
+
+Consumed, not duplicated. The action calls the existing `readCredential`,
+`readinessFor`, `ensureFresh` (which owns refresh, rotation and the CAS claim)
+and `open`. **There is no second token reader or refresher anywhere.**
+
+| Credential state | Result |
+|---|---|
+| absent | `needs_reauthorization`, no observation |
+| `needs_reauthorization` | same |
+| valid but no follow scope | **`needs_follow_permission`**, no observation |
+| access token spent | refreshed through the approved path, then measured |
+| refresh rejected | `needs_reauthorization` |
+| decrypt fails | `temporarily_unavailable` |
+
+The third row is the one that matters for the transition: an existing user's
+credential is **not broken**, and saying so would be untrue.
+
+---
+
+## 174. Scope-loss behaviour
+
+Two signals, both real:
+
+- `scopes` recorded on the credential — checked before anything else
+- `403` from the follow endpoint at use
+
+Either produces `needs_follow_permission`, no observation, and core Watchside
+untouched. No EventSub scope-loss event is invented, because none exists.
+
+Deleting existing observations on scope loss is **deliberately not done in this
+slice**: no observations can exist yet, and the cleanup primitive
+(`purge_twitch_derived`) is already built for whichever policy the next slice
+adopts. Doing it now would be writing a policy against an empty table.
+
+---
+
+## 175. G6 and deletion integration
+
+Proven against rows written in the shape the real action writes.
+
+| Event | Observations | Credential | Watchside analytics |
+|---|---|---|---|
+| Twitch deauthorization | ❌ deleted | ❌ deleted | ✅ **preserved** |
+| Account deletion | ❌ deleted | ❌ deleted first | ❌ deleted (D-A) |
+| Sign-out | ✅ kept | ✅ kept | ✅ kept |
+
+The deauthorization test asserts the `join_clicked` event **survives** — the
+JOIN is Watchside's own observation of its own product, and only the
+Twitch-derived layer goes. No G6 logic was duplicated; the existing primitive
+does the work.
+
+---
+
+## 176. Security boundary
+
+| Property | State |
+|---|---|
+| Relationship table client-readable | ❌ `permission denied`, authenticated and anonymous, even with rows present |
+| Client INSERT / UPDATE / DELETE | ❌ all refused |
+| `join_context_for_attribution` client-callable | ❌ refused |
+| Actor A measuring for actor B | ❌ impossible — no id in the request, lookup scoped to the actor |
+| Raw credential above the boundary | ❌ never |
+| Follow result above the boundary | ❌ never — one funnel, mutation-proven |
+| Logs | fixed codes and a readiness/reason word; no token, no actor id, **no follow fact** |
+| `verify:analytics` | ✅ passing |
+
+---
+
+## 177. Migration and hosted state
+
+`0033_m3d_relationship.sql`. Verified free, `0032` untouched.
+
+| Step | Result |
+|---|---|
+| DB suite | ✅ 423 → **442** |
+| Bundle regenerated + migration test | ✅ marker ownership moved to `0033`, with the reason recorded in the test |
+| local vs remote | `0033` the only gap |
+| dry-run | **`0033` only** |
+| applied | ✅ |
+| after | local ≡ remote at **33** |
+| `verify:analytics` | ✅ nothing client-readable |
+
+**The function was deliberately not deployed.** It is not needed for this
+slice's verification, and leaving production's surface unchanged is the smaller
+action. The hosted schema being ahead of deployed code is harmless here: an
+additive index and a function nobody calls.
+
+---
+
+## 178. Deterministic tests
+
+**+40**, 2,551 → **2,591**.
+
+| Suite | Count | Covers |
+|---|---|---|
+| `relationshipBinding.test.ts` | 21 | attribution, destination, social, window, response funnel, login validation, **no-caller proof** |
+| `relationshipObservation.test.ts` (db) | 19 | the actor-scoped lookup, one-baseline-per-JOIN, G6, RLS |
+| `followBaseline.test.ts` (§162) | 16 | the Twitch lookup and readiness, unchanged |
+
+Of the brief's 35 enumerated proofs, the ones exercisable without a client
+caller or a live token are covered. The remainder — those requiring an OAuth
+scope, a permission prompt or a real JOIN — belong to the next slices and are
+listed in §184 rather than claimed here.
+
+---
+
+## 179. Mutation proofs
+
+`npm run test:destruction` — **20 / 20 detected** (was 11; nine added).
+
+| New lever | Result |
+|---|---|
+| treat a failed lookup as not-following | ✅ DETECTED |
+| treat an empty result as unavailable | ✅ DETECTED |
+| collapse `needs_follow_permission` into `needs_reauthorization` | ✅ DETECTED |
+| stop binding the creator to the attribution | ✅ DETECTED |
+| drop the baseline window | ✅ DETECTED |
+| measure JOINs nobody else was part of | ✅ DETECTED |
+| **return the follow result to the client** | ✅ DETECTED |
+| drop the one-baseline-per-JOIN constraint | ✅ DETECTED |
+| stop scoping the attribution lookup to the actor | ✅ DETECTED |
+
+The first two are deliberately a mirrored pair. It is not enough that failure
+does not become false; a genuine false must also not be discarded as failure,
+and only testing one direction would leave the other free to break.
+
+---
+
+## 180. No-production-caller proof
+
+Test-enforced, not asserted:
+
+- no file under `src/` contains `action: 'relationship'`
+- `supabaseBackend.ts` requests no scope — no `scopes:` key, no
+  `user:read:follows`, no `user:read:subscriptions`
+- no Edge Function mentions `user:read:subscriptions`
+
+Written to fail loudly when the JOIN trigger is added deliberately, so widening
+it is a decision somebody makes at that gate. One narrowing was needed: the
+first matcher caught the Test Lab's unrelated `relationship` field for simulated
+friendships, so it now matches the invocation shape specifically.
+
+**This matters because the scope is not requested and the privacy policy does
+not describe follow measurement.** A single caller would begin collecting a
+Twitch-derived fact about people who were never told.
+
+---
+
+## 181. Regression results
+
+| Gate | Result |
+|---|---|
+| `npm test` | ✅ **2,591 / 2,591** (103 files) |
+| `tests/db` | ✅ 442 |
+| lint / tsc / build | ✅ clean |
+| `test:destruction` | ✅ 20/20 |
+| `verify:analytics` | ✅ |
+
+---
+
+## 182. Known-debt delta
+
+| Harness | Baseline | Now | Delta |
+|---|---|---|---|
+| `test:presence` | 0 / 21 | **0 / 21** | ✅ none |
+| `test:layout` | 0 / 23 | **0 / 23** | ✅ none |
+| `test:destruction` | 11 / 11 | **20 / 20** | ✅ none (grew) |
+| `test:analytics` | 6 | **6** | ✅ none — its levers touch `analyticsHub.ts` and `togetherWatch.ts`, untouched here |
+| `verify:lab` | 11 | **11** | ✅ none |
+
+Source verified clean of harness residue after every run.
+
+---
+
+## 183. Remaining risks
+
+| # | Risk | Position |
+|---|---|---|
+| 1 | The action has never run against real Twitch | Deterministic coverage is thorough; Phase 2 is the reminder that platforms surprise you. First real exercise belongs to the slice that adds the scope |
+| 2 | The 120s window is a judgement, not a measurement | Wider than arrival, far short of "later". Revisit if real JOINs show the request landing outside it |
+| 3 | `join_clicked` must reach the server before the action is called | It is flushed synchronously at JOIN, but the trigger slice must confirm the ordering rather than assume it |
+| 4 | Scope-loss cleanup policy undecided | Deliberate — no observations exist yet, and the primitive is ready |
+| 5 | Hosted schema ahead of deployed code | Harmless: an additive index and an uncalled function |
+
+---
+
+## 184. Next slice readiness
+
+**Ready.** The server can measure; nothing asks it to.
+
+The next slice is the authorization transition, and it should come **before** the
+JOIN trigger: granting a permission nothing consumes is a worse experience than
+not asking, and a trigger with no permission would only ever record
+`needs_follow_permission`.
+
+In order:
+
+1. request `user:read:follows`, and the account-surface prompt that explains it
+2. the existing-user transition using the four readiness states already built
+3. the JOIN trigger at `recordJoin`, where an attribution is minted and
+   `socialCount > 0` — the eligible population, with the attribution id already
+   the idempotency key
+4. analytics views: coverage, discovery percentage, dwell and arm linkage
+5. privacy disclosure, deployed **before** the first observation
+6. the owner's single OAuth interaction
+
+**M3E-a remains HOLD.** No subscription scope, state or measurement exists
+anywhere, and a test asserts it.

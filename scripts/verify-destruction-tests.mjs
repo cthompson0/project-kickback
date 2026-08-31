@@ -20,6 +20,12 @@ import { execFileSync } from 'node:child_process'
 import { pathToFileURL } from 'node:url'
 
 const VERIFY = 'supabase/functions/twitch-eventsub/verify.ts'
+const RELATIONSHIP = 'supabase/functions/twitch-credential/relationship.ts'
+const M3D_TWITCH = 'supabase/functions/twitch-credential/twitch.ts'
+const M3D_MIGRATION = 'supabase/migrations/0033_m3d_relationship.sql'
+const BINDING_SUITE = 'tests/extension/relationshipBinding.test.ts'
+const BASELINE_SUITE = 'tests/extension/followBaseline.test.ts'
+const M3D_DB_SUITE = 'tests/db/relationshipObservation.test.ts'
 const MIGRATION = 'supabase/migrations/0032_destruction_paths.sql'
 const STORAGE = 'src/background/storage.ts'
 
@@ -141,6 +147,101 @@ create policy twitch_credentials_read on public.twitch_credentials
     from: '  relationship_present boolean\n',
     to: '  relationship_present boolean not null default false\n',
     expect: 'records a failed check as absent rather than false',
+  },
+
+  // ------------------------------------------------------------------ M3D
+  {
+    // The failure that would poison every downstream number: a Twitch outage
+    // recorded as "did not follow".
+    name: 'm3d: treat a failed lookup as not-following',
+    file: M3D_TWITCH,
+    suite: BASELINE_SUITE,
+    from: `  if (!Array.isArray(body.data)) return { ok: false, reason: 'twitch_unavailable' }
+  return { ok: true, following: body.data.length > 0 }`,
+    to: `  return { ok: true, following: Array.isArray(body.data) && body.data.length > 0 }`,
+    expect: 'treats a malformed response as unavailable, never as false',
+  },
+  {
+    // The mirror image: a real "not following" thrown away as an error.
+    name: 'm3d: treat an empty result as unavailable',
+    file: M3D_TWITCH,
+    suite: BASELINE_SUITE,
+    from: `  return { ok: true, following: body.data.length > 0 }`,
+    to: `  if (body.data.length === 0) return { ok: false, reason: 'twitch_unavailable' }
+  return { ok: true, following: true }`,
+    expect: 'reads an empty array as a genuine "not following"',
+  },
+  {
+    // An existing user whose credential predates the permission gets told they
+    // are broken, which is untrue and loses the state the UX needs.
+    name: 'm3d: collapse needs_follow_permission into needs_reauthorization',
+    file: M3D_TWITCH,
+    suite: BASELINE_SUITE,
+    from: `  if (!hasFollowsScope(input.scopes)) return 'needs_follow_permission'`,
+    to: `  if (!hasFollowsScope(input.scopes)) return 'needs_reauthorization'`,
+    expect: 'distinguishes "never granted the follow permission" from "broken"',
+  },
+  {
+    // The forgery: quote a real JOIN of your own, name any creator you like.
+    name: 'm3d: stop binding the creator to the attribution',
+    file: RELATIONSHIP,
+    suite: BINDING_SUITE,
+    from: `  if (join.destinationChannel !== broadcasterLogin) {
+    return { ok: false, reason: 'destination_mismatch' }
+  }`,
+    to: '',
+    expect: 'refuses a creator the JOIN was not aimed at',
+  },
+  {
+    // Silently turns following_at_join into following_some_time_later.
+    name: 'm3d: drop the baseline window',
+    file: RELATIONSHIP,
+    suite: BINDING_SUITE,
+    from: `  if (now - clickedAt > windowMs || clickedAt - now > windowMs) {
+    return { ok: false, reason: 'outside_baseline_window' }
+  }`,
+    to: '',
+    expect: 'refuses a JOIN too old to still be the baseline',
+  },
+  {
+    name: 'm3d: measure JOINs nobody else was part of',
+    file: RELATIONSHIP,
+    suite: BINDING_SUITE,
+    from: `  if (!(join.socialCount > 0)) return { ok: false, reason: 'not_socially_initiated' }`,
+    to: '',
+    expect: 'refuses a JOIN nobody else was part of',
+  },
+  {
+    // The boundary this whole action exists for.
+    name: 'm3d: return the follow result to the client',
+    file: RELATIONSHIP,
+    suite: BINDING_SUITE,
+    from: `  return result.state === 'recorded'
+    ? { state: 'recorded' }
+    : { state: 'unavailable', reason: result.reason }`,
+    to: `  return result.state === 'recorded'
+    ? { state: 'recorded', following: true }
+    : { state: 'unavailable', reason: result.reason }`,
+    expect: 'carries no relationship field in any shape',
+  },
+  {
+    // A retry could then record a second, possibly contradictory, answer.
+    name: 'm3d: drop the one-baseline-per-JOIN constraint',
+    file: M3D_MIGRATION,
+    suite: M3D_DB_SUITE,
+    from: `create unique index if not exists creator_relationship_observations_attribution_uq`,
+    to: `create index if not exists creator_relationship_observations_attribution_uq`,
+    expect: 'refuses a second observation for the same attribution',
+  },
+  {
+    // One person could then write baselines against another person's JOIN.
+    name: 'm3d: stop scoping the attribution lookup to the actor',
+    file: M3D_MIGRATION,
+    suite: M3D_DB_SUITE,
+    from: `  where e.actor_id = p_actor
+    and e.attribution_id = p_attribution`,
+    to: `  where e.attribution_id = p_attribution`,
+    expect: 'returns nothing when a different actor asks about it',
   },
 
   // ------------------------------------------------------------------- O7

@@ -40,7 +40,18 @@ import { createClient } from 'jsr:@supabase/supabase-js@2'
 import type { SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import { CredentialCryptoError, currentKeyVersion, keyRingFrom, open, seal } from './crypto.ts'
 import type { KeyRing } from './crypto.ts'
-import { decideCapture, expiryFrom, isSpent, refreshTokens, validateToken } from './twitch.ts'
+import {
+  broadcasterIdFor,
+  decideCapture,
+  expiryFrom,
+  followsBroadcaster,
+  isSpent,
+  readinessFor,
+  refreshTokens,
+  validateToken,
+} from './twitch.ts'
+import { normalizeLogin, toClientResponse, validateAttribution } from './relationship.ts'
+import type { RelationshipReason, RelationshipResult } from './relationship.ts'
 
 declare const Deno: { env: { get(key: string): string | undefined } }
 
@@ -282,6 +293,174 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
   }
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Records whether this actor already followed this creator, at this JOIN.
+ *
+ * The whole point of the boundary: the caller learns that a baseline exists, or
+ * that one does not and why. It never learns the answer. Every return goes
+ * through toClientResponse(), so "did the follow result escape" is one place to
+ * check rather than a property of nine separate branches.
+ *
+ * Nothing is written unless Twitch actually answered. A timeout, an outage, a
+ * missing permission and an expired credential all end the same way - no
+ * observation - because an absent baseline is honest and a fabricated one is
+ * not.
+ */
+async function recordRelationship(
+  admin: SupabaseClient,
+  actorId: string,
+  broadcasterLogin: string,
+  attributionId: string,
+  now: number,
+): Promise<RelationshipResult> {
+  const unavailable = (reason: RelationshipReason): RelationshipResult => ({
+    state: 'unavailable',
+    reason,
+  })
+
+  // 1. Can this actor measure at all?
+  const credential = await readCredential(admin, actorId)
+  const readiness = readinessFor({
+    hasCredential: credential !== null,
+    status: credential?.status ?? '',
+    scopes: credential?.scopes ?? [],
+  })
+  if (readiness !== 'ready') {
+    note('relationship_not_ready', { readiness })
+    return unavailable(readiness as RelationshipReason)
+  }
+
+  // 2. Is this attribution really this actor's, aimed at this creator, now?
+  const { data: contextRows, error: contextError } = await admin.rpc(
+    'join_context_for_attribution',
+    { p_actor: actorId, p_attribution: attributionId },
+  )
+  if (contextError) throw new Error('db_unavailable')
+
+  const first = (contextRows as
+    | { destination_channel: string | null; occurred_at: string; social_count: number }[]
+    | null)?.[0]
+
+  const check = validateAttribution({
+    join: first
+      ? {
+          actorId,
+          destinationChannel: first.destination_channel,
+          occurredAt: first.occurred_at,
+          socialCount: Number(first.social_count ?? 0),
+        }
+      : null,
+    broadcasterLogin,
+    now,
+  })
+  if (!check.ok) {
+    note('relationship_refused', { reason: check.reason })
+    return unavailable(check.reason)
+  }
+
+  /*
+   * 3. Already answered?
+   *
+   * Checked before Twitch is asked, so a retry costs no API call and - more
+   * importantly - cannot produce a second answer to a question already
+   * answered. The unique index is the real guarantee; this is the cheap path.
+   */
+  const { data: existing, error: existingError } = await admin
+    .from('creator_relationship_observations')
+    .select('id')
+    .eq('actor_id', actorId)
+    .eq('attribution_id', attributionId)
+    .maybeSingle()
+  if (existingError) throw new Error('db_unavailable')
+  if (existing) {
+    note('relationship_already_recorded')
+    return { state: 'recorded' }
+  }
+
+  // 4. A usable access token, through the existing subsystem. No second
+  //    refresher exists anywhere.
+  const fresh = await ensureFresh(admin, actorId, now)
+  if (fresh.state !== 'fresh' && fresh.state !== 'refreshed') {
+    note('relationship_credential_unavailable', { state: fresh.state })
+    return unavailable(
+      fresh.reason === 'needs_reauthorization' ? 'needs_reauthorization' : 'temporarily_unavailable',
+    )
+  }
+
+  const current = await readCredential(admin, actorId)
+  if (!current) return unavailable('needs_reauthorization')
+
+  let secret
+  try {
+    secret = await open(hexToBytes(current.secret), actorId, KEYS)
+  } catch {
+    note('relationship_decrypt_failed')
+    return unavailable('temporarily_unavailable')
+  }
+
+  // 5. Who is the viewer, in Twitch's terms?
+  const { data: connected, error: viewerError } = await admin
+    .from('connected_accounts')
+    .select('platform_user_id')
+    .eq('user_id', actorId)
+    .eq('platform', 'twitch')
+    .maybeSingle()
+  if (viewerError) throw new Error('db_unavailable')
+  const viewer = (connected as { platform_user_id?: string } | null)?.platform_user_id
+  if (!viewer) return unavailable('needs_reauthorization')
+
+  // 6. The creator's id. The follow endpoint takes an id, not a login.
+  const broadcaster = await broadcasterIdFor(broadcasterLogin, secret.accessToken, CLIENT_ID)
+  if (!broadcaster.ok) {
+    note('relationship_broadcaster_unresolved', { reason: broadcaster.reason })
+    return unavailable(
+      broadcaster.reason === 'unknown_broadcaster' ? 'unknown_broadcaster' : 'twitch_unavailable',
+    )
+  }
+
+  // 7. The one question, about the one creator.
+  const follow = await followsBroadcaster(viewer, broadcaster.id, secret.accessToken, CLIENT_ID)
+  if (!follow.ok) {
+    if (follow.reason === 'scope_missing') {
+      note('relationship_scope_missing')
+      return unavailable('needs_follow_permission')
+    }
+    note('relationship_lookup_failed', { reason: follow.reason })
+    return unavailable('twitch_unavailable')
+  }
+
+  /*
+   * 8. Write it.
+   *
+   * Only reached when Twitch actually answered, so relationship_present is
+   * always a real observation and never a stand-in for silence. A concurrent
+   * duplicate loses to the unique index, which is treated as success because
+   * the baseline it wanted does exist.
+   */
+  const { error: writeError } = await admin.from('creator_relationship_observations').insert({
+    actor_id: actorId,
+    broadcaster_login: broadcasterLogin,
+    attribution_id: attributionId,
+    relationship_type: 'follow',
+    relationship_present: follow.following,
+    observed_at: new Date(now).toISOString(),
+  })
+
+  if (writeError) {
+    if ((writeError as { code?: string }).code === '23505') {
+      note('relationship_already_recorded')
+      return { state: 'recorded' }
+    }
+    throw new Error('db_unavailable')
+  }
+
+  // A count, never the answer.
+  note('relationship_recorded')
+  return { state: 'recorded' }
+}
+
 Deno.serve(async (request: Request) => {
   if (request.method !== 'POST') return json({ error: 'method_not_allowed' }, 405)
 
@@ -380,6 +559,19 @@ Deno.serve(async (request: Request) => {
         access_expires_at: row?.access_expires_at ?? null,
         version: row?.version ?? null,
       })
+    }
+
+    if (body.action === 'relationship') {
+      const login = normalizeLogin(body.broadcaster_login)
+      const attributionId = typeof body.attribution_id === 'string' ? body.attribution_id : ''
+      // A malformed request is refused as "unknown attribution" rather than
+      // echoed back: reasons here describe Watchside's state, not the input.
+      if (!login || !UUID.test(attributionId)) {
+        return json(toClientResponse({ state: 'unavailable', reason: 'unknown_attribution' }))
+      }
+      return json(
+        toClientResponse(await recordRelationship(admin, actorId, login, attributionId, now)),
+      )
     }
 
     if (body.action === 'ensure_fresh') {
