@@ -64,10 +64,25 @@ export function EmptyFriends({
     )
   }
 
+  /*
+   * The first thing a brand-new account ever sees, and for a while the only
+   * thing. It used to say the panel was quiet and that friends would show up -
+   * true, and it never explained what would show up, or why anybody would want
+   * it. Somebody who has just installed an extension they do not yet understand
+   * needs the promise before the instruction.
+   *
+   * So: what Watchside does, then what it needs, then the way to give it that.
+   * Three short lines rather than a walkthrough - the product is one panel and
+   * it can afford to explain itself in place.
+   */
   return (
     <div className="kb-quiet">
-      <div className="kb-quiet-title">Your Watchside is quiet.</div>
-      <div className="kb-quiet-sub">Your friends will show up here once you add them.</div>
+      <div className="kb-quiet-title">See where your friends are watching.</div>
+      <div className="kb-quiet-sub">
+        When a friend is watching someone on Twitch, they show up here and you
+        can jump in and watch together.
+      </div>
+      <div className="kb-quiet-sub">Add a friend or two and it starts working.</div>
       <button type="button" className="kb-signin-btn kb-find-btn" onClick={onFindFriends}>
         Find friends
       </button>

@@ -1,7 +1,8 @@
 # Watchside — Feature inventory
 
 *The authoritative living record of what exists, who can reach it, and how ready
-it is for strangers. Audited at M4.5 (2026-09-01, `71ab6ef`).*
+it is for strangers. Audited at M4.5 (2026-09-01, `71ab6ef`); growth surfaces
+updated at M5A (2026-09-01).*
 
 ## Lifecycle vocabulary
 
@@ -75,8 +76,9 @@ Flow: see a card → JOIN → Twitch opens on that channel → arrival is attrib
 Multi-destination aware. The "gathering" emphasis needs ≥2 friends on one
 channel (`GRAVITY_THRESHOLD`), unreachable in a two-person beta.
 
-**M5 polish:** a stranger has no way to learn what Social Gravity *is* — it
-either shows cards or shows nothing, and nothing is the common case early.
+**Changed in M5A.** When no friend is watching anything it now says so, and says
+what will appear — a state that is different from having no friends and used to
+look identical to it.
 
 Analytics: `gravity_cluster_impression`, `join_clicked`, `join_arrived`.
 Tests: `socialGravity`, Firefox E2E `05-social`.
@@ -105,39 +107,43 @@ Friends tab with accept/decline.
 Flow: search → Add → they accept → both see each other. Your own friend code is
 in the account panel, copyable.
 
-**M5 polish:** the **+** is the only door to the entire growth loop, and it is a
-small unlabelled icon. Everything in §6–§8 is behind it.
+**Changed in M5A.** The button is labelled `+ Add` — M4.5 described it as
+unlabelled, which was wrong; the real problem was that "Add" never said what.
+The visible label stays short because four tabs must survive the 280px minimum
+width, so it now carries `aria-label="Add friends"`, `title` and
+`aria-expanded`, and the zero-friend state carries the discovery weight instead.
 
-Empty state: *"Your Watchside is quiet. Your friends will show up here once you
-add them."* with a **Find friends** button — good.
+Empty state, rewritten in M5A: it now leads with what Watchside does — *"See
+where your friends are watching."* — before asking for anything, then says what
+it needs and offers **Find friends**.
 
 Analytics: `friend_search`, `friend_request_sent`, `friend_request_accepted`,
 `friend_removed`.
 
 ## 6. Suggested friends (people you may know)
 
-**Status:** IMPLEMENTED · RELEASED (0.6.0) · **not reliably USER-FACING**
-**Readiness:** **M5 BLOCKER**
+**Status:** IMPLEMENTED · USER-FACING (main) · RELEASED (0.6.0, older behaviour)
+**Readiness:** READY (main) · the released build still has the old behaviour
 
 Discovery: **+** → *Find friends*, below the search box, only while the search
 box is empty. Mutual-friend suggestions with a count, never names.
 
-**Two problems, both discoverability rather than implementation:**
+**Fixed in M5A.** It used to render `null` with nothing to suggest, so a user
+who had deliberately opened find-friends could not tell whether the feature was
+empty, broken or absent — and it is empty exactly when they are new, because
+suggestions come from friends of friends. It now says so and points at search
+and invite.
 
-1. **It renders `null` when there are no suggestions** — no empty state. A user
-   cannot tell the difference between "nothing to suggest" and "not a feature".
-2. Suggestions come from friends-of-friends, so a user with **zero or one
-   friend has none by construction** — it is invisible exactly when a new user
-   most needs it.
-
-Backend: `suggest_friends` RPC (0026). Analytics: exposure is **not** measured —
-there is no impression event, so we cannot tell whether anybody has ever seen a
-suggestion.
+Backend: `suggest_friends` RPC (0026). Analytics: `friend_suggestion_impression`
+is emitted **from the render**, once per open of the surface — M5A moved it off
+the fetch, where every empty result was being counted as an impression of a
+surface that draws nothing. M4.5 recorded this event as missing; it existed and
+was measuring the wrong thing.
 
 ## 7. Invite links / referrals
 
-**Status:** IMPLEMENTED · RELEASED (0.6.0) · **partially USER-FACING**
-**Readiness:** **M5 BLOCKER**
+**Status:** IMPLEMENTED · USER-FACING · RELEASED (0.6.0)
+**Readiness:** M5 POLISH — the URL migration remains
 
 Discovery: **+** → *Find friends* → *Invite a friend*, with a copyable link.
 Flow: copy → share → recipient opens the landing page → installs → signs in →
@@ -148,8 +154,8 @@ referral attributed.
 - The link base is **`https://anoteros-labs.github.io/watchside/invite/`** —
   a GitHub Pages URL that M5 must migrate to `watchside.app/i/<code>` while
   keeping the old one working.
-- `referral_succeeded` is **registered in the analytics contract and emitted by
-  nothing**. The growth loop's success outcome is unmeasured.
+- `referral_succeeded` is **emitted in M5A**, from `settle_referral` — the one
+  authoritative place the three-condition rule is decided, and already idempotent.
 - Referral state is surfaced only as a count next to the invite box.
 
 Analytics present: `invite_link_shared`. Missing: acceptance, install handoff,
@@ -163,8 +169,18 @@ success.
 Discovery: account panel → badge shelf. Earned badges are shown; **unearned ones
 are not**, so there is no way to learn what can be earned or how.
 
-`badge_awarded` is **registered and emitted by nothing** — we cannot tell
-whether badges have ever been awarded, or whether anybody looked.
+`badge_awarded` is **emitted in M5A**, from `award_badge` — the only place a
+badge is ever granted — and only when a row is actually inserted, so a repeat
+award emits nothing.
+
+M5A also fixed the badge descriptions, which still said "Brought a friend to
+Kickback." and are shown to users in the badge tooltip. They live in the
+database, which is why the M4.5 source sweep concluded no human-facing Kickback
+branding remained.
+
+Showing **unearned** milestones is deliberately left to M5B: it is a badge-UI
+question, and letting it into the growth surface now would crowd the thing being
+fixed.
 
 Backend: `badges`, referral milestone logic (0026).
 
@@ -323,21 +339,26 @@ extension package.
 Features that exist with **no meaningful analytics**, and therefore cannot be
 learned from:
 
-| Gap | Consequence |
+| Gap | Status |
 | --- | --- |
-| `referral_succeeded` registered, never emitted | the growth loop's success is unmeasured |
-| `badge_awarded` registered, never emitted | badge awards are unmeasured |
-| `automatic_room_opened` / `_left` registered, never emitted | room lifecycle is half-measured |
-| Suggested friends has no impression event | we cannot tell whether anybody has seen a suggestion |
-| Invite acceptance / install handoff | the referral funnel has a hole in the middle |
+| `referral_succeeded` | **closed in M5A** — emitted server-side from `settle_referral` |
+| `badge_awarded` | **closed in M5A** — emitted from `award_badge`, once per award |
+| Suggested-friend exposure | **corrected in M5A** — the event existed but fired at the fetch; it now fires at the render |
+| `automatic_room_opened` / `_left` registered, never emitted | still open — room lifecycle is half-measured |
+| Install handoff | not observable, and not claimed to be |
+
+**Two of these were recorded wrongly at M4.5.** `friend_suggestion_impression`
+and `invite_claimed` were described as missing; both existed. The impression was
+measuring the wrong thing, which is worse than missing and was only visible by
+reading the emitter.
 
 ## Readiness summary
 
 | | Count |
 | --- | --- |
-| READY | 9 |
+| READY | 10 |
 | M5 POLISH | 8 |
-| M5 BLOCKER | 3 |
+| M5 BLOCKER | 1 |
 | EXPERIMENTAL | 1 |
 | POST-LAUNCH | 1 |
 | REMOVE / excluded | 1 |

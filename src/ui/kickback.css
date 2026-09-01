@@ -400,6 +400,20 @@
   font-size: 14px;
 }
 
+/*
+ * Friends, but nobody watching anything.
+ *
+ * Deliberately quiet - dim text, no border, no call to action. It explains a
+ * normal state rather than reporting a problem, and dressing it as either an
+ * alert or an empty-state card would overstate it.
+ */
+.kb-gravity-idle {
+  margin: 0 10px 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--kb-dim);
+}
+
 /* ---------- "friends are here" banner ---------- */
 
 .kb-here-banner {

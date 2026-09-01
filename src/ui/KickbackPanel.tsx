@@ -809,7 +809,16 @@ export function KickbackPanel({
             <button
               type="button"
               className={`kb-add-btn${finding ? ' kb-add-btn-active' : ''}`}
-              title="Find friends"
+              /*
+               * "Add" alone does not say what, and this is the only permanent
+               * door to search, suggestions and invites. The visible label stays
+               * short because the tab row has to survive four tabs at the 280px
+               * minimum width - so the full name lives in the accessible name
+               * and the tooltip, and the states below carry the discovery.
+               */
+              title="Add friends"
+              aria-label="Add friends"
+              aria-expanded={finding}
               onClick={() => setFinding((open) => !open)}
             >
               + Add

@@ -540,8 +540,30 @@ export function SocialGravity({
     return <div className="kb-empty">No friends yet.</div>
   }
 
+  /*
+   * Friends, but none of them on a stream right now.
+   *
+   * A completely different state from having no friends, and it used to look
+   * identical: a list of offline names with nothing to explain it. Somebody
+   * who has just added their first friend sees this, and without a word they
+   * cannot tell whether Watchside is working or whether they missed a step.
+   *
+   * `here` and `destination` are the sections that mean somebody is watching
+   * something. Neither present means the map is genuinely quiet - which is
+   * ordinary, and worth saying so plainly rather than leaving as silence.
+   */
+  const anybodyWatching = drawn.some(
+    (section) => section.kind === 'here' || section.kind === 'destination',
+  )
+
   return (
     <div className="kb-gravity">
+      {!anybodyWatching && (
+        <div className="kb-gravity-idle">
+          Nobody is watching anything right now. When a friend starts watching
+          someone, they show up here and you can jump in.
+        </div>
+      )}
       {drawn.map((section) => {
         const key = `${section.kind}:${section.channel ?? ''}`
 

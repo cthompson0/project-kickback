@@ -44,6 +44,13 @@ const COVERAGE_MIGRATION = 'supabase/migrations/0034_m3d_coverage.sql'
 const COHORT_MIGRATION = 'supabase/migrations/0035_m3d_small_cohort.sql'
 const NUMERATOR_MIGRATION = 'supabase/migrations/0036_m3d_coverage_numerator.sql'
 const COVERAGE_SUITE = 'tests/db/m3dCoverage.test.ts'
+const GROWTH_MIGRATION = 'supabase/migrations/0037_growth_outcome_events.sql'
+const GROWTH_SUITE = 'tests/db/growthOutcomes.test.ts'
+const GROW_UI = 'src/ui/components/GrowFriends.tsx'
+const AUTH_UI = 'src/ui/components/AuthStates.tsx'
+const GRAVITY_UI = 'src/ui/components/SocialGravity.tsx'
+const ZERO_SUITE = 'tests/extension/zeroFriendLoop.test.tsx'
+const SUGGEST_SUITE = 'tests/dom/friendSuggestions.test.tsx'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -571,6 +578,132 @@ grant select on public.m3d_relationship_v to authenticated;`,
                                                       as observed_baselines,`,
     to: `  count(o.attribution_id)                             as observed_baselines,`,
     expect: 'counts only observations belonging to eligible JOINs',
+  },
+
+  // --------------------------------------------- the growth loop (M5A)
+  {
+    // referral_succeeded fires on attribution rather than on the three-condition
+    // rule. Every link click becomes a "successful referral" and the growth
+    // number becomes meaningless in the flattering direction.
+    name: 'growth: credit a referral for attribution alone',
+    file: GROWTH_MIGRATION,
+    suite: GROWTH_SUITE,
+    from: `  if v_row.friended_at is null or v_row.activated_at is null then
+    return;
+  end if;`,
+    to: '',
+    expect: 'emits nothing for attribution alone',
+  },
+  {
+    // The single-stamp guard goes, so a retry credits the same referral twice.
+    name: 'growth: lose referral idempotency',
+    file: GROWTH_MIGRATION,
+    suite: GROWTH_SUITE,
+    from: `  if not found or v_row.succeeded_at is not null then
+    return;
+  end if;`,
+    to: `  if not found then
+    return;
+  end if;
+  if v_row.succeeded_at is not null then
+    perform public.analytics_emit_server(v_row.inviter_id, 'referral_succeeded');
+    return;
+  end if;`,
+    expect: 'emits exactly once however many times settlement runs',
+  },
+  {
+    // A badge award that already happened emits again, so badges inflate on
+    // every pass of the awarding path.
+    name: 'growth: emit a badge event for a repeat award',
+    file: GROWTH_MIGRATION,
+    suite: GROWTH_SUITE,
+    from: '  if v_awarded then',
+    to: '  if true then',
+    expect: 'emits nothing on a repeat award',
+  },
+  {
+    // The server emitter becomes callable by anybody, so a client can forge
+    // its own referral credit.
+    name: 'growth: let clients emit server-authoritative events',
+    file: GROWTH_MIGRATION,
+    suite: GROWTH_SUITE,
+    from: `revoke all on function public.analytics_emit_server(uuid, text, jsonb)
+  from public, anon, authenticated;`,
+    to: `grant execute on function public.analytics_emit_server(uuid, text, jsonb)
+  to authenticated;`,
+    expect: 'is not callable by a client',
+  },
+  {
+    // THE M4.5 FINDING, RESTORED. Suggestions render nothing when empty, so a
+    // user who deliberately opened find-friends cannot tell whether the feature
+    // is empty, broken or absent.
+    name: 'growth: let suggestions vanish silently when empty',
+    file: GROW_UI,
+    suite: SUGGEST_SUITE,
+    from: '  if (suggestions.length === 0) {',
+    to: `  if (suggestions.length === 0) return null
+  if (false) {`,
+    expect: 'says why there is nobody to suggest',
+  },
+  {
+    // The impression goes back to the fetch, counting "we asked the server" as
+    // "somebody saw suggestions" - including every empty result.
+    name: 'growth: emit the suggestion impression from the fetch',
+    file: GROW_UI,
+    suite: SUGGEST_SUITE,
+    from: '    if (!suggestions || suggestions.length === 0) return',
+    to: '    if (!suggestions) return',
+    expect: 'records no impression',
+  },
+  {
+    // A re-render emits a second impression, so the funnel's first step inflates
+    // with every parent update.
+    name: 'growth: let a re-render emit a second impression',
+    file: GROW_UI,
+    suite: SUGGEST_SUITE,
+    from: '    if (seen.current) return',
+    to: '    if (false) return',
+    expect: 'is not recorded again when the parent re-renders with a fresh client',
+  },
+  {
+    // The zero-friend state stops explaining the product and goes back to
+    // reporting that the panel is empty.
+    name: 'growth: drop the zero-friend explanation',
+    file: AUTH_UI,
+    suite: ZERO_SUITE,
+    from: '      <div className="kb-quiet-title">See where your friends are watching.</div>',
+    to: '      <div className="kb-quiet-title">Your Watchside is quiet.</div>',
+    expect: 'explains the product, not just that the panel is empty',
+  },
+  {
+    // Friends-but-idle collapses back into looking identical to having no
+    // friends at all, which tells a new user the opposite of the truth.
+    name: 'growth: collapse the friends-idle state into silence',
+    file: GRAVITY_UI,
+    suite: ZERO_SUITE,
+    from: '      {!anybodyWatching && (',
+    to: '      {false && (',
+    expect: 'says the map is quiet rather than asking for friends again',
+  },
+  {
+    // The idle caption never goes away, so it sits above live cards as noise.
+    name: 'growth: show the idle caption even when friends are watching',
+    file: GRAVITY_UI,
+    suite: ZERO_SUITE,
+    from: `  const anybodyWatching = drawn.some(
+    (section) => section.kind === 'here' || section.kind === 'destination',
+  )`,
+    to: '  const anybodyWatching = false',
+    expect: 'drops the idle explanation once a friend is on a channel',
+  },
+  {
+    // The only permanent door to friend growth loses its accessible name.
+    name: 'growth: make the friend-growth button nameless again',
+    file: 'src/ui/KickbackPanel.tsx',
+    suite: ZERO_SUITE,
+    from: '              aria-label="Add friends"',
+    to: '',
+    expect: 'names itself for anybody who cannot see the icon',
   },
 
   // ------------------------------------ the acceptance precondition guard

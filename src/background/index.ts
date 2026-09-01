@@ -26,7 +26,6 @@ import {
   unreadByChannel,
 } from './sessionState'
 import { needsRefresh } from '../core/twitchMetadata'
-import { mutualBucket } from '../core/analytics'
 import { normalizeInviteCode } from '../core/invites'
 import type { DisplayedBadge, EarnedBadge } from './supabaseBackend'
 // The same selector and the same expansion the panel renders from, so the
@@ -1963,14 +1962,20 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
       logError('friends.suggest', result.error)
       return []
     }
-    const rows = result.value ?? []
-    // One event per batch, not per row: the question is whether the surface
-    // produced anything worth acting on, not how many pixels were painted.
-    analytics.track('friend_suggestion_impression', {
-      suggestion_count: rows.length,
-      top_mutual_bucket: mutualBucket(rows[0]?.mutualCount ?? 0),
-    })
-    return rows
+    /*
+     * No impression is recorded here, deliberately.
+     *
+     * This is the FETCH. An impression recorded at the fetch means "we asked
+     * the server", which is a different fact from "somebody could see it" - and
+     * the two came apart badly: the suggestion list renders nothing at all when
+     * it is empty, so every empty fetch was being counted as an impression of a
+     * surface that did not exist. The funnel's first step was measuring the
+     * wrong thing, in the direction that flatters it.
+     *
+     * The component emits it when it actually draws something. See
+     * FriendSuggestions in GrowFriends.tsx.
+     */
+    return result.value ?? []
   },
 
   inviteCode: async () => {

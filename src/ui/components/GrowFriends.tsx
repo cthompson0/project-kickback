@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Avatar } from './Avatar'
 import { mutualBucket } from '../../core/analytics'
 import { inviteLinkFor } from '../../core/invites'
@@ -53,6 +53,29 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
     }
   }, [client])
 
+  /*
+   * The impression, recorded where the surface is actually drawn.
+   *
+   * It used to fire at the FETCH, which counted "we asked the server" as
+   * "somebody saw suggestions" - including every empty result, for a list that
+   * renders nothing when it is empty. The first step of the growth funnel was
+   * measuring the wrong thing, in the direction that flatters it.
+   *
+   * `seen` is a ref rather than state so a re-render cannot emit a second time,
+   * and it lives for this mount. One open of the find-friends surface is one
+   * impression, which is what a person would count.
+   */
+  const seen = useRef(false)
+  useEffect(() => {
+    if (seen.current) return
+    if (!suggestions || suggestions.length === 0) return
+    seen.current = true
+    client.track('friend_suggestion_impression', {
+      suggestion_count: suggestions.length,
+      top_mutual_bucket: mutualBucket(suggestions[0].mutualCount),
+    })
+  }, [client, suggestions])
+
   async function add(suggestion: FriendSuggestion, position: number) {
     setBusyUserId(suggestion.userId)
     setError(null)
@@ -77,9 +100,33 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
     }
   }
 
-  // Nothing to say yet, or genuinely nobody to suggest. Neither deserves an
-  // empty-state lecture - the invite section below is the real answer.
-  if (!suggestions || suggestions.length === 0) return null
+  // Still loading. Nothing yet is better than a flash of "nobody to suggest".
+  if (!suggestions) return null
+
+  /*
+   * Nobody to suggest, said out loud.
+   *
+   * This used to render null, which is the one thing it must not do HERE. The
+   * user has deliberately opened the find-friends surface; silence leaves them
+   * unable to tell whether the feature is empty, broken, or absent - and it is
+   * empty exactly when they are new, because suggestions come from friends of
+   * friends and a new account has neither.
+   *
+   * So it says why, and points at the two things that do work from a standing
+   * start: searching for somebody, and inviting somebody who is not here yet.
+   */
+  if (suggestions.length === 0) {
+    return (
+      <div className="kb-suggestions">
+        <div className="kb-section-label">People you may know</div>
+        <div className="kb-quiet-sub">
+          Nobody to suggest yet. Watchside suggests people your friends already
+          know, so this fills up as you add a few. Search for somebody above, or
+          invite a friend below.
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="kb-suggestions">
