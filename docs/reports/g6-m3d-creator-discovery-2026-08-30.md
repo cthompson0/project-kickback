@@ -6564,3 +6564,102 @@ understood.
 Slice E should begin with the coverage question, not the headline: of eligible
 JOINs, how many produced an observation, and is what is missing missing at
 random?
+
+---
+
+## 270. First real JOIN — NOT RECORDED, and why
+
+**relationship baseline recorded: NO.**
+
+The owner performed a real socially attributed JOIN. Twitch opened normally.
+**Zero observations were written**, and nothing about the failure was visible
+from outside.
+
+### What production actually showed
+
+The observation table was empty, which by itself has four indistinguishable
+explanations. So the owner-gated diagnostic was extended to read recent
+`join_clicked` rows — shape only, no channel, no ids — and the answer was
+immediate:
+
+```
+occurred_at 2026-09-01T00:52:09.812Z  source=social_gravity
+has_attribution=true  has_destination=true  social_count=1
+eligible=true         observations=0
+```
+
+The canonical JOIN was **durable, attributed and eligible**. So this was not
+"no JOIN", not an ineligible surface, and not a server refusal of a bad
+attribution. It was a JOIN that the client silently declined to measure.
+
+The shipped bundle was ruled out as a second cause: `measureRelationship`
+appears in `dist/kickback-background.js`, built at 15:59 local, and the JOIN was
+at 17:52 local. The owner was running the right build.
+
+### The defect
+
+**Mine, introduced in this slice.** The acknowledgement gate (§251) read
+`recorder.pending()` after `flush()`. Reading `analytics.ts` again with that in
+mind:
+
+```ts
+async function run() {
+  if (sending || queue.length === 0) return   // ← returns early
+  ...
+}
+async flush() { clearTimer(); await run() }
+```
+
+When a send is already in flight, `run()` returns immediately, `flush()`
+resolves **with the caller's event still queued**, and `pending()` reads
+non-zero. The gate then correctly concludes "not acknowledged" — about a write
+that was merely waiting its turn.
+
+At a JOIN that is not an edge case, it is the **normal** case: Social Gravity
+impressions are always on the five-second flush timer, so a send is usually
+open when the click lands. §251 called the gate "conservative"; it was in fact
+conservative to the point of **almost never measuring anything**, while every
+test passed and no error was raised anywhere.
+
+Proven before changing anything, with a throwaway probe holding a send open:
+
+```
+PENDING AFTER FLUSH WHILE SENDING: 1
+```
+
+### The fix
+
+Narrow, in `analytics.ts`:
+
+* `run()` returns the **in-flight promise** instead of `undefined`, so a second
+  caller awaits the same work rather than silently doing nothing.
+* `flush()` makes **two passes**: the first awaits whatever was already sending,
+  the second sends what the caller just queued.
+
+The gate is unchanged and still conservative — it skips rather than guesses, and
+the server still re-verifies independently. It can now actually succeed.
+
+### Coverage
+
+Regression test in `analyticsRecorder.test.ts`, where a send can be held open —
+the faithful reproduction. New mutation lever `trigger: let flush return while an
+earlier send is still in flight` restores the single pass and is **DETECTED**.
+
+The hub-level test was **relabelled rather than left flattering**: it cannot
+reproduce the overlap without driving the five-second timer, so it proves a JOIN
+follows an impression correctly and says so, instead of claiming to defend a bug
+it does not. A test that looks like proof it is not is worse than no test.
+
+### Lesson worth keeping
+
+The Slice D gate was mutation-proven, and the mutation proved the wrong thing:
+that the gate *refuses* when unacknowledged. Nothing proved it ever *accepts*
+under realistic timing. **A guard tested only in its refusing direction is a
+guard that can silently refuse everything.**
+
+### Status
+
+Deterministic gates re-run green: 2,663 tests / 105 files, 35/35 mutations, lint
+and `tsc` clean, known debt unchanged. Fix shipped in the local build.
+
+**Slice D remains NOT GO.** One more real JOIN is required.
