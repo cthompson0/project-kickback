@@ -38,6 +38,8 @@ const RECORDER_SUITE = 'tests/extension/analyticsRecorder.test.ts'
 const BACKEND = 'src/background/supabaseBackend.ts'
 const TRIGGER_SUITE = 'tests/extension/joinRelationshipTrigger.test.ts'
 const PRIVACY = 'docs/PRIVACY.md'
+const PRECONDITIONS = 'scripts/m3d-acceptance/preconditions.mjs'
+const PRECONDITION_SUITE = 'tests/extension/acceptancePreconditions.test.ts'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -445,6 +447,33 @@ create policy twitch_credentials_read on public.twitch_credentials
     from: `**Did this person already follow this creator?**`,
     to: `> (nothing is asked)`,
     expect: 'a production relationship caller requires the policy to describe it',
+  },
+
+  // ------------------------------------ the acceptance precondition guard
+  {
+    // THE GUARD THAT DID NOT EXIST, REMOVED AGAIN.
+    //
+    // Without it an acceptance run spends a real human JOIN on an account that
+    // holds no credential, measures nothing, and reports a mystery. That is not
+    // hypothetical - it happened twice before this check was written.
+    name: 'acceptance: begin a JOIN for an actor with no credential',
+    file: PRECONDITIONS,
+    suite: PRECONDITION_SUITE,
+    from: `  if (snapshot.has_credential !== true) {
+    return { ok: false, reason: 'no_credential' }
+  }`,
+    to: '',
+    expect: 'refuses an actor with no stored Twitch credential',
+  },
+  {
+    // The guard stops failing closed: an unrecognised or missing readiness
+    // sails past instead of stopping the run.
+    name: 'acceptance: treat any non-ready state as good enough',
+    file: PRECONDITIONS,
+    suite: PRECONDITION_SUITE,
+    from: "  if (snapshot.readiness !== 'ready') {",
+    to: "  if (snapshot.readiness === 'needs_reauthorization') {",
+    expect: 'refuses every non-ready state, and names which one',
   },
 
   // ------------------------------------------------------------------- O7

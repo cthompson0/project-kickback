@@ -6756,3 +6756,230 @@ live.
 **Slice D remains NOT GO.** It is blocked on a precondition, not a defect: the
 account used for acceptance must hold a Twitch credential carrying
 `user:read:follows`.
+
+---
+
+# SLICE D — AUTOMATED CREDENTIALED ACCEPTANCE
+
+*Appended 2026-09-01. §1–§271 stand unchanged; corrections are appended, never
+rewritten.*
+
+## 272. Why this was needed
+
+Two real human JOINs were spent, and neither produced a baseline. Both times the
+JOIN itself was flawless and the discovery was setup state:
+
+| Attempt | What was actually wrong | Could a JOIN have revealed it? |
+| --- | --- | --- |
+| §270 | mis-attributed to a flush bug | no |
+| §271 | the account clicking JOIN held **no Twitch credential** | no — the product correctly says nothing |
+
+The second is the important one. An actor with no credential resolves to
+`needs_reauthorization`, the client declines, nothing is recorded, and **nothing
+anywhere looks wrong** — which is right for a user and useless for acceptance.
+No amount of code inspection would have found it. One server query answers it in
+milliseconds.
+
+**Manual JOINs were being used to discover state a query could have established
+beforehand.** That is the failure corrected here, and it is a harness failure,
+not a product one.
+
+## 273. Automation feasibility — the infrastructure already existed
+
+Inspecting `scripts/firefox-e2e/` before writing anything found that **the hard
+parts were already built** by the F5 work:
+
+| Capability | Status |
+| --- | --- |
+| two authenticated actors, isolated profiles | `seeds.local.json`, gitignored, A and B |
+| disposable copies, never the seed itself | `createProfile({ seed })` |
+| driving a real browser and real extension | `harness.mjs` — `launch` / `page` / `bg` |
+| Actor B watching a channel, publishing presence | `05-social.mjs`, asserted against the server |
+| Actor A seeing a Social Gravity card | asserted against the **rendered card** |
+| **Actor A clicking the real JOIN button** | `agents.mjs` `join` — finds the named channel's card, clicks `button.kb-join` |
+| arrival assertion | present |
+| identifying which account each seed is | `identify-actors.mjs` |
+
+Social presence and the JOIN click were **already automated**, against real
+accounts, through the production control. Neither needed inventing.
+
+**Verdict: automation is feasible, and nearly all of it already existed.** What
+was missing was not browser automation. It was a precondition gate and
+server-side observation assertions.
+
+## 274. What was built
+
+### `scripts/m3d-acceptance/preconditions.mjs`
+
+A **pure function**, `decidePreconditions(snapshot)`, deliberately separate from
+the code that acts on it so every failure shape is unit-testable and mutable.
+Checked in order: actor known, credential exists, Twitch account connected,
+readiness is `ready`, follow scope present, no unexpected scopes.
+
+It **fails closed**. A snapshot missing a field, or carrying a truthy-but-wrong
+value such as `'yes'`, refuses. A future server that drops a field stops the run
+rather than sailing past it.
+
+### `scripts/m3d-acceptance/run.mjs` — `npm run verify:m3d`
+
+Layered as required: **ordinary `npm test` stays fakes-only** and this is
+explicitly invoked. A test asserts that separation.
+
+1. launch seeds A and B, identify both from the running extension
+2. **ask the server about Actor A specifically**, and refuse before driving any
+   further if the answer is not measurable
+3. record that actor's observation baseline
+4. B watches and publishes presence; A sees the card
+5. **A clicks the real JOIN button**
+6. assert navigation, and that click-to-arrival was well inside a Twitch round
+   trip
+7. poll for exactly one new observation, bound to a real JOIN of that actor,
+   aimed at that creator, socially initiated, taken inside the window
+8. replay the relationship action for the same attribution; assert it reports
+   `recorded` and creates nothing
+
+Nothing inserts an analytics row, mints an attribution, or fabricates an
+observation — asserted by a test that forbids those strings in the harness.
+
+### Server: per-actor diagnostics
+
+`acceptance_preconditions` (keyed by `actor_id`) and `relationship_replay`, both
+owner-gated. `observation_shape` is now scoped to an actor when asked — the
+conflation of "the credential" with "the actor under test" is exactly what hid
+§271, so scoping is the fix rather than a convenience.
+
+**Idempotency is performed, not asserted.** `relationship_replay` goes through
+the same `recordRelationship` the production caller uses.
+
+## 275. Why the guard would have prevented both wasted JOINs
+
+Proven, not claimed. Run against the current world:
+
+```
+  identity
+  PRECONDITION NOT MET: seed profile A is not signed in to Watchside.
+      Sign in once, by hand, in that profile: …
+  NO JOIN WAS SPENT.
+
+exit=3
+```
+
+And the server endpoint, asked about an actor that does not exist:
+
+```json
+{"actor_known":false,"has_credential":false,"has_follows_scope":false,
+ "twitch_account_connected":false,"readiness":"needs_reauthorization",
+ "observations_baseline":0}
+```
+
+Note that `readiness` alone reports `needs_reauthorization` for an actor that
+does not exist at all — which is precisely why `actor_known` and
+`has_credential` are checked separately rather than inferred from readiness.
+
+A distinct exit code (**3**) separates "the run never started" from "the product
+misbehaved", so nothing downstream can confuse them.
+
+## 276. Human interaction budget
+
+**Steady state: ZERO human actions per acceptance run.**
+
+The one remaining human step is the **seed OAuth bootstrap**, which the brief
+permits — and it is currently outstanding, because both seed sessions have
+expired since 29 August:
+
+```
+Actor A  session key present but not signed in
+Actor B  signed out
+```
+
+### Why this specific step is not automated
+
+Not "manual testing is valuable" — two concrete limitations:
+
+* Signing in requires completing **Twitch's own OAuth**, which means Twitch's
+  login page and potentially a password and 2FA. Automating it would mean
+  storing the owner's Twitch credentials somewhere a script can reach them —
+  exactly what O7 and the whole custody design exist to avoid. **The automation
+  would have to hold the secret the architecture is built never to hold.**
+* The harness is deliberately built so it **never opens a seed profile**, only
+  disposable copies, so a sign-in performed during a run is discarded by design.
+  That property is what stops a run expiring or corrupting the seeds, and it is
+  worth more than saving the bootstrap.
+
+The bootstrap is therefore bounded and infrequent — once per profile, per
+session lifetime — and everything after it is automated and repeatable.
+
+**One thing it buys for free:** signing in now requests `user:read:follows` on
+the ordinary consent screen (§230), so a freshly re-authenticated seed A gets a
+credential **with the scope already on it**. The bootstrap and the credential
+requirement are satisfied by the same action.
+
+## 277. Real-data safety
+
+* The harness prints `relationship baseline recorded: YES` and `actual follow
+  state exposed: NO`, and nothing else about the answer.
+* It asserts `answered === true` — that `relationship_present` is **not null** —
+  and the diagnostic never returns the value, so the harness could not print it
+  if it tried. A test checks the forbidden strings against the harness's
+  `console.log` lines specifically rather than the whole file, so the guard that
+  asserts the field is *absent* does not have to be deleted to satisfy it.
+* The admin token is read from `WATCHSIDE_ADMIN_TOKEN`, never defaulted,
+  committed or printed. The harness reads no Twitch token at all — the
+  credential never leaves the server.
+* No fake observations are created. The run produces exactly one real
+  observation from one real JOIN, which is a legitimate product event rather
+  than test litter, and G6/D7 semantics are untouched.
+
+## 278. Regression coverage
+
+`tests/extension/acceptancePreconditions.test.ts` — **16 tests**: every refusal,
+the fail-closed behaviour, the ordering (preconditions before JOIN, read from the
+source), that a failure stops rather than warns, that the run uses the real JOIN
+control, that nothing secret is printed, and that it stays out of `npm test`.
+
+The §270 in-flight analytics condition is retained in
+`tests/extension/analyticsRecorder.test.ts` with its own lever.
+
+Full suite: **2,679 tests / 106 files, 0 failures.** `tsc` and `eslint` clean.
+
+## 279. Mutation proofs
+
+`npm run test:destruction` — **37 of 37 DETECTED** (was 35).
+
+| New lever | Caught by |
+| --- | --- |
+| `acceptance: begin a JOIN for an actor with no credential` | refuses an actor with no stored Twitch credential |
+| `acceptance: treat any non-ready state as good enough` | refuses every non-ready state, and names which one |
+
+The harness ran once, uninterrupted; `git status` before and after listed the
+same files.
+
+## 280. Deltas
+
+| | |
+| --- | --- |
+| schema | **33** — unchanged, no migration |
+| extension version | **0.7.0** — not bumped |
+| Chrome permissions / host permissions | unchanged |
+| Firefox data categories | `authenticationInfo`, `browsingActivity`, `personalCommunications`, `websiteActivity` — unchanged; technical NO, financial NO |
+| production relationship callers | 1 |
+| production observations | **0** |
+| privacy disclosure | live and current |
+| known debt | analytics 6 · presence 0 · layout 0 · lab 11 — unchanged |
+
+The only production code touched is the owner-gated diagnostic branch of the
+Edge Function. No user-facing behaviour changed.
+
+## 281. Slice D verdict
+
+**NOT GO**, blocked on one bounded human bootstrap.
+
+Everything that can be automated now is: preconditions, presence, the JOIN, the
+observation assertions and the idempotency proof. The single outstanding action
+is signing the two seed profiles back in — after which `npm run verify:m3d`
+completes acceptance with no human involvement, and is reusable for every future
+M3D regression rather than being a Slice D one-off.
+
+**No further manual JOINs will be requested.** If the seeds are re-authenticated
+and the run still fails, it fails with a named precondition or a named
+assertion, having spent nothing.

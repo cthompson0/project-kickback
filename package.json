@@ -42,7 +42,8 @@
     "brand:svg": "node scripts/render-brand.mjs",
     "brand": "npm run brand:svg && npm run brand:icons",
     "verify:brand": "node scripts/render-brand.mjs --check && node scripts/render-icons.mjs --check",
-    "brand:social": "node scripts/render-social.mjs"
+    "brand:social": "node scripts/render-social.mjs",
+    "verify:m3d": "node scripts/m3d-acceptance/run.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

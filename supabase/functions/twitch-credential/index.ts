@@ -394,12 +394,24 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
  * to a `join_clicked` owned by the same actor, and the destination recorded on
  * that JOIN is compared to the creator the observation names.
  */
-async function observationShape(admin: SupabaseClient): Promise<Record<string, unknown>> {
-  const { data, error } = await admin
+async function observationShape(
+  admin: SupabaseClient,
+  actorId: string | null = null,
+): Promise<Record<string, unknown>> {
+  /*
+   * Scoped to one actor when asked.
+   *
+   * An acceptance run must count THIS actor's observations, not everybody's -
+   * conflating the two is precisely how "the credential is ready" came to be
+   * believed about an account that was not the one under test.
+   */
+  let query = admin
     .from('creator_relationship_observations')
     .select('actor_id, broadcaster_login, attribution_id, observed_at, relationship_present, relationship_type')
     .order('observed_at', { ascending: false })
     .limit(25)
+  if (actorId) query = query.eq('actor_id', actorId)
+  const { data, error } = await query
   if (error) return { error: 'db_unavailable' }
 
   const rows = (data ?? []) as {
@@ -437,6 +449,9 @@ async function observationShape(admin: SupabaseClient): Promise<Record<string, u
       // Whether a real Twitch answer was recorded. NEVER which answer.
       answered: row.relationship_present !== null,
       relationship_type: row.relationship_type,
+      // A random id the client minted. Not a secret, and the acceptance run
+      // needs it to prove a repeat is idempotent against the same JOIN.
+      attribution_id: row.attribution_id,
       has_attribution: row.attribution_id !== null,
       // The JOIN exists, is this actor's, and was aimed at this creator.
       join_found: Boolean(join),
@@ -464,12 +479,14 @@ async function observationShape(admin: SupabaseClient): Promise<Record<string, u
    * Shape only: whether things are present, a count of people, a source name,
    * and timestamps. No channel, no ids, no properties.
    */
-  const { data: joins } = await admin
+  let joinQuery = admin
     .from('analytics_events')
     .select('actor_id, occurred_at, destination_channel, attribution_id, source, properties')
     .eq('event_name', 'join_clicked')
     .order('occurred_at', { ascending: false })
     .limit(15)
+  if (actorId) joinQuery = joinQuery.eq('actor_id', actorId)
+  const { data: joins } = await joinQuery
 
   const { data: credRows } = await admin.from('twitch_credentials').select('actor_id')
   const credentialActors = new Set(((credRows ?? []) as { actor_id: string }[]).map((r) => r.actor_id))
@@ -600,6 +617,88 @@ async function relationshipProbe(admin: SupabaseClient, now: number): Promise<Re
     attribution_reason: check.ok ? null : check.reason,
     join_age_ms: now - Date.parse(join.occurred_at),
   }
+}
+
+/**
+ * Everything an automated acceptance run must know BEFORE it spends a JOIN.
+ *
+ * Owner-only, and keyed by the actor actually under test rather than by
+ * "whichever credential row comes first". That distinction is the whole point:
+ * two human JOINs were spent discovering that the account clicking JOIN and the
+ * account holding the credential were different accounts, which no amount of
+ * code inspection would have revealed and one query answers.
+ *
+ * It returns only what a decision needs - booleans, a state word, and counts.
+ */
+async function acceptancePreconditions(
+  admin: SupabaseClient,
+  actorId: string,
+): Promise<Record<string, unknown>> {
+  const { data: userRow } = await admin
+    .from('users')
+    .select('id')
+    .eq('id', actorId)
+    .maybeSingle()
+
+  const credential = await readCredential(admin, actorId)
+  const scopes = credential?.scopes ?? []
+
+  const { data: connected } = await admin
+    .from('connected_accounts')
+    .select('platform_user_id')
+    .eq('user_id', actorId)
+    .eq('platform', 'twitch')
+    .maybeSingle()
+
+  const { count: observations } = await admin
+    .from('creator_relationship_observations')
+    .select('*', { count: 'exact', head: true })
+    .eq('actor_id', actorId)
+
+  return {
+    actor_known: userRow !== null,
+    has_credential: credential !== null,
+    credential_status: credential?.status ?? null,
+    has_follows_scope: scopes.includes(FOLLOWS_SCOPE),
+    unexpected_scopes: scopes.filter(
+      (scope) => scope !== FOLLOWS_SCOPE && scope !== 'user:read:email',
+    ).length,
+    twitch_account_connected: Boolean(
+      (connected as { platform_user_id?: string } | null)?.platform_user_id,
+    ),
+    readiness: readinessFor({
+      hasCredential: credential !== null,
+      status: credential?.status ?? '',
+      scopes,
+    }),
+    observations_baseline: observations ?? 0,
+  }
+}
+
+/**
+ * Re-runs the relationship action for a JOIN that already has a baseline.
+ *
+ * The idempotency proof, performed rather than asserted. It goes through the
+ * SAME recordRelationship the production caller uses, so the guarantee being
+ * demonstrated is the real one: a second attempt finds the existing row, makes
+ * no Twitch call, and creates nothing.
+ *
+ * Returns the coarse state only, exactly as a client would receive it.
+ */
+async function relationshipReplay(
+  admin: SupabaseClient,
+  actorId: string,
+  broadcasterLogin: string,
+  attributionId: string,
+  now: number,
+): Promise<Record<string, unknown>> {
+  const result = await recordRelationship(admin, actorId, broadcasterLogin, attributionId, now)
+  const { count } = await admin
+    .from('creator_relationship_observations')
+    .select('*', { count: 'exact', head: true })
+    .eq('actor_id', actorId)
+    .eq('attribution_id', attributionId)
+  return { ...toClientResponse(result), observations: count ?? 0 }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -796,13 +895,34 @@ Deno.serve(async (request: Request) => {
     if (
       body.action === 'credential_shape' ||
       body.action === 'observation_shape' ||
-      body.action === 'relationship_probe'
+      body.action === 'relationship_probe' ||
+      body.action === 'acceptance_preconditions' ||
+      body.action === 'relationship_replay'
     ) {
       const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
       })
       if (body.action === 'credential_shape') return json(await credentialShape(admin))
-      if (body.action === 'observation_shape') return json(await observationShape(admin))
+      if (body.action === 'observation_shape') {
+        const actor = typeof body.actor_id === 'string' && UUID.test(body.actor_id)
+          ? body.actor_id
+          : null
+        return json(await observationShape(admin, actor))
+      }
+      if (body.action === 'acceptance_preconditions') {
+        const actor = typeof body.actor_id === 'string' ? body.actor_id : ''
+        if (!UUID.test(actor)) return json({ error: 'bad_request' }, 400)
+        return json(await acceptancePreconditions(admin, actor))
+      }
+      if (body.action === 'relationship_replay') {
+        const actor = typeof body.actor_id === 'string' ? body.actor_id : ''
+        const login = normalizeLogin(body.broadcaster_login)
+        const attribution = typeof body.attribution_id === 'string' ? body.attribution_id : ''
+        if (!UUID.test(actor) || !login || !UUID.test(attribution)) {
+          return json({ error: 'bad_request' }, 400)
+        }
+        return json(await relationshipReplay(admin, actor, login, attribution, Date.now()))
+      }
       return json(await relationshipProbe(admin, Date.now()))
     }
     return json({ error: 'bad_request' }, 400)
