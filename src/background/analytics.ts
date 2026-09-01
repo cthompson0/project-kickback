@@ -100,7 +100,15 @@ export function createAnalyticsRecorder(deps: AnalyticsRecorderDeps): AnalyticsR
 
   const queue: AnalyticsEvent[] = []
   let timer: unknown = null
-  let sending = false
+  /**
+   * The send currently in progress, or null.
+   *
+   * A boolean was enough while nothing could ask "did my event land". It is not
+   * enough now: a caller that flushes while a scheduled send is in flight has to
+   * be able to WAIT for it rather than be told "busy" and left holding a queued
+   * event. Holding the promise is what makes that possible.
+   */
+  let inFlight: Promise<void> | null = null
   let backoffMs = 0
 
   function scheduleFlush(delayMs: number): void {
@@ -111,11 +119,24 @@ export function createAnalyticsRecorder(deps: AnalyticsRecorderDeps): AnalyticsR
     }, delayMs)
   }
 
-  async function run(): Promise<void> {
-    if (sending || queue.length === 0) return
-    if (!deps.enabled || !deps.canSend()) return
+  /**
+   * Sends one batch, and returns the send already running if there is one.
+   *
+   * Returning the in-flight promise rather than `undefined` is the whole change:
+   * a second caller now awaits the same work instead of silently doing nothing,
+   * which is what lets flush() mean "the queue was given a real chance to
+   * drain" rather than "a send happened to not be busy just then".
+   */
+  function run(): Promise<void> {
+    if (inFlight) return inFlight
+    if (queue.length === 0) return Promise.resolve()
+    if (!deps.enabled || !deps.canSend()) return Promise.resolve()
 
-    sending = true
+    inFlight = send()
+    return inFlight
+  }
+
+  async function send(): Promise<void> {
     const batch = queue.splice(0, maxBatch)
 
     try {
@@ -139,7 +160,7 @@ export function createAnalyticsRecorder(deps: AnalyticsRecorderDeps): AnalyticsR
        */
       backoffMs = Math.min(backoffMs === 0 ? flushDelayMs * 2 : backoffMs * 2, MAX_BACKOFF_MS)
     } finally {
-      sending = false
+      inFlight = null
     }
 
     if (queue.length > 0) scheduleFlush(backoffMs || flushDelayMs)
@@ -188,11 +209,28 @@ export function createAnalyticsRecorder(deps: AnalyticsRecorderDeps): AnalyticsR
       scheduleFlush(backoffMs || flushDelayMs)
     },
 
+    /**
+     * Sends what is queued, and waits for a send already under way first.
+     *
+     * TWO PASSES, DELIBERATELY.
+     *
+     * The first awaits whatever was already in flight - a scheduled flush of
+     * earlier events, which is the ordinary state of the world at the moment
+     * somebody clicks JOIN. The second sends what the caller queued just now,
+     * which the first pass had already spliced past.
+     *
+     * One pass was not enough, and the way that failed is worth remembering: it
+     * returned early on a "busy" flag, so `flush()` resolved with the caller's
+     * event still queued. Anything reading `pending()` afterwards concluded the
+     * write had not landed - which, for the M3D JOIN trigger, meant declining to
+     * measure on almost every real JOIN while looking entirely correct.
+     */
     async flush(): Promise<void> {
       if (timer !== null) {
         clearTimer(timer)
         timer = null
       }
+      await run()
       await run()
     },
 

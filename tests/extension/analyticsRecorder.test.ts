@@ -230,3 +230,53 @@ describe('what goes on the wire', () => {
     expect(h.recorder.pending()).toBe(0)
   })
 })
+
+/**
+ * The "busy" bug, kept dead.
+ *
+ * `flush()` used to return early whenever a send was already under way, leaving
+ * the caller's event queued and `pending()` non-zero. Anything that read the
+ * queue afterwards to decide whether a write had landed - which is exactly what
+ * the M3D JOIN trigger does - drew the wrong conclusion on almost every real
+ * JOIN, silently.
+ */
+describe('flush waits for a send already in progress', () => {
+  it('drains an event queued while an earlier batch is still sending', async () => {
+    let release: () => void = () => {}
+    const batches: number[] = []
+    const recorder = createAnalyticsRecorder({
+      backend: {
+        async send(events) {
+          batches.push(events.length)
+          if (batches.length === 1) {
+            await new Promise<void>((resolve) => {
+              release = resolve
+            })
+          }
+          return events.length
+        },
+      },
+      environment: 'private_beta',
+      appVersion: '0.7.0',
+      enabled: true,
+      sessionId: () => 'session-1',
+      canSend: () => true,
+      now: () => 1_700_000_000_000,
+      flushDelayMs: 1,
+    })
+
+    recorder.track({ name: 'extension_session_started', properties: {}, channel: null })
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(batches).toHaveLength(1)
+
+    // Queued while the first send is still open, then flushed.
+    recorder.track({ name: 'join_clicked', properties: { social_count: 1 }, source: 'social_gravity', channel: 'lirik' })
+    const flushed = recorder.flush()
+    release()
+    await flushed
+
+    // The queue actually drained, which is what "acknowledged" is read from.
+    expect(recorder.pending()).toBe(0)
+    expect(batches).toHaveLength(2)
+  })
+})

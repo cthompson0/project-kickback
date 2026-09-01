@@ -353,6 +353,138 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
   }
 }
 
+/**
+ * Whether the first production baselines are what they claim to be, described
+ * without being revealed.
+ *
+ * Owner-only, and built for one job: proving Slice D's acceptance against
+ * production rather than against a reading of the code. Every field is a count,
+ * a boolean or a timestamp.
+ *
+ * THE FIELD THAT IS NOT HERE
+ *
+ * `relationship_present`. Its VALUE is the one thing this whole boundary exists
+ * to keep server-side, and an owner-only diagnostic is not an exception - a
+ * value printed into a terminal, a report or a transcript has left the server.
+ * What acceptance actually needs is whether a real answer was recorded, so this
+ * returns `answered`: true when the column is non-null. That distinguishes "we
+ * asked Twitch and got an answer" from "we wrote a row without one", which is
+ * the failure that would matter, and it says nothing about which answer it was.
+ *
+ * The joins are checked HERE rather than trusted: an observation is matched back
+ * to a `join_clicked` owned by the same actor, and the destination recorded on
+ * that JOIN is compared to the creator the observation names.
+ */
+async function observationShape(admin: SupabaseClient): Promise<Record<string, unknown>> {
+  const { data, error } = await admin
+    .from('creator_relationship_observations')
+    .select('actor_id, broadcaster_login, attribution_id, observed_at, relationship_present, relationship_type')
+    .order('observed_at', { ascending: false })
+    .limit(25)
+  if (error) return { error: 'db_unavailable' }
+
+  const rows = (data ?? []) as {
+    actor_id: string
+    broadcaster_login: string
+    attribution_id: string | null
+    observed_at: string
+    relationship_present: boolean | null
+    relationship_type: string
+  }[]
+
+  const shapes = []
+  for (const row of rows) {
+    /*
+     * The JOIN behind it, read back the same way the writer had to.
+     *
+     * `join_context_for_attribution` is scoped to the actor in its own WHERE
+     * clause, so an observation whose attribution belongs to somebody else
+     * finds nothing here - which is exactly the forgery the binding prevents,
+     * checked from the other end.
+     */
+    const { data: context } = await admin.rpc('join_context_for_attribution', {
+      p_actor: row.actor_id,
+      p_attribution: row.attribution_id,
+    })
+    const join = Array.isArray(context) ? context[0] : null
+
+    const { count: siblings } = await admin
+      .from('creator_relationship_observations')
+      .select('*', { count: 'exact', head: true })
+      .eq('actor_id', row.actor_id)
+      .eq('attribution_id', row.attribution_id)
+
+    shapes.push({
+      // Whether a real Twitch answer was recorded. NEVER which answer.
+      answered: row.relationship_present !== null,
+      relationship_type: row.relationship_type,
+      has_attribution: row.attribution_id !== null,
+      // The JOIN exists, is this actor's, and was aimed at this creator.
+      join_found: Boolean(join),
+      destination_matches: join?.destination_channel === row.broadcaster_login,
+      socially_initiated: (join?.social_count ?? 0) > 0,
+      observations_for_this_attribution: siblings ?? 0,
+      join_occurred_at: join?.occurred_at ?? null,
+      observed_at: row.observed_at,
+      // How long after the click the baseline was taken. The whole meaning of
+      // the column "at join" rests on this being small.
+      baseline_lag_ms: join?.occurred_at
+        ? Date.parse(row.observed_at) - Date.parse(join.occurred_at)
+        : null,
+    })
+  }
+
+  /*
+   * The JOINs themselves, so "no observation" can be told apart from "no JOIN".
+   *
+   * Without this, an empty observation table has at least four explanations -
+   * the click never reached the server, it was not socially initiated, the
+   * trigger declined, or the server refused - and they are indistinguishable
+   * from outside. Each of these fields answers exactly one of them.
+   *
+   * Shape only: whether things are present, a count of people, a source name,
+   * and timestamps. No channel, no ids, no properties.
+   */
+  const { data: joins } = await admin
+    .from('analytics_events')
+    .select('actor_id, occurred_at, destination_channel, attribution_id, source, properties')
+    .eq('event_name', 'join_clicked')
+    .order('occurred_at', { ascending: false })
+    .limit(15)
+
+  const recentJoins = []
+  for (const join of (joins ?? []) as {
+    actor_id: string
+    occurred_at: string
+    destination_channel: string | null
+    attribution_id: string | null
+    source: string | null
+    properties: Record<string, unknown> | null
+  }[]) {
+    const socialCount = Number(join.properties?.social_count ?? 0)
+    const { count: observed } = join.attribution_id
+      ? await admin
+          .from('creator_relationship_observations')
+          .select('*', { count: 'exact', head: true })
+          .eq('actor_id', join.actor_id)
+          .eq('attribution_id', join.attribution_id)
+      : { count: 0 }
+
+    recentJoins.push({
+      occurred_at: join.occurred_at,
+      source: join.source,
+      has_destination: join.destination_channel !== null,
+      has_attribution: join.attribution_id !== null,
+      social_count: Number.isFinite(socialCount) ? socialCount : 0,
+      // What the eligibility gate would have decided from the stored event.
+      eligible: join.attribution_id !== null && join.destination_channel !== null && socialCount > 0,
+      observations: observed ?? 0,
+    })
+  }
+
+  return { rows: rows.length, shapes, recent_joins: recentJoins }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
@@ -544,11 +676,15 @@ Deno.serve(async (request: Request) => {
   // Owner-only inspection, in its own header, checked before anything else.
   const presentedAdmin = request.headers.get('x-watchside-admin') ?? ''
   if (ADMIN_TOKEN && presentedAdmin && presentedAdmin === ADMIN_TOKEN) {
-    if (body.action === 'credential_shape') {
+    if (body.action === 'credential_shape' || body.action === 'observation_shape') {
       const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
       })
-      return json(await credentialShape(admin))
+      return json(
+        body.action === 'credential_shape'
+          ? await credentialShape(admin)
+          : await observationShape(admin),
+      )
     }
     return json({ error: 'bad_request' }, 400)
   }

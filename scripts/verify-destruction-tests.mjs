@@ -33,6 +33,8 @@ const MIGRATION = 'supabase/migrations/0032_destruction_paths.sql'
 const STORAGE = 'src/background/storage.ts'
 
 const HUB = 'src/background/analyticsHub.ts'
+const RECORDER = 'src/background/analytics.ts'
+const RECORDER_SUITE = 'tests/extension/analyticsRecorder.test.ts'
 const BACKEND = 'src/background/supabaseBackend.ts'
 const TRIGGER_SUITE = 'tests/extension/joinRelationshipTrigger.test.ts'
 const PRIVACY = 'docs/PRIVACY.md'
@@ -359,6 +361,21 @@ create policy twitch_credentials_read on public.twitch_credentials
     to: `        await deps
           .measureRelationship({ broadcasterLogin: channel, attributionId: minted!.id })`,
     expect: 'does not hold the analytics queue while it measures',
+  },
+  {
+    // THE BUG THAT COST THE FIRST REAL ACCEPTANCE, restored.
+    //
+    // One pass instead of two: flush() returns with the caller's event still
+    // queued whenever a send was already in flight, which at a JOIN is the
+    // ordinary state of the world. Eligible JOINs then measure nothing, and
+    // nothing anywhere looks wrong.
+    name: 'trigger: let flush return while an earlier send is still in flight',
+    file: RECORDER,
+    suite: RECORDER_SUITE,
+    from: `      await run()
+      await run()`,
+    to: `      await run()`,
+    expect: 'drains an event queued while an earlier batch is still sending',
   },
   {
     // The ordering guarantee Slice B left open. Measuring before the canonical

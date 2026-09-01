@@ -46,6 +46,15 @@ function harness(
     failMeasurement?: boolean
     /** Models the analytics backend being down when the JOIN is recorded. */
     failAnalytics?: boolean
+    /**
+     * Makes the FIRST send stay open across a tick.
+     *
+     * This is what a real JOIN looks like: Gravity impressions are already on
+     * the flush timer, so the click arrives while a send is in flight. Without
+     * it the harness resolves instantly and the overlap - the thing that broke
+     * the first real acceptance - never happens.
+     */
+    slowFirstSend?: boolean
   } = {},
 ) {
   let clock = 1_700_000_000_000
@@ -67,6 +76,9 @@ function harness(
     backend: {
       async send(events) {
         if (failAnalytics) throw new Error('analytics backend down')
+        if (options.slowFirstSend && sent.length === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 5))
+        }
         sent.push(...events)
         return events.length
       },
@@ -356,6 +368,36 @@ describe('what never gets measured', () => {
     // A NEW JOIN is measured, because it is a new question.
     h.hub.recordJoin(SOCIAL_JOIN)
     await h.settle()
+    expect(h.measured).toHaveLength(1)
+    h.restore()
+  })
+
+  /**
+   * A JOIN following a Gravity impression in the same worker life, which is the
+   * ordinary real sequence - the card is seen, then clicked.
+   *
+   * This does NOT reproduce the bug that cost the first real acceptance: the
+   * impression's flush is on a five-second timer that has not fired by the time
+   * the JOIN arrives here, so no send is actually in flight. The faithful
+   * reproduction, and the mutation lever for it, live in
+   * analyticsRecorder.test.ts where a send can be held open. Said plainly
+   * because a test that looks like it proves something it does not is worse
+   * than no test at all.
+   */
+  it('measures a JOIN that follows a Gravity impression', async () => {
+    const h = harness({ slowFirstSend: true })
+
+    // An impression, and its scheduled flush under way, exactly as Gravity
+    // produces before somebody clicks anything.
+    h.hub.noteExposure({
+      friends: [],
+      gatherings: [],
+      gravity: [{ channel: 'lirik', friendCount: 3, rank: 1, live: 'live' }],
+    })
+    h.hub.recordJoin(SOCIAL_JOIN)
+    await h.settle()
+
+    expect(h.sent.some((event) => event.event_name === 'join_clicked')).toBe(true)
     expect(h.measured).toHaveLength(1)
     h.restore()
   })
