@@ -70,6 +70,19 @@ export const MAX_PROPERTY_VALUE_LENGTH = 64
 export const MAX_PROPERTIES = 12
 
 /**
+ * Why a socially initiated JOIN did or did not have its follow baseline asked
+ * for. A closed set, deliberately coarse, and deliberately silent about the
+ * answer - see join_measurement_status.
+ */
+export type JoinMeasurementStatus =
+  /** The client asked the server. NOT proof that Twitch answered. */
+  | 'attempted'
+  /** The server said this actor cannot be measured - no credential, no scope, broken, or unknown. */
+  | 'not_ready'
+  /** The canonical join_clicked was not confirmed as written, so nothing was asked. */
+  | 'unacknowledged'
+
+/**
  * Every event, with the exact properties it carries.
  *
  * Adding one is this entry plus a row in analytics_event_names. Nothing else -
@@ -211,6 +224,37 @@ export interface AnalyticsEventMap {
     opportunity_key?: string
   }
   join_arrived: { elapsed_ms: number }
+  /**
+   * What M3D decided to do about one socially initiated JOIN.
+   *
+   * WHY THIS EXISTS
+   *
+   * Without it, a JOIN with no follow baseline is ambiguous between "was never
+   * eligible", "was eligible and we declined", and "was eligible, we asked, and
+   * nothing came back". Those are different numbers with different meanings,
+   * and no amount of looking at the observation table separates them — absence
+   * is absence. Coverage cannot be honest without this, and a relationship
+   * percentage without honest coverage is a number with an unknown denominator.
+   *
+   * WHAT `status` IS, AND IS NOT
+   *
+   * It is the CLIENT's decision, and it is labelled that way everywhere.
+   * `attempted` means Watchside asked the server; it does NOT mean Twitch
+   * answered, and it must never be read as though it did. Whether a baseline
+   * actually exists is a server-side fact, held in
+   * `creator_relationship_observations` and nowhere else.
+   *
+   * WHAT IT CANNOT LEAK
+   *
+   * The follow answer. `attempted` is emitted before any answer is known, and
+   * the client never learns one - so no value of this property can encode, or
+   * be used to reconstruct, a relationship. That property is what makes it safe
+   * to keep this event after a Twitch-derived observation has been deleted.
+   *
+   * Emitted once per socially initiated, navigated, attributed JOIN, so it is
+   * also an independent count of that population.
+   */
+  join_measurement_status: { status: JoinMeasurementStatus }
 
   // --------------------------------------------------------- watching together
   watching_together_started: { other_count: number; from_join: boolean }
@@ -529,6 +573,7 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
     'opportunity_key',
   ],
   join_arrived: ['elapsed_ms'],
+  join_measurement_status: ['status'],
 
   watching_together_started: ['other_count', 'from_join'],
   watching_together_ended: [
@@ -653,6 +698,13 @@ export const EVENT_DATA_CATEGORY: Record<AnalyticsEventName, MozillaDataCategory
   gravity_cluster_impression: 'browsingActivity',
   join_clicked: 'browsingActivity',
   join_arrived: 'browsingActivity',
+  /*
+   * Watchside's own decision about its own measurement, on a channel it already
+   * reports. It carries no Twitch-derived fact - `attempted` is recorded before
+   * any answer exists - so it adds no data category, and it is not diagnostic
+   * telemetry either: it is the denominator of a product claim.
+   */
+  join_measurement_status: 'browsingActivity',
   watching_together_started: 'browsingActivity',
   watching_together_ended: 'browsingActivity',
   post_social_retention_ended: 'browsingActivity',

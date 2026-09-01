@@ -38,6 +38,7 @@ import type { ExperimentArm } from '../core/experiment'
 import type { StoredValue } from './storedValue'
 import { normalizeChannel } from '../core/analytics'
 import type { MeasurementReadiness } from '../client/types'
+import type { JoinMeasurementStatus } from '../core/analytics'
 import type {
   AnalyticsEnvironment,
   AnalyticsEventMap,
@@ -875,6 +876,45 @@ export function createAnalyticsHub(deps: AnalyticsHubDeps): AnalyticsHub {
           readiness: deps.measurementReadiness?.() ?? null,
           pendingEvents: recorder.pending(),
         })
+        /*
+         * The coverage record, for socially initiated JOINs only.
+         *
+         * This is the denominator. Without it, a JOIN with no baseline is
+         * ambiguous between never-eligible, eligible-and-declined, and
+         * eligible-and-nothing-came-back - and no amount of looking at the
+         * observation table separates those, because absence is absence.
+         *
+         * Emitted for population A (navigated, attributed, socially initiated)
+         * and no wider: a JOIN nobody else was part of is not in the population
+         * this measures, and recording a status for it would invite counting it.
+         *
+         * `attempted` is the CLIENT's decision to ask. It is not evidence that
+         * Twitch answered - that fact lives only in the observations table - and
+         * the analytics contract says so where the event is declared.
+         */
+        if (minted && input.socialCount > 0) {
+          const status: JoinMeasurementStatus = decision.measure
+            ? 'attempted'
+            : decision.reason === 'unacknowledged'
+              ? 'unacknowledged'
+              : 'not_ready'
+          recorder.track({
+            name: 'join_measurement_status',
+            properties: { status },
+            source: input.source,
+            /*
+             * No channel, deliberately.
+             *
+             * The attribution already joins this to the JOIN it describes, and
+             * that JOIN records the destination - so naming the channel here
+             * would store the same fact twice for no analytic gain. Coverage is
+             * computed per attribution, never per creator.
+             */
+            channel: null,
+            attributionId: minted.id,
+          })
+        }
+
         if (!decision.measure || !deps.measureRelationship) return
 
         void deps

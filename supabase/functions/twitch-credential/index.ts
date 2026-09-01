@@ -45,6 +45,7 @@ import {
   decideCapture,
   expiryFrom,
   followsBroadcaster,
+  hasFollowsScope,
   isSpent,
   FOLLOWS_SCOPE,
   readinessFor,
@@ -245,6 +246,37 @@ async function ensureFresh(
       .eq('actor_id', actorId)
     note('rotation_write_failed')
     return { state: 'unavailable', reason: 'rotation_lost' }
+  }
+
+  /*
+   * CONFIRMED scope removal, and only confirmed.
+   *
+   * Twitch returns the credential's current scope list on a SUCCESSFUL refresh,
+   * so this branch is reached only when Twitch itself has told us, on a 200,
+   * what the credential now carries. That is the authoritative signal, and it is
+   * structurally unreachable from any ambiguous one: a timeout or network error
+   * never gets here, a 5xx never parses, a malformed body is rejected by
+   * parseRefresh, and a 401/403 is not a successful refresh. None of them can
+   * delete anything, which is the property that matters - a transient failure
+   * that destroyed user data would be far worse than a missing measurement.
+   *
+   * The credential is NOT destroyed. Losing a scope is not losing authorization:
+   * the row stays `active`, readiness becomes `needs_follow_permission`, and the
+   * person is not pushed through a repair flow for a permission they withdrew.
+   * Watchside-owned analytics are untouched - only the Twitch-derived baselines
+   * go, which is the promise the privacy policy makes.
+   */
+  const hadFollows = hasFollowsScope(row.scopes ?? [])
+  const keepsFollows = hasFollowsScope(refreshed.tokens.scopes)
+  if (hadFollows && !keepsFollows) {
+    const { error: purgeError } = await admin.rpc('purge_creator_relationships', {
+      p_actor: actorId,
+    })
+    // A failed purge must not look like a successful one. The scope is already
+    // recorded as gone, so nothing new can be measured; the rows that should
+    // have been deleted are retried by the next refresh that observes the same
+    // transition, and the failure is visible rather than swallowed.
+    note(purgeError ? 'scope_loss_purge_failed' : 'scope_loss_purged')
   }
 
   note('refreshed', { key_version: keyVersion })
@@ -701,6 +733,46 @@ async function relationshipReplay(
   return { ...toClientResponse(result), observations: count ?? 0 }
 }
 
+/**
+ * The M3D reporting views, read shape-only.
+ *
+ * Owner-gated. It returns the coverage counts in full, because a count of
+ * measurements is not a relationship - and the relationship breakdown ONLY when
+ * the view itself says it is reportable. Below the cohort threshold the view
+ * withholds the numbers rather than trusting this caller to, which is the right
+ * place for that rule: a metric that is only safe when somebody remembers to be
+ * careful is not safe.
+ */
+async function coverageShape(admin: SupabaseClient): Promise<Record<string, unknown>> {
+  const { data: coverage, error: coverageError } = await admin.from('m3d_coverage_v').select('*')
+  const { data: relationship, error: relationshipError } = await admin
+    .from('m3d_relationship_v')
+    .select('environment, retained_baselines, measured_actors, reportable')
+  if (coverageError || relationshipError) return { error: 'db_unavailable' }
+
+  /*
+   * Raw against reportable.
+   *
+   * The gap between them is the internal-actor exclusion, and it is worth
+   * seeing rather than inferring: an observation that exists but reaches no
+   * reportable number is the correct outcome for a test account, and looks
+   * identical to a broken join from outside.
+   */
+  const { count: rawObservations } = await admin
+    .from('creator_relationship_observations')
+    .select('*', { count: 'exact', head: true })
+  const { count: reportableObservations } = await admin
+    .from('m3d_observations_v')
+    .select('*', { count: 'exact', head: true })
+
+  return {
+    coverage: coverage ?? [],
+    relationship: relationship ?? [],
+    observations_raw: rawObservations ?? 0,
+    observations_reportable: reportableObservations ?? 0,
+  }
+}
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 /**
@@ -897,7 +969,8 @@ Deno.serve(async (request: Request) => {
       body.action === 'observation_shape' ||
       body.action === 'relationship_probe' ||
       body.action === 'acceptance_preconditions' ||
-      body.action === 'relationship_replay'
+      body.action === 'relationship_replay' ||
+      body.action === 'coverage_shape'
     ) {
       const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
@@ -923,6 +996,7 @@ Deno.serve(async (request: Request) => {
         }
         return json(await relationshipReplay(admin, actor, login, attribution, Date.now()))
       }
+      if (body.action === 'coverage_shape') return json(await coverageShape(admin))
       return json(await relationshipProbe(admin, Date.now()))
     }
     return json({ error: 'bad_request' }, 400)

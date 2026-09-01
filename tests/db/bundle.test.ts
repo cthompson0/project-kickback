@@ -185,8 +185,11 @@ describe('the generated bundle', () => {
      * been advanced, and 0032 carries the destruction paths - the one thing
      * where "did this actually apply?" must have an answer that does not depend
      * on reading a table clients cannot see.
+     *
+     * 0034 took it for the M3D coverage views and the narrower
+     * scope-loss deletion; 0035 for the small-cohort suppression.
      */
-    expect(version).toBe(33)
+    expect(version).toBe(35)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.

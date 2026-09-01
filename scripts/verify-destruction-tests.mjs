@@ -40,6 +40,9 @@ const TRIGGER_SUITE = 'tests/extension/joinRelationshipTrigger.test.ts'
 const PRIVACY = 'docs/PRIVACY.md'
 const PRECONDITIONS = 'scripts/m3d-acceptance/preconditions.mjs'
 const PRECONDITION_SUITE = 'tests/extension/acceptancePreconditions.test.ts'
+const COVERAGE_MIGRATION = 'supabase/migrations/0034_m3d_coverage.sql'
+const COHORT_MIGRATION = 'supabase/migrations/0035_m3d_small_cohort.sql'
+const COVERAGE_SUITE = 'tests/db/m3dCoverage.test.ts'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -447,6 +450,113 @@ create policy twitch_credentials_read on public.twitch_credentials
     from: `**Did this person already follow this creator?**`,
     to: `> (nothing is asked)`,
     expect: 'a production relationship caller requires the policy to describe it',
+  },
+
+  // -------------------------------------------- M3D coverage and denominators
+  {
+    // THE FLATTERING BUG. Every JOIN we could not measure silently becomes a
+    // "did not follow", the headline gets bigger, and nothing outside the
+    // database could ever tell.
+    name: 'coverage: treat a missing follow answer as "did not follow"',
+    file: COVERAGE_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `  and o.attribution_id is not null
+  and o.relationship_present is not null;`,
+    to: `  and o.attribution_id is not null;`,
+    expect: 'counts a null baseline in neither bucket, and not in the denominator',
+  },
+  {
+    // The relationship share divided by every social JOIN rather than by the
+    // baselines actually retained. Same flattering direction, different route.
+    name: 'coverage: divide the relationship share by all social JOINs',
+    file: COHORT_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `       then round(count(*) filter (where not relationship_present)::numeric / count(*), 4) end`,
+    to: `       then round(count(*) filter (where not relationship_present)::numeric /
+         (select greatest(count(*), 1) from public.m3d_social_joins_v), 4) end`,
+    expect: 'divides by retained baselines, not by JOINs',
+  },
+  {
+    // followed and not-followed swapped. The number stays plausible and means
+    // the opposite of what it says.
+    name: 'coverage: invert the followed / not-followed buckets',
+    file: COHORT_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `       then count(*) filter (where relationship_present) end
+                                                        as followed_at_baseline,`,
+    to: `       then count(*) filter (where not relationship_present) end
+                                                        as followed_at_baseline,`,
+    expect: 'puts true in followed and false in not-followed, once it is an aggregate',
+  },
+  {
+    // Eligibility defined by the outcome instead of the decision, which makes
+    // coverage tautologically 100% and the metric meaningless.
+    name: 'coverage: define eligibility as "has an observation"',
+    file: COVERAGE_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `  (s.properties ->> 'status') = 'attempted' as measurement_eligible`,
+    to: `  (s.properties ->> 'status') is not null as measurement_eligible`,
+    expect: 'does not count a JOIN the client declined to measure',
+  },
+  {
+    // A zero where the truth is "there was nothing to measure". The two must
+    // not look alike in a chart.
+    name: 'coverage: report 0% when nothing was eligible',
+    file: COVERAGE_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `    when count(*) filter (where m.measurement_eligible) = 0 then null`,
+    to: `    when count(*) filter (where m.measurement_eligible) = 0 then 0`,
+    expect: 'gives no coverage rate at all when nothing was eligible',
+  },
+  {
+    // The private analytics views become readable by any signed-in client.
+    name: 'coverage: grant the relationship views to authenticated users',
+    file: COHORT_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `grant select on public.m3d_relationship_v to service_role;`,
+    to: `grant select on public.m3d_relationship_v to service_role;
+grant select on public.m3d_relationship_v to authenticated;`,
+    expect: 'refuses m3d_relationship_v to an authenticated client',
+  },
+  {
+    // Confirmed scope loss stops deleting the Twitch-derived baselines.
+    name: 'coverage: keep the baselines after confirmed scope removal',
+    file: COVERAGE_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `  delete from public.creator_relationship_observations where actor_id = p_actor;
+  get diagnostics v_observations = row_count;`,
+    to: `  v_observations := 0;`,
+    expect: 'deletes the Twitch-derived baselines',
+  },
+  {
+    // Scope loss destroys the credential too, reporting somebody as broken for
+    // a permission they simply withdrew.
+    name: 'coverage: destroy the credential on confirmed scope removal',
+    file: COVERAGE_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `  delete from public.creator_relationship_observations where actor_id = p_actor;
+  get diagnostics v_observations = row_count;
+
+  -- Idempotent`,
+    to: `  delete from public.creator_relationship_observations where actor_id = p_actor;
+  get diagnostics v_observations = row_count;
+  delete from public.twitch_credentials where actor_id = p_actor;
+
+  -- Idempotent`,
+    expect: 'leaves the credential in place',
+  },
+
+  {
+    // THE LEAK 0035 EXISTS TO CLOSE. With one retained baseline the share IS
+    // that person's follow state, printed as a percentage - and everything M3D
+    // does to keep the answer server-side is undone by a reporting view.
+    name: 'coverage: publish the share for a cohort of one',
+    file: COHORT_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `  case when count(*) >= 10 and count(distinct actor_id) >= 3
+       then round(count(*) filter (where not relationship_present)::numeric / count(*), 4) end`,
+    to: `  round(count(*) filter (where not relationship_present)::numeric / count(*), 4)`,
+    expect: 'withholds the breakdown when the aggregate is one person',
   },
 
   // ------------------------------------ the acceptance precondition guard

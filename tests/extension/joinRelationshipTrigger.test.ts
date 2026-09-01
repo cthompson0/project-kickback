@@ -673,3 +673,130 @@ describe('collection cannot precede disclosure', () => {
     expect(callers).toEqual(['src/background/supabaseBackend.ts'])
   })
 })
+
+// --------------------------------------------------- the coverage record
+
+/**
+ * The denominator, recorded at the JOIN.
+ *
+ * Without this, a JOIN with no baseline is ambiguous between never-eligible,
+ * eligible-and-declined, and eligible-and-nothing-came-back. The observation
+ * table cannot separate them, because absence is absence - so a percentage over
+ * "JOINs" would have a denominator nobody could defend.
+ */
+describe('what M3D decided is recorded for every socially initiated JOIN', () => {
+  const statusOf = (sent: AnalyticsEvent[]) =>
+    sent.find((event) => event.event_name === 'join_measurement_status')
+
+  it('records `attempted` when the client asks the server', async () => {
+    const h = harness()
+    h.hub.recordJoin(SOCIAL_JOIN)
+    await h.settle()
+
+    const status = statusOf(h.sent)
+    expect(status).toBeDefined()
+    expect(status!.properties.status).toBe('attempted')
+    // Bound to the same JOIN, so coverage can be computed per attribution.
+    expect(status!.attribution_id).toBe(
+      h.sent.find((event) => event.event_name === 'join_clicked')!.attribution_id,
+    )
+    h.restore()
+  })
+
+  it('records `not_ready` when the actor cannot be measured', async () => {
+    for (const readiness of [
+      'needs_follow_permission',
+      'needs_reauthorization',
+      'temporarily_unavailable',
+      null,
+    ] as const) {
+      const h = harness({ readiness })
+      h.hub.recordJoin(SOCIAL_JOIN)
+      await h.settle()
+      expect(statusOf(h.sent)?.properties.status, `${readiness}`).toBe('not_ready')
+      expect(h.measured).toHaveLength(0)
+      h.restore()
+    }
+  })
+
+  /**
+   * Nothing is recorded for a JOIN outside the population. A status for a JOIN
+   * nobody else was part of would invite counting it in a social denominator.
+   */
+  it('records nothing for a JOIN outside the measured population', async () => {
+    const h = harness()
+    h.hub.recordJoin({ ...SOCIAL_JOIN, socialCount: 0, source: 'friend_row' })
+    await h.settle()
+    expect(statusOf(h.sent)).toBeUndefined()
+    h.restore()
+  })
+
+  it('records nothing for a click that navigated nowhere', async () => {
+    const h = harness()
+    h.hub.recordJoin({ ...SOCIAL_JOIN, navigated: false })
+    await h.settle()
+    expect(statusOf(h.sent)).toBeUndefined()
+    h.restore()
+  })
+
+  /**
+   * THE PROPERTY THAT MAKES IT SAFE TO KEEP AFTER DELETION.
+   *
+   * `attempted` is recorded before any answer is known, and the client never
+   * learns one - so no value here can encode, or be used to rebuild, a
+   * relationship that the Twitch lifecycle later deleted.
+   */
+  it('carries exactly one coarse status and nothing resembling an answer', async () => {
+    const h = harness()
+    h.hub.recordJoin(SOCIAL_JOIN)
+    await h.settle()
+
+    const status = statusOf(h.sent)!
+    expect(Object.keys(status.properties)).toEqual(['status'])
+    const text = JSON.stringify(status)
+    for (const forbidden of ['following', 'relationship', 'true', 'followed']) {
+      expect(text, forbidden).not.toContain(forbidden)
+    }
+    h.restore()
+  })
+
+  /** The status is the CLIENT's decision, and the contract says so. */
+  it('is documented as a client decision rather than proof Twitch answered', () => {
+    const contract = readFileSync('src/core/analytics.ts', 'utf8')
+    const declaredAt = contract.indexOf('join_measurement_status: { status')
+    expect(declaredAt).toBeGreaterThan(-1)
+
+    // The doc comment immediately above the declaration.
+    const doc = contract.slice(
+      contract.lastIndexOf('/**', declaredAt),
+      declaredAt,
+    )
+    // Wording is line-wrapped in the source, so the claim is matched in pieces.
+    expect(doc).toContain('does NOT mean Twitch')
+    expect(doc).toContain('CLIENT')
+    expect(doc).toContain('asked the server')
+  })
+})
+
+/**
+ * Data minimisation, asserted rather than intended.
+ *
+ * The status event names no channel: the attribution already joins it to the
+ * JOIN that records the destination, so carrying it here would store the same
+ * fact twice for no analytic gain.
+ */
+describe('the coverage record carries the minimum that answers the question', () => {
+  it('records no channel of its own', async () => {
+    const h = harness()
+    h.hub.recordJoin(SOCIAL_JOIN)
+    await h.settle()
+
+    const status = h.sent.find((event) => event.event_name === 'join_measurement_status')!
+    expect(status.destination_channel).toBeNull()
+    // The JOIN it describes still has it, and the attribution links them.
+    const clicked = h.sent.find((event) => event.event_name === 'join_clicked')!
+    expect(clicked.destination_channel).toBe('lirik')
+    expect(status.attribution_id).toBe(clicked.attribution_id)
+    h.restore()
+  })
+})

@@ -7223,3 +7223,441 @@ Slice E should open with **coverage, not the headline**: of eligible JOINs, how
 many produced an observation, and is what is missing missing at random? Items 2
 and 3 above bear directly on that, and a denominator nobody has checked is how a
 measurement programme produces a confident wrong answer.
+
+---
+
+# M3D SLICE E — COVERAGE, DENOMINATORS AND DELETION
+
+*Appended 2026-09-01. §1–§294 stand unchanged; corrections are appended.*
+
+## 295. Slice E verdict
+
+## **GO**
+
+The measurement can now be interpreted, and the limits of that interpretation
+are written down rather than assumed. No headline is published, and the one
+production observation reaches no reportable number at all.
+
+**M3D as a whole remains NOT GO.** Slice F is the closure slice, and is not
+started.
+
+## 296. Accepted precondition
+
+Slice D is **GO** at `560e7c1` on the automated production acceptance recorded
+at §282–§294. Nothing in it was reopened, and nothing in Slice E contradicts it.
+
+## 297. The populations, defined exactly
+
+Four, kept apart on purpose. "Eligible" is never used to mean "has an
+observation" anywhere in the implementation.
+
+| | Definition | Where |
+| --- | --- | --- |
+| **A — socially initiated JOINs** | a `join_clicked` that **navigated**, minted an **attribution**, and had `social_count > 0`, from a non-internal actor | `m3d_social_joins_v` |
+| **B — measurement-eligible** | an A whose `join_measurement_status` is `attempted` — i.e. the client's gate passed at JOIN time | `m3d_measurement_v.measurement_eligible` |
+| **C — observed** | a **currently retained** `creator_relationship_observation` with `relationship_present is not null`, bound to an A by actor **and** attribution | `m3d_observations_v` |
+| **D — unobserved eligible** | B minus C | derived in `m3d_coverage_v` |
+
+**B is defined by the decision, not the outcome.** If it were defined by the
+existence of an observation, coverage would be tautologically 100% and the
+metric would answer nothing. A mutation that makes exactly that mistake is in
+the harness and is DETECTED.
+
+## 298. Historical reconstructability — NO, and it is not faked
+
+**B cannot be reconstructed for any JOIN that happened before this slice.**
+
+Readiness at JOIN time was never durable. Nothing in `analytics_events` or
+`creator_relationship_observations` distinguishes:
+
+- not eligible (no credential, no scope, broken authorization)
+- eligible but the client declined
+- eligible, asked, and nothing came back
+- eligible, measured, and deleted later by the Twitch lifecycle
+
+Absence is absence. So historical JOINs are reported as **`status_missing`** — a
+number of their own, deliberately not folded into either "eligible" or
+"skipped". Inventing a status for history is precisely the fabrication this
+slice exists to avoid, and a test asserts an unknown JOIN lands in none of the
+other buckets.
+
+Production bears this out: all three reportable social JOINs currently sit in
+`status_missing`, and `coverage_rate` is **NULL** rather than a number.
+
+## 299. Prospective instrumentation
+
+One event, `join_measurement_status`, emitted once per **population A** JOIN.
+
+```
+status ∈ { attempted | not_ready | unacknowledged }
+```
+
+Design decisions worth recording:
+
+* **One event, not several.** A scatter of ad-hoc events would have to be
+  reconciled later; this is a single state per JOIN, joined by attribution.
+* **No channel of its own.** The attribution already binds it to the JOIN, which
+  records the destination — so naming the creator here would store the same fact
+  twice. Asserted by a test rather than left to intent.
+* **Only population A.** A JOIN nobody else was part of gets no status, because
+  a status would invite counting it in a social denominator.
+* **It carries no relationship, and cannot.** `attempted` is recorded before any
+  answer exists, and the client never learns one.
+
+## 300. Trusted versus client-derived, kept apart
+
+This distinction is load-bearing and is preserved in the naming, the schema and
+the views.
+
+| Fact | Source | Strength |
+| --- | --- | --- |
+| a JOIN happened, socially, to this creator | server (`analytics_track`, actor is `auth.uid()`) | trusted |
+| Watchside **decided to ask** | client | a decision, not evidence |
+| a baseline **exists**, and what it says | server (`creator_relationship_observations`) | trusted |
+
+The column is `client_status` in `m3d_measurement_v`, and the contract's doc
+comment states in terms that `attempted` **does NOT mean Twitch answered**. A
+test asserts that wording is still there.
+
+**No unified truth source was created.** Coverage divides a server-side
+numerator by a client-side denominator, and the report says so rather than
+pretending both halves are equally strong.
+
+## 301. Metric contracts
+
+### COVERAGE — `m3d_coverage_v`, per environment
+
+```
+social_joins            population A
+status_missing          A with no status (pre-instrumentation). Not eligible, not skipped.
+measurement_eligible    B
+skipped_not_ready       A where the actor could not be measured
+skipped_unacknowledged  A where the canonical JOIN write was not confirmed
+observed_baselines      C
+coverage_rate           C / B   — NULL when B = 0, never 0
+```
+
+**Limitations.** The denominator is a client-reported decision. `coverage_rate`
+falls when Twitch-derived observations are deleted, because C is deliberately
+"what we currently retain"; that is honest rather than a defect, and §304 says
+so plainly.
+
+### RELATIONSHIP — `m3d_relationship_v`, per environment
+
+```
+retained_baselines         count of C
+measured_actors            distinct actors in C
+followed_at_baseline       C where relationship_present = true       ┐ withheld below
+not_followed_at_baseline   C where relationship_present = false      │ the cohort
+not_followed_share         not_followed / retained_baselines         ┘ threshold
+reportable                 whether the breakdown is published at all
+```
+
+**The permitted claim, matching what is implemented:**
+
+> "X% of socially initiated JOINs **with a currently retained follow-baseline
+> observation** went to creators the viewer did not already follow."
+
+Not "of socially initiated JOINs". Not "of eligible JOINs". Not causal, not
+forward-looking, and not a claim that Watchside produced a follow.
+
+## 302. The denominator, proven
+
+`not_followed_share` divides by **retained baselines** and by nothing else.
+Tested against the three wrong denominators explicitly: all social JOINs, all
+eligible JOINs, and any count that includes a JOIN we could not measure. A
+mutation swapping the denominator for all social JOINs is DETECTED.
+
+## 303. Null and failure semantics
+
+```
+true                 valid baseline, relationship present
+false                valid baseline, relationship absent
+null / no row        UNKNOWN — in neither bucket, and in no denominator
+```
+
+**No `COALESCE` of `relationship_present` exists anywhere.** `m3d_observations_v`
+filters nulls out before anything counts them, so a failed check cannot reach a
+numerator or a denominator by any route. The mutation that removes that filter —
+turning every failed check into a "did not follow", in the flattering direction —
+is DETECTED.
+
+## 304. Deletion recomputes, and the numbers move
+
+Proven end to end:
+
+| | before deauthorization | after |
+| --- | --- | --- |
+| retained baselines | 2 | **0** |
+| relationship row | present | **absent entirely** |
+| social JOINs | 2 | **2** |
+| measurement-eligible | 2 | **2** |
+| observed baselines | 2 | **0** |
+| coverage rate | 1.0000 | **0.0000** |
+| `join_measurement_status` events | 2 | **2** |
+
+**Historical relationship percentages therefore change after a required
+deletion.** That is the correct behaviour and is more honest than retaining a
+Twitch-derived relationship we are no longer allowed to hold.
+
+Recomputation needs no mutation lever because it is **structural**: the metrics
+are views over live tables, with no cached copy that could go stale. The way it
+could be lost is somebody materializing one for speed, so a test asserts all
+five surfaces are ordinary views (`relkind = 'v'`) rather than materialized.
+
+### The tombstone question, answered
+
+A status of `attempted` **is retained** after deletion, and this was evaluated
+rather than assumed. It is permissible because it never held a relationship:
+`attempted` is written before any answer exists. A test reads the surviving
+event properties after a purge and asserts they are exactly
+`{"status":"attempted"}` — nothing from which a deleted answer could be rebuilt.
+
+What is deliberately **not** retained is any record that a lookup *succeeded*.
+That would be a Twitch-derived fact about the viewer's relationship with a
+creator, and the live policy promises it goes.
+
+## 305. Confirmed scope loss — RESOLVED, not stopped on
+
+A trustworthy signal exists, and it was found by inspecting the refresh path
+rather than assumed.
+
+**Twitch returns the credential's current scope list on a successful refresh**,
+and `parseRefresh` records it. So the authoritative signal is:
+
+> a **200** refresh whose `scope` array no longer contains `user:read:follows`,
+> where the previous stored scopes did.
+
+Every ambiguous signal is **structurally unreachable** from that branch:
+
+| Signal | Reaches the deletion? |
+| --- | --- |
+| timeout / network error | no — `refreshTokens` never returns |
+| 5xx | no — not a successful refresh |
+| malformed body | no — `parseRefresh` returns null |
+| 401 / 403 | no — not a successful refresh |
+| **200 with the scope absent** | **yes** |
+
+A generic 401/403 is explicitly **not** treated as scope loss, exactly as the
+brief requires.
+
+**What happens on confirmation:** `purge_creator_relationships(actor)` deletes
+the Twitch-derived baselines and **nothing else**. The credential is *not*
+destroyed — losing a scope is not losing authorization, and destroying it would
+report the person as broken and push them through a repair flow for a permission
+they simply withdrew. Readiness correctly becomes `needs_follow_permission`.
+Watchside-owned analytics are untouched.
+
+Two mutations cover it: one disabling the deletion, one destroying the
+credential alongside it. Both DETECTED.
+
+## 306. The full lifecycle
+
+| Event | Credential | Relationship observations | Watchside analytics |
+| --- | --- | --- | --- |
+| **Confirmed `user:read:follows` removal** | **kept** | **deleted** | **preserved** |
+| Twitch deauthorization | deleted | deleted | preserved |
+| Account deletion | deleted first | deleted | deleted (D-A) |
+| Sign-out | kept | kept | kept |
+| Transient failure of any kind | untouched | untouched | untouched |
+
+## 307. Missingness — what we can see, and what we cannot
+
+**Observable from this slice onward:**
+
+- `skipped_not_ready` — the actor could not be measured
+- `skipped_unacknowledged` — the canonical JOIN write was not confirmed
+- `status_missing` — pre-instrumentation JOINs
+- eligible-but-unobserved (B − C), which aggregates every server-side failure
+
+**Invisible, and named as such.** Within B − C we cannot currently distinguish:
+worker eviction mid-measurement, network failure to the Edge Function, Twitch
+API failure, credential refresh failure, broadcaster lookup failure, window
+expiry from clock skew, or an observation deleted by the Twitch lifecycle. They
+all present as "eligible, no baseline".
+
+**Missing at random? NOT ESTABLISHED, and must not be assumed.** Every known
+source has a plausible correlate:
+
+| Source | Plausibly correlates with |
+| --- | --- |
+| not ready | user tenure, acquisition cohort — pre-M3D users lack the scope entirely |
+| unacknowledged | network quality, platform, session length |
+| worker eviction | browser and platform (MV3 eviction differs by engine) |
+| Twitch/API failure | time of day, region |
+| window expiry | device clock accuracy |
+| later deletion | users who revoke — almost certainly not a random subset |
+
+The first row alone is enough to refuse a missing-at-random claim: the cohort
+that cannot be measured is systematically **older** than the cohort that can.
+
+**What would be needed before treating the relationship share as
+representative:** compare measured against unmeasured eligible JOINs on the
+dimensions already available — environment, source surface, `social_count`,
+session age, experiment arm — and show no material difference. The data to do
+that exists in the same views; the analysis has not been performed, and no claim
+should outrun it.
+
+## 308. Small cohorts — a leak found and closed
+
+`m3d_relationship_v` as first written in `0034` **disclosed the follow answer**.
+With one retained baseline, `not_followed_share` is 0 or 1, and that *is* the
+individual's follow state expressed as a percentage. The two counts beside it
+say the same thing. Everything M3D does to keep the answer server-side would
+have been undone by a reporting view dividing one row by itself.
+
+It was caught before the view was ever read for its numbers, and `0035` fixes it
+**in the view rather than in a habit of not looking** — a metric that is only
+safe when somebody remembers to be careful is not safe.
+
+The breakdown is withheld unless there are **at least 10 retained baselines
+across at least 3 distinct actors**. Two conditions, because ten baselines from
+one actor is still one person's viewing. Withheld as **NULL**, never 0: a zero
+would read as "nobody followed them", which is a claim. `retained_baselines` and
+`measured_actors` remain visible at any size, because a count of measurements is
+not a relationship and coverage needs it.
+
+**The threshold is provisional** and is documented as a first pass.
+
+## 309. Privacy — no change required, and why
+
+The live disclosure remains accurate, so it was **not** changed.
+
+`join_measurement_status` adds no new data type: one short word from a fixed
+list, on a social JOIN, with no channel of its own and nothing about the viewer's
+relationships. The policy already describes analytics as "a small fact — a
+count, a bucket, a true/false, or a short word from a fixed list", and already
+discloses the follow check itself (§260).
+
+Deliberately **not** added: any claim that Watchside tracks later follows, or
+converts viewers into followers, or measures anything causally. Overdisclosing a
+capability we do not have is as wrong as underdisclosing one we do.
+
+Three tests pin this: the event adds no Firefox category, carries exactly one
+property, and the status union contains no relationship vocabulary.
+
+## 310. Analytics security
+
+All five views are **owner-only**: `revoke all` from `public`, `anon` and
+`authenticated`; `grant select` to `service_role` alone. The scope-loss function
+is likewise service-role only.
+
+Six tests assert an authenticated client is refused on every view and on the
+function. A mutation granting `m3d_relationship_v` to `authenticated` is
+DETECTED. Raw relationship state remains unreachable from the extension, and no
+client surface reads it.
+
+## 311. Experiment, cohort and creator dimensions
+
+**Compatible, and no new experimentation system was built.** `experiment_arm`
+lives on `authenticated_session_started` and joins by actor; the M3D views carry
+`actor_id`, `environment` and `source`, so a later segmentation is a join rather
+than a schema change. A test confirms the views produce one row per attributed
+JOIN, so such a join cannot duplicate observations.
+
+**No causal claim is unlocked by any of this.** An experiment arm existing does
+not make a baseline causal, and nothing in the implementation says otherwise.
+
+**Creator dimensions were deliberately not built out.** `broadcaster_login` and
+`destination_channel` remain where they already were; no creator-level view, no
+dashboard, no per-creator share. That is Slice F territory at the earliest, and
+a creator surface built on cohorts this small would be a surveillance dataset
+rather than an analysis.
+
+## 312. Schema and deployment
+
+| | |
+| --- | --- |
+| migrations | **0034** (coverage views, event registration, `purge_creator_relationships`), **0035** (small-cohort suppression) |
+| hosted schema | **33 → 35**, both applied to production |
+| bundle | regenerated; re-application proven three times over and against six historical states |
+
+**A deployment-ordering property worth recording:** `analytics_track` skips an
+event name it does not recognise (`continue when v_allowed is null`) rather than
+rejecting the batch. So shipping the client event before the migration lands is
+**safe** — the status is silently dropped and `join_clicked` still lands. Had it
+rejected the batch, the JOIN write would have failed, the acknowledgement gate
+would have declined, and M3D would have stopped measuring entirely.
+
+## 313. Chrome and Firefox
+
+| | |
+| --- | --- |
+| Chrome permissions / host permissions | unchanged |
+| extension version | **0.7.0** — not bumped |
+| Firefox data categories | `authenticationInfo`, `browsingActivity`, `personalCommunications`, `websiteActivity` — **unchanged** |
+| `technicalAndInteraction` | **NO** |
+| `financialAndPaymentInfo` | **NO** |
+| Store / AMO uploads | none |
+
+The coverage event is `browsingActivity` — a record of what somebody did, on a
+channel already reported — so Firefox users are not silently missing from the
+denominator, which they would be had it been classified as diagnostic.
+
+## 314. Gates
+
+| Gate | Result |
+| --- | --- |
+| `npm test` | **2,737 / 2,737** (107 files) |
+| `npm run test:destruction` | **46 / 46 DETECTED** |
+| `tsc -b` / `eslint` | clean |
+| `verify:firefox` | clean, reproducible |
+| known debt | analytics 6 · presence 0 · layout 0 · lab 11 — **unchanged** |
+
+New: `tests/db/m3dCoverage.test.ts` — **38 tests** covering populations,
+eligibility-versus-outcome, null semantics, all three wrong denominators,
+suppression, deletion recomputation, confirmed scope loss and client access.
+
+New mutations: missing-relationship-as-false, denominator swapped to all social
+JOINs, followed/not-followed inverted, eligibility defined by outcome, 0% where
+NULL is correct, views granted to authenticated, scope-loss deletion disabled,
+scope-loss destroying the credential, and the share published for a cohort of
+one.
+
+## 315. Production, shape and counts only
+
+```
+observations_raw          1
+observations_reportable   0
+coverage      [{ environment: private_beta, social_joins: 3, status_missing: 3,
+                 measurement_eligible: 0, observed_baselines: 0,
+                 coverage_rate: null }]
+relationship  []
+```
+
+**The single production observation reaches no reportable metric**, because its
+actor is flagged internal — verified by the raw-versus-reportable gap rather
+than inferred. So there is **structurally no possibility of a one-row headline**,
+which is a better guarantee than remembering not to publish one.
+
+No follow state was read, printed or inferred at any point.
+
+## 316. Unresolved risks
+
+1. **Coverage's denominator is client-reported.** A client that fails before
+   emitting the status leaves a `status_missing` JOIN, indistinguishable from a
+   pre-instrumentation one. The gap is small and named, not closed.
+2. **Missingness is not established as random**, and at least one source
+   (pre-M3D users lacking the scope) is known to be systematic (§307).
+3. **B − C is a single bucket.** Server-side failure reasons are not
+   distinguishable from each other.
+4. **The cohort threshold is provisional** — 10 baselines across 3 actors,
+   chosen rather than derived.
+5. **The 120 s window still has one real sample** (§294), unchanged.
+6. **Nothing has been measured at scale.** Every number above is from fixtures
+   plus one internal production observation.
+
+## 317. Slice F readiness
+
+Not started, per instruction.
+
+What Slice E hands over: precise populations, an honest coverage metric, a
+relationship metric with the smallest defensible denominator, a deletion story
+that recomputes, a resolved scope-loss policy, and a written list of what would
+have to be true before the headline may be spoken.
+
+What Slice F must not do is publish the number before §307's comparison has
+actually been run. **A denominator nobody has checked is how a measurement
+programme produces a confident wrong answer**, and everything above exists to
+make that a decision somebody takes deliberately rather than one they drift
+into.

@@ -195,3 +195,39 @@ describe('no Twitch relationship data is collected here', () => {
     expect(POLICY).toContain('is not\ndeleted by disconnecting Twitch')
   })
 })
+
+/**
+ * The coverage telemetry Slice E added, checked against what is disclosed.
+ *
+ * A new durable event is a new collection claim. This one adds no new data
+ * type: a short word from a fixed list, on a social JOIN, with no channel of
+ * its own and no relationship in it. The policy's existing description already
+ * covers exactly that, so it needed no change - and this asserts that remains
+ * true rather than leaving it as a judgement somebody made once.
+ */
+describe('the M3D coverage event stays inside what is disclosed', () => {
+  it('adds no new Firefox data category', () => {
+    expect(EVENT_DATA_CATEGORY.join_measurement_status).toBe('browsingActivity')
+    // Not diagnostic telemetry: it is the denominator of a product claim, and
+    // Firefox users must not silently lose it.
+    expect(EVENT_DATA_CATEGORY.join_measurement_status).not.toBe('technicalAndInteraction')
+  })
+
+  it('carries one small fact from a fixed list, as the policy describes', () => {
+    expect([...EVENT_PROPERTIES.join_measurement_status]).toEqual(['status'])
+    // SAID collapses the policy's hard wrapping; the phrase spans two lines.
+    expect(SAID).toContain('a short word from a fixed list')
+  })
+
+  /** The status must never become a channel of collection about the viewer. */
+  it('records no relationship, and the policy claims none beyond the one check', () => {
+    const contract = readFileSync('src/core/analytics.ts', 'utf8')
+    const union = contract.slice(
+      contract.indexOf('export type JoinMeasurementStatus'),
+      contract.indexOf('export interface AnalyticsEventMap'),
+    )
+    for (const forbidden of ['followed', 'following', 'relationship_present']) {
+      expect(union, forbidden).not.toContain(forbidden)
+    }
+  })
+})
