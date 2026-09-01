@@ -42,6 +42,7 @@ const PRECONDITIONS = 'scripts/m3d-acceptance/preconditions.mjs'
 const PRECONDITION_SUITE = 'tests/extension/acceptancePreconditions.test.ts'
 const COVERAGE_MIGRATION = 'supabase/migrations/0034_m3d_coverage.sql'
 const COHORT_MIGRATION = 'supabase/migrations/0035_m3d_small_cohort.sql'
+const NUMERATOR_MIGRATION = 'supabase/migrations/0036_m3d_coverage_numerator.sql'
 const COVERAGE_SUITE = 'tests/db/m3dCoverage.test.ts'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
@@ -502,7 +503,7 @@ create policy twitch_credentials_read on public.twitch_credentials
     // A zero where the truth is "there was nothing to measure". The two must
     // not look alike in a chart.
     name: 'coverage: report 0% when nothing was eligible',
-    file: COVERAGE_MIGRATION,
+    file: NUMERATOR_MIGRATION,
     suite: COVERAGE_SUITE,
     from: `    when count(*) filter (where m.measurement_eligible) = 0 then null`,
     to: `    when count(*) filter (where m.measurement_eligible) = 0 then 0`,
@@ -557,6 +558,19 @@ grant select on public.m3d_relationship_v to authenticated;`,
        then round(count(*) filter (where not relationship_present)::numeric / count(*), 4) end`,
     to: `  round(count(*) filter (where not relationship_present)::numeric / count(*), 4)`,
     expect: 'withholds the breakdown when the aggregate is one person',
+  },
+
+  {
+    // THE DEFECT SLICE F FOUND. The numerator counts observations from JOINs
+    // the denominator excludes, so coverage borrows evidence from a population
+    // it is not measuring - and can exceed 100%.
+    name: 'coverage: count observations from outside the eligible population',
+    file: NUMERATOR_MIGRATION,
+    suite: COVERAGE_SUITE,
+    from: `  count(o.attribution_id) filter (where m.measurement_eligible)
+                                                      as observed_baselines,`,
+    to: `  count(o.attribution_id)                             as observed_baselines,`,
+    expect: 'counts only observations belonging to eligible JOINs',
   },
 
   // ------------------------------------ the acceptance precondition guard

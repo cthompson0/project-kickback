@@ -94,6 +94,7 @@ const coverage = async () =>
       skipped_not_ready: string
       skipped_unacknowledged: string
       status_missing: string
+      observed_outside_eligible: string
       coverage_rate: string | null
     }>('select * from public.m3d_coverage_v')
   )[0]
@@ -588,11 +589,210 @@ describe('the metrics are computed, never stored', () => {
        where n.nspname = 'public' and c.relname like 'm3d' || chr(95) || '%'
        order by c.relname`,
     )
-    expect(rows.length).toBe(5)
+    expect(rows.length).toBe(6)
     for (const row of rows) {
       // 'v' is a view. 'm' would be materialized - a cached answer that can
       // outlive the data it came from.
       expect(row.relkind, row.relname).toBe('v')
     }
+  })
+})
+
+/**
+ * The numerator has to come from the same population as the denominator.
+ *
+ * Found during Slice F's contract verification: `observed_baselines` counted
+ * every observation attached to any social JOIN, while `measurement_eligible`
+ * counted only the JOINs the client judged measurable. Those are different
+ * populations, so the rate was observations-over-a-subset - and could exceed
+ * 100%, which is not a coverage rate at all.
+ *
+ * It could not show up in production yet only because the pre-instrumentation
+ * JOINs that would trigger it belong to an internal actor. It would have
+ * appeared the moment real post-instrumentation traffic mixed with the
+ * historical rows.
+ */
+describe('coverage counts one population, not two', () => {
+  it('never reports coverage above 100%', async () => {
+    // One eligible JOIN with no observation, and one pre-instrumentation JOIN
+    // that does have one - the exact mixture that produced 200%.
+    await joinClicked(alice, ATTR(1), 'lirik', 2)
+    await measurementStatus(alice, ATTR(1), 'attempted')
+
+    await joinClicked(alice, ATTR(2), 'lirik', 2)
+    await observe(alice, ATTR(2), true)
+
+    const row = await coverage()
+    expect(Number(row.measurement_eligible)).toBe(1)
+    expect(Number(row.status_missing)).toBe(1)
+    // The eligible JOIN has no baseline, so coverage is 0 - not 1 borrowed
+    // from a JOIN that was never in the population.
+    expect(row.coverage_rate).toBe('0.0000')
+    expect(Number(row.observed_outside_eligible)).toBe(1)
+  })
+
+  it('counts only observations belonging to eligible JOINs', async () => {
+    await joinClicked(alice, ATTR(1), 'lirik', 2)
+    await measurementStatus(alice, ATTR(1), 'attempted')
+    await observe(alice, ATTR(1), true)
+
+    // An observation on a JOIN the client declined to measure. It is real, but
+    // it is not evidence about the eligible population.
+    await joinClicked(alice, ATTR(2), 'lirik', 2)
+    await measurementStatus(alice, ATTR(2), 'not_ready')
+    await observe(alice, ATTR(2), false)
+
+    const row = await coverage()
+    expect(Number(row.measurement_eligible)).toBe(1)
+    expect(Number(row.observed_baselines)).toBe(1)
+    expect(row.coverage_rate).toBe('1.0000')
+  })
+})
+
+/**
+ * Internal actors: usable for acceptance, invisible to product metrics.
+ *
+ * Production currently holds exactly one real observation, and it belongs to the
+ * account the automated acceptance runs as. That is the right way round - the
+ * pipeline must be exercisable against real Twitch without the exercise turning
+ * into evidence about users.
+ *
+ * The dangerous version of this is subtle: internal rows padding a small real
+ * cohort until the suppression threshold lifts and a genuine user's follow state
+ * becomes inferable from the aggregate. These pin that it cannot happen.
+ */
+describe('internal actors cannot contaminate reportable metrics', () => {
+  const internal = async (user: TestUser) => {
+    await actor(user)
+    await db.root('update public.analytics_actors set is_internal = true where user_id = $1', [
+      user.id,
+    ])
+  }
+
+  it('keeps their observations out of the reportable population', async () => {
+    await joinClicked(alice, ATTR(1), 'lirik', 2)
+    await measurementStatus(alice, ATTR(1), 'attempted')
+    await observe(alice, ATTR(1), true)
+    await internal(alice)
+
+    // The row still exists - acceptance needs it to.
+    const [raw] = await db.root<{ count: string }>(
+      'select count(*) as count from public.creator_relationship_observations',
+    )
+    expect(Number(raw.count)).toBe(1)
+    // And it reaches no reportable number at all.
+    const [reportable] = await db.root<{ count: string }>(
+      'select count(*) as count from public.m3d_observations_v',
+    )
+    expect(Number(reportable.count)).toBe(0)
+    expect(await relationship()).toBeUndefined()
+    expect(await coverage()).toBeUndefined()
+  })
+
+  /**
+   * THE ONE THAT MATTERS MOST.
+   *
+   * Twelve internal baselines beside two real ones must not lift the
+   * suppression - otherwise a real person's follow state becomes inferable from
+   * an aggregate that is almost entirely us.
+   */
+  it('cannot pad a small real cohort past the suppression threshold', async () => {
+    const carol = await db.createUser({ login: 'carol_tv', displayName: 'Carol' })
+    const dan = await db.createUser({ login: 'dan_tv', displayName: 'Dan' })
+
+    // Two genuine users, one baseline each. Far below the threshold.
+    for (const [i, person] of [alice, bob].entries()) {
+      const attribution = `eeeeeeee-1111-4111-8111-${String(i).padStart(12, '0')}`
+      await joinClicked(person, attribution, 'lirik', 2)
+      await measurementStatus(person, attribution, 'attempted')
+      await observe(person, attribution, i === 0)
+    }
+
+    // Twelve internal baselines across two internal accounts.
+    for (const [i, person] of [carol, dan, carol, dan, carol, dan, carol, dan, carol, dan, carol, dan].entries()) {
+      const attribution = `ffffffff-1111-4111-8111-${String(i).padStart(12, '0')}`
+      await joinClicked(person, attribution, 'lirik', 2)
+      await measurementStatus(person, attribution, 'attempted')
+      await observe(person, attribution, i % 2 === 0)
+    }
+    await internal(carol)
+    await internal(dan)
+
+    const row = await relationship()
+    // Only the two real baselines count, so the breakdown stays withheld.
+    expect(Number(row.retained_baselines)).toBe(2)
+    expect(Number(row.measured_actors)).toBe(2)
+    expect(row.reportable).toBe(false)
+    expect(row.not_followed_share).toBeNull()
+    expect(row.followed_at_baseline).toBeNull()
+  })
+
+  it('keeps their JOINs out of the coverage denominator too', async () => {
+    await joinClicked(alice, ATTR(1), 'lirik', 2)
+    await measurementStatus(alice, ATTR(1), 'attempted')
+    await internal(alice)
+    expect(await coverage()).toBeUndefined()
+  })
+})
+
+/**
+ * The comparison Slice E required before the headline may be spoken.
+ *
+ * The machinery is proven here against fixtures; production has nowhere near
+ * enough post-instrumentation data for the result to mean anything, which is a
+ * fact about usage rather than a fault in the query.
+ */
+describe('measured against unmeasured', () => {
+  const missingness = async () =>
+    db.root<{
+      bucket: string
+      source: string | null
+      eligible_joins: string
+      mean_social_count: string
+    }>('select * from public.m3d_missingness_v order by bucket')
+
+  it('splits eligible JOINs into measured and unmeasured', async () => {
+    for (let i = 0; i < 4; i += 1) {
+      const attribution = `dddddddd-1111-4111-8111-${String(i).padStart(12, '0')}`
+      await joinClicked(alice, attribution, 'lirik', 2)
+      await measurementStatus(alice, attribution, 'attempted')
+      if (i < 3) await observe(alice, attribution, i % 2 === 0)
+    }
+
+    const rows = await missingness()
+    const measured = rows.find((row) => row.bucket === 'measured')!
+    const unmeasured = rows.find((row) => row.bucket === 'unmeasured')!
+    expect(Number(measured.eligible_joins)).toBe(3)
+    expect(Number(unmeasured.eligible_joins)).toBe(1)
+  })
+
+  /** Only the eligible population is compared - the rest is a different question. */
+  it('ignores JOINs that were never eligible', async () => {
+    await joinClicked(alice, ATTR(1), 'lirik', 2)
+    await measurementStatus(alice, ATTR(1), 'not_ready')
+    expect(await missingness()).toEqual([])
+  })
+
+  /** It reports shape, never a relationship. */
+  it('carries no follow result in any column', async () => {
+    await joinClicked(alice, ATTR(1), 'lirik', 2)
+    await measurementStatus(alice, ATTR(1), 'attempted')
+    await observe(alice, ATTR(1), true)
+
+    const rows = await missingness()
+    const text = JSON.stringify(rows)
+    for (const forbidden of ['relationship_present', 'followed', 'following']) {
+      expect(text, forbidden).not.toContain(forbidden)
+    }
+  })
+
+  it('is private, like everything else here', async () => {
+    let message = ''
+    try {
+      await db.as(alice, 'select * from public.m3d_missingness_v')
+    } catch (error) {
+      message = (error as Error).message
+    }
+    expect(message).toMatch(/permission denied/i)
   })
 })

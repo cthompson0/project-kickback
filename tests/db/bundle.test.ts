@@ -187,9 +187,10 @@ describe('the generated bundle', () => {
      * on reading a table clients cannot see.
      *
      * 0034 took it for the M3D coverage views and the narrower
-     * scope-loss deletion; 0035 for the small-cohort suppression.
+     * scope-loss deletion; 0035 for the small-cohort suppression; 0036 for the
+     * coverage numerator.
      */
-    expect(version).toBe(35)
+    expect(version).toBe(36)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.

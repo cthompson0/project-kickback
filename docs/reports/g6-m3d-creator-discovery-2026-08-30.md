@@ -7661,3 +7661,370 @@ actually been run. **A denominator nobody has checked is how a measurement
 programme produces a confident wrong answer**, and everything above exists to
 make that a decision somebody takes deliberately rather than one they drift
 into.
+
+---
+
+# M3D SLICE F — FINAL CLOSURE
+
+*Appended 2026-09-01. §1–§317 stand unchanged; corrections are appended.*
+
+## 318. Verdicts
+
+## Slice F — **GO**
+## M3D — ★ **GO / CLOSED**
+
+Watchside has a production-capable, privacy-aware, deletion-aware,
+automatically testable mechanism for measuring whether a viewer already followed
+a creator at the moment of an eligible socially initiated JOIN — with metric
+contracts that match the deployed implementation and a gate that stops the
+number being published before it means anything.
+
+**Closed does not mean finished being useful.** It means the mechanism is built
+and trustworthy. Whether it has anything to say depends on production usage that
+does not exist yet, and §321 keeps those apart on purpose.
+
+## 319. Accepted preconditions
+
+Slice D **GO** at `560e7c1` (§282–§294) and Slice E **GO** at `03f9080`
+(§295–§317). Both re-read in full. Neither was reopened, and nothing in Slice F
+contradicts either.
+
+## 320. Contract verification — one real defect found
+
+The contracts were verified by **reading the deployed SQL against the documented
+contract**, not by re-reading the report. Four of five matched exactly.
+
+| Contract | Deployed | Verdict |
+| --- | --- | --- |
+| A — social JOIN population | `join_clicked` + navigated + attribution + `social_count > 0` + non-internal | ✅ matches |
+| B — measurement-eligible | `join_measurement_status = 'attempted'`, never inferred from an observation | ✅ matches |
+| C — retained baselines | `relationship_present is not null`, bound by actor **and** attribution, read live | ✅ matches |
+| D — coverage rate | observed / eligible, NULL when the denominator is 0 | ❌ **defect** |
+| E — not-followed share | over retained observations, cohort-gated | ✅ matches |
+
+### The defect
+
+```sql
+count(o.attribution_id)                        as observed_baselines      -- unfiltered
+count(*) filter (where m.measurement_eligible) as measurement_eligible    -- filtered
+```
+
+**The denominator was filtered to the eligible population and the numerator was
+not.** An observation belonging to a JOIN the client had *declined* to measure —
+or to a pre-instrumentation JOIN with no status at all — still counted toward
+coverage of a population it was never part of.
+
+Two consequences: the rate could **exceed 100%**, and even below that it
+overstated coverage *in the flattering direction* by borrowing evidence.
+
+It had not surfaced in production only because the historical JOINs that would
+trigger it belong to an internal actor and are excluded. It would have appeared
+the moment post-instrumentation traffic mixed with the historical rows — which
+is to say, immediately after coverage became useful.
+
+**Fixed in `0036`**, one `FILTER`, with two tests (a mixed-population case and
+an explicit "never above 100%") and a mutation lever that restores the bug.
+`observed_outside_eligible` is now reported rather than discarded: today it is
+history, and a non-zero value later means the populations have drifted apart.
+
+**This is the single thing Slice F was for.** A verification pass that finds
+nothing is a verification pass nobody should trust.
+
+## 321. Four states, and which one M3D closed on
+
+| State | Means | Depends on | Now |
+| --- | --- | --- | --- |
+| **COLLECTION OPERATIONAL** | the pipeline works end to end | the code | ✅ **YES** |
+| **COVERAGE OBSERVABLE** | enough post-instrumentation JOINs for a rate to mean anything | usage | ❌ not yet |
+| **REPORTABLE** | privacy gates pass, an aggregate may be looked at | usage | ❌ not yet |
+| **INTERPRETABLE** | we know whether the aggregate represents anything | somebody doing the analysis | ❌ not yet |
+
+**M3D closure required only the first**, and requiring more would have meant
+holding a completed mechanism open waiting for traffic.
+
+## 322. The metric readiness gate
+
+`src/core/m3dReadiness.ts` — pure, snapshot-judging, **fails closed**.
+
+It exists because `m3d_relationship_v` returns a number, and a number in a query
+result is an invitation. The distance between "the view returned 43%" and "43%
+of social JOINs go to creators people did not already follow" is one slide, and
+every safeguard M3D has lives on the far side of that sentence.
+
+Gates, all of which must pass before the share may be quoted:
+
+- ≥ **30** eligible JOINs — a rate below that is noise
+- ≥ **10** retained baselines across ≥ **3** actors — the privacy floor, matching
+  what `0035` enforces in the database (asserted by test, so the gate cannot
+  become looser than the view it gates)
+- the view itself reports `reportable = true`
+- `observed_outside_eligible = 0` — the populations have not drifted
+- **the measured-versus-unmeasured comparison has been run and reviewed**
+
+That last one is deliberately an **input, not a computation**. No query can tell
+whether a human looked at the result and thought about it, and computing it
+would make the most important gate the easiest to pass.
+
+**Thresholds are labelled PROVISIONAL** and the source says in terms that
+inventing statistical certainty would be worse than admitting there is none.
+
+`permittedClaim()` generates the only allowed wording, so it cannot drift from
+the denominator it describes; a test asserts it is built in exactly one place
+and contains none of `FORBIDDEN_CLAIMS`.
+
+## 323. Measured versus unmeasured — machinery ready, result not yet meaningful
+
+`m3d_missingness_v` splits **eligible** JOINs into `measured` and `unmeasured`
+and compares them on dimensions that **already existed**: environment, source
+surface, mean social count, and time span.
+
+**No new tracking was added, and none should be.** Fingerprinting, geography or
+a device profile would each cost more privacy than the analysis is worth. Where
+a dimension is unavailable it is documented rather than instrumented.
+
+**Status: COMPARISON NOT YET MEANINGFUL.** Production holds three
+pre-instrumentation social JOINs and no eligible ones, so the view is correctly
+empty. That is a fact about usage, not a failure, and it is not a reason to hold
+M3D open. The machinery is proven against fixtures — including that it ignores
+never-eligible JOINs, carries no follow result in any column, and is private.
+
+## 324. Missingness, unchanged and still not random
+
+Carried forward from §307 without softening. At least one source is
+**systematic**: users whose authorization predates `user:read:follows` cannot be
+measured at all, so the unmeasurable cohort is systematically **older** than the
+measurable one.
+
+Visible: `skipped_not_ready`, `skipped_unacknowledged`, `status_missing`, and
+B − C in aggregate. Invisible within B − C: worker eviction, network failure,
+Twitch API failure, refresh failure, broadcaster lookup failure, window expiry
+from clock skew, and later deletion. All present identically as "eligible, no
+baseline".
+
+**The external claim stays scoped to socially initiated JOINs with retained
+eligible follow-baseline observations** until evidence supports something
+broader.
+
+## 325. Deletion lifecycle — re-proven against the final system
+
+| Event | Credential | Observations | `join_clicked` | `join_arrived` | dwell | shared watch |
+| --- | --- | --- | --- | --- | --- | --- |
+| Twitch deauthorization | deleted | deleted | ✅ | ✅ | ✅ | ✅ |
+| Confirmed `user:read:follows` removal | **kept** | deleted | ✅ | ✅ | ✅ | ✅ |
+| Account deletion | deleted first | deleted | ❌ | ❌ | ❌ | ❌ |
+| Sign-out | kept | kept | ✅ | ✅ | ✅ | ✅ |
+| Any transient failure | untouched | untouched | ✅ | ✅ | ✅ | ✅ |
+
+**Confirmed scope removal** is a **successful** Twitch refresh whose scope list
+no longer carries the permission. Timeout, 5xx, malformed body and ambiguous
+401/403 are each **structurally unable** to reach the deletion — they never
+produce a parsed successful refresh. A generic 401/403 alone is explicitly not
+treated as scope loss.
+
+Metrics recompute after deletion; historical percentages therefore move, which
+is more honest than reporting a relationship we may no longer hold.
+
+## 326. The surviving coverage status cannot rebuild what was deleted
+
+Checked explicitly, as required.
+
+After a purge, the surviving `join_measurement_status` rows were read and their
+properties asserted to be exactly `{"status":"attempted"}`. The status:
+
+- does **not** encode true or false
+- cannot distinguish followed from not-followed
+- was written **before any answer existed**, so it never held one
+- is Watchside's own record of its own decision, like the JOIN it describes
+
+It is legitimately Watchside-owned measurement-process metadata, and it survives
+deauthorization for the same reason `join_clicked` does. **No STOP condition was
+triggered.**
+
+## 327. Small-cohort suppression — re-proven
+
+The `0035` protection holds. One observation cannot reveal a relationship
+result; small cohorts cannot either. The breakdown is withheld as **NULL**
+(never 0) below **10 baselines across 3 actors**, and `reportable` says so
+explicitly. Thresholds remain **PROVISIONAL** and were not weakened.
+
+Raw observations and every M3D view remain service-role only. Six client-refusal
+tests plus a mutation granting a view to `authenticated` — DETECTED.
+
+## 328. Internal actors cannot contaminate product metrics
+
+Production currently holds **2 raw observations and 0 reportable ones**: both
+belong to the automated-acceptance account, which is internal.
+
+That is the right way round — the pipeline must be exercisable against real
+Twitch without the exercise becoming evidence about users.
+
+The subtle danger is padding, and it is now pinned: **twelve internal baselines
+beside two real ones do not lift the suppression.** Only the two real baselines
+count, `reportable` stays false, and the share stays NULL. Internal JOINs are
+likewise absent from the coverage denominator.
+
+## 329. Security and privacy — final M3D audit
+
+Scoped to M3D boundaries only; the wider architecture was not reopened.
+
+| | |
+| --- | --- |
+| actor identity from verified server context | ✅ `auth.uid()` / `getClaims`, never client-supplied |
+| attribution belongs to the actor | ✅ lookup scoped to the actor in its own WHERE clause |
+| broadcaster matches the JOIN destination | ✅ `destination_mismatch` refuses otherwise |
+| client supplies no actor / viewer / follow state | ✅ two fields only, asserted by shape and content |
+| client never receives the relationship result | ✅ response discarded; nowhere for one to arrive |
+| provider tokens absent from browser storage | ✅ O7 boundary, mutation-proven — accepted as ATTRIBUTED per §242, not re-exercised |
+| server credential encrypted at rest | ✅ AES-256-GCM, key outside Postgres |
+| raw relationship table private | ✅ RLS on, zero policies, service-role only |
+| analytics views private | ✅ all six revoked from anon/authenticated |
+| diagnostics owner-gated | ✅ admin token, checked before any user path |
+| diagnostics never reveal true/false | ✅ `answered` only |
+| `user:read:subscriptions` / `user:read:emotes` | ✅ **absent** — 0 in source, 0 in both bundles |
+| speculative scopes | ✅ none |
+| privacy disclosure matches deployed behaviour | ✅ live page re-verified; no change needed for the coverage event (§309) |
+
+## 330. Automated real acceptance
+
+Run again on the final system, **with no human interaction**:
+
+```
+preconditions (before any JOIN is spent)
+  ok  Actor A holds a Twitch credential
+  ok  Actor A has a connected Twitch account
+  ok  the credential carries user:read:follows
+  ok  and carries nothing else Watchside does not ask for
+  ok  the server reports readiness            (ready)
+  ok  observation baseline recorded           (1)
+
+the JOIN
+  ok  the production JOIN control accepted the click
+  ok  JOIN navigated Actor A to the channel   (/lirik)
+  ok  navigation did not wait on the relationship lookup  (1984ms)
+
+the follow baseline
+  ok  exactly one new observation exists      (2 total, baseline 1)
+  ok  a real Twitch answer was recorded, not an empty row
+  ok  the baseline was taken at the JOIN      (1277ms after the click)
+
+idempotency
+  ok  a repeated attempt reports the baseline as recorded
+  ok  and creates no second observation       (1)
+
+relationship baseline recorded: YES
+actual follow state exposed:    NO
+```
+
+Navigation took 1984 ms; the baseline landed 1277 ms after the click. **The
+measurement finished before the navigation did** — the second independent
+demonstration that the two run concurrently and JOIN waits on nothing.
+
+## 331. Observability and the runbook
+
+`docs/M3D-MEASUREMENT.md` — a concise operational contract, not a copy of this
+report. It covers what M3D measures and does not, the four populations, the
+three metric contracts, the four states, the readiness gate and permitted
+wording, forbidden claims, the missingness caveat, the deletion lifecycle,
+internal-actor exclusion, how to run the automated acceptance, how to inspect
+production shape-only, seed maintenance, and revalidation triggers.
+
+**No new observability platform was built.** The existing owner-gated endpoints
+already answer every operational question shape-only:
+`acceptance_preconditions`, `credential_shape`, `observation_shape`,
+`coverage_shape`, `relationship_probe`. The one genuinely missing surface — the
+measured-versus-unmeasured comparison — was added as a single view.
+
+## 332. Revalidation triggers
+
+Re-run the full M3D gates when any of these change: JOIN semantics, social
+eligibility, the attribution model, the analytics acknowledgement path,
+credential custody, Twitch OAuth scopes, the Twitch follow API, the observation
+schema, any deletion semantics, the cohort threshold, experiment assignment
+semantics, the internal-actor definition, or browser architecture affecting
+background-worker lifetime. Cosmetic and unrelated changes do not.
+
+## 333. Schema, Chrome, Firefox
+
+| | |
+| --- | --- |
+| hosted schema | **35 → 36**, applied. `0036` was added **only** for the §320 correctness defect |
+| Chrome permissions / host permissions | unchanged |
+| extension version | **0.7.0** — not bumped |
+| Firefox categories | `authenticationInfo`, `browsingActivity`, `personalCommunications`, `websiteActivity` — unchanged |
+| `technicalAndInteraction` / `financialAndPaymentInfo` | **NO** / **NO** |
+| Store / AMO uploads, tags, packaging | **none** — pending Firefox v0.6 review untouched |
+
+## 334. Gates
+
+| Gate | Result |
+| --- | --- |
+| `npm test` | **2,764 / 2,764** (108 files) |
+| `npm run test:destruction` | **47 / 47 DETECTED** |
+| `tsc -b` / `eslint` | clean |
+| `verify:firefox` | clean, reproducible |
+| known debt | analytics 6 · presence 0 · layout 0 · lab 11 — **unchanged** |
+
+New this slice: `m3dReadiness.test.ts` (18), plus coverage-numerator,
+internal-actor-padding and missingness tests in `m3dCoverage.test.ts`. New
+levers: the coverage numerator, and the retargeted NULL-not-zero lever that
+`0036` had silently orphaned.
+
+## 335. Production, shape and counts only
+
+```
+observations_raw          2
+observations_reportable   0
+coverage      [{ environment: private_beta, social_joins: 3, status_missing: 3,
+                 measurement_eligible: 0, observed_baselines: 0,
+                 observed_outside_eligible: 0, coverage_rate: null }]
+relationship  []
+```
+
+**No headline was generated and none may be.** Both observations belong to an
+internal actor and reach no reportable surface, so a one-row claim is
+structurally impossible rather than merely discouraged. No follow state was
+read, printed or inferred at any point in this slice.
+
+## 336. What M3D CLOSED means
+
+**It means:** Watchside can measure, defensibly and repeatably, whether a viewer
+already followed a creator at the moment of an eligible socially initiated JOIN;
+the measurement is privacy-aware and deletion-aware; the metric contracts are
+honest about their denominators; and the whole pipeline is testable end to end
+without a human.
+
+**It does not mean:** that enough data exists, that the discovery percentage is
+reportable, that missingness is random, or that Watchside caused discovery,
+follows, incremental usage or revenue. Those require future production evidence,
+and the readiness gate exists so nobody can skip past that.
+
+## 337. Unresolved, non-blocking
+
+1. The coverage denominator is client-reported; a client that dies before
+   emitting leaves an indistinguishable `status_missing`.
+2. Missingness is not established as random, and one source is known systematic.
+3. B − C remains a single bucket — server-side failure reasons are not separable.
+4. Thresholds (30 / 10 / 3) are provisional, chosen rather than derived.
+5. The 120 s baseline window now has **two** real samples (1232 ms, 1277 ms) —
+   consistent, still not a distribution.
+6. Nothing has been measured at scale. Every number here is fixtures plus two
+   internal production observations.
+
+## 338. Handoff
+
+**M3D enables next:** a creator-discovery baseline; segmentation by experiment
+arm, cohort and source where those already exist; comparison against dwell,
+arrival and shared-watch; a foundation for later causal work with experiment
+arms; and strategic evidence for platform and acquisition conversations — once
+the readiness gate opens.
+
+**Still future:** follow conversion after a JOIN, economic attribution, causal
+lift, population representativeness, statistical confidence at scale.
+
+**M3E-a remains HOLD.** No subscription measurement, no emote work.
+
+**The roadmap moves to M4.5 — Architecture, Legacy & Feature Audit**, then M5
+(Public Product Pack), M6 (Release Candidate), M7 (Launch). Firefox F7 stays
+independent, pending Mozilla's review of v0.6.
+
+Not started here, per instruction.
