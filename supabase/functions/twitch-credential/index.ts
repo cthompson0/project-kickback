@@ -292,6 +292,7 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
     .select('*', { count: 'exact', head: true })
 
   const rows = (data ?? []) as {
+    actor_id: string
     secret: string
     key_version: number
     status: string
@@ -300,6 +301,14 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
     created_at: string
     updated_at: string
   }[]
+
+  const { data: connectedRows } = await admin
+    .from('connected_accounts')
+    .select('user_id')
+    .eq('platform', 'twitch')
+  const connectedActors = new Set(
+    ((connectedRows ?? []) as { user_id: string }[]).map((row) => row.user_id),
+  )
   return {
     rows: rows.length,
     observations: observationsError ? 'unavailable' : (observations ?? 0),
@@ -347,6 +356,16 @@ async function credentialShape(admin: SupabaseClient): Promise<Record<string, un
         // same actor, carrying more scope than it used to.
         created_at: row.created_at,
         updated_at: row.updated_at,
+        /*
+         * The viewer's Twitch id, as the follow lookup needs it.
+         *
+         * `connected_accounts` is read at exactly one place in this function -
+         * step 5 of the relationship action - and nowhere else, so a credential
+         * can be captured, refreshed and reported `ready` while this is absent.
+         * A holder of a perfectly good credential would then be refused at the
+         * last step before Twitch is asked, with nothing to show for it.
+         */
+        twitch_account_connected: connectedActors.has(row.actor_id),
         longest_printable_run: longestPrintable,
       }
     }),
@@ -452,6 +471,9 @@ async function observationShape(admin: SupabaseClient): Promise<Record<string, u
     .order('occurred_at', { ascending: false })
     .limit(15)
 
+  const { data: credRows } = await admin.from('twitch_credentials').select('actor_id')
+  const credentialActors = new Set(((credRows ?? []) as { actor_id: string }[]).map((r) => r.actor_id))
+
   const recentJoins = []
   for (const join of (joins ?? []) as {
     actor_id: string
@@ -476,6 +498,10 @@ async function observationShape(admin: SupabaseClient): Promise<Record<string, u
       has_destination: join.destination_channel !== null,
       has_attribution: join.attribution_id !== null,
       social_count: Number.isFinite(socialCount) ? socialCount : 0,
+      // Which account clicked. Not WHO - only whether that account is one
+      // Watchside holds a Twitch credential for, which is the difference
+      // between 'measurable' and 'nothing could ever have been recorded'.
+      actor_has_credential: credentialActors.has(join.actor_id),
       // What the eligibility gate would have decided from the stored event.
       eligible: join.attribution_id !== null && join.destination_channel !== null && socialCount > 0,
       observations: observed ?? 0,
@@ -483,6 +509,97 @@ async function observationShape(admin: SupabaseClient): Promise<Record<string, u
   }
 
   return { rows: rows.length, shapes, recent_joins: recentJoins }
+}
+
+/**
+ * Walks the relationship path read-only, and reports WHERE it stops.
+ *
+ * Owner-only. It exists because "no observation" is the same outcome for eight
+ * different reasons, and the codes that distinguish them go to a log this
+ * tooling cannot read. Rather than spend another of the owner's real JOINs
+ * guessing, this runs the same steps against the same credential and names the
+ * step that failed.
+ *
+ * WHAT IT WILL NOT SAY
+ *
+ * Whether the viewer follows the creator. It performs the real lookup, because
+ * a probe that skipped the last step could not tell a working path from a
+ * broken one - but it returns only whether the call SUCCEEDED. The answer stays
+ * where every other part of this design keeps it.
+ *
+ * It writes nothing. No observation, no row, no state.
+ */
+async function relationshipProbe(admin: SupabaseClient, now: number): Promise<Record<string, unknown>> {
+  const { data: creds } = await admin.from('twitch_credentials').select('actor_id').limit(1)
+  const actorId = ((creds ?? []) as { actor_id: string }[])[0]?.actor_id
+  if (!actorId) return { step: 'no_credential' }
+
+  const { data: joins } = await admin
+    .from('analytics_events')
+    .select('destination_channel, attribution_id, occurred_at, properties')
+    .eq('actor_id', actorId)
+    .eq('event_name', 'join_clicked')
+    .order('occurred_at', { ascending: false })
+    .limit(1)
+  const join = ((joins ?? []) as {
+    destination_channel: string | null
+    attribution_id: string | null
+    occurred_at: string
+    properties: Record<string, unknown> | null
+  }[])[0]
+  if (!join?.destination_channel) return { step: 'no_join' }
+
+  const fresh = await ensureFresh(admin, actorId, now)
+  if (fresh.state !== 'fresh' && fresh.state !== 'refreshed') {
+    return { step: 'ensure_fresh', state: fresh.state, reason: fresh.reason ?? null }
+  }
+
+  const current = await readCredential(admin, actorId)
+  if (!current) return { step: 'read_credential' }
+
+  let secret
+  try {
+    secret = await open(hexToBytes(current.secret), actorId, KEYS)
+  } catch {
+    return { step: 'decrypt' }
+  }
+
+  const { data: connected } = await admin
+    .from('connected_accounts')
+    .select('platform_user_id')
+    .eq('user_id', actorId)
+    .eq('platform', 'twitch')
+    .maybeSingle()
+  const viewer = (connected as { platform_user_id?: string } | null)?.platform_user_id
+  if (!viewer) return { step: 'viewer_identity' }
+
+  const broadcaster = await broadcasterIdFor(join.destination_channel, secret.accessToken, CLIENT_ID)
+  if (!broadcaster.ok) return { step: 'broadcaster_lookup', reason: broadcaster.reason }
+
+  const follow = await followsBroadcaster(viewer, broadcaster.id, secret.accessToken, CLIENT_ID)
+  // `ok` only. Never `follow.following`.
+  if (!follow.ok) return { step: 'follow_lookup', reason: follow.reason }
+
+  // The attribution rules, evaluated separately so a stale JOIN is reported as
+  // what it is rather than mistaken for a broken Twitch path.
+  const check = validateAttribution({
+    join: {
+      actorId,
+      destinationChannel: join.destination_channel,
+      occurredAt: join.occurred_at,
+      socialCount: Number(join.properties?.social_count ?? 0),
+    },
+    broadcasterLogin: join.destination_channel,
+    now,
+  })
+
+  return {
+    step: 'ok',
+    twitch_path_works: true,
+    attribution_would_pass_now: check.ok,
+    attribution_reason: check.ok ? null : check.reason,
+    join_age_ms: now - Date.parse(join.occurred_at),
+  }
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -676,15 +793,17 @@ Deno.serve(async (request: Request) => {
   // Owner-only inspection, in its own header, checked before anything else.
   const presentedAdmin = request.headers.get('x-watchside-admin') ?? ''
   if (ADMIN_TOKEN && presentedAdmin && presentedAdmin === ADMIN_TOKEN) {
-    if (body.action === 'credential_shape' || body.action === 'observation_shape') {
+    if (
+      body.action === 'credential_shape' ||
+      body.action === 'observation_shape' ||
+      body.action === 'relationship_probe'
+    ) {
       const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
         auth: { persistSession: false },
       })
-      return json(
-        body.action === 'credential_shape'
-          ? await credentialShape(admin)
-          : await observationShape(admin),
-      )
+      if (body.action === 'credential_shape') return json(await credentialShape(admin))
+      if (body.action === 'observation_shape') return json(await observationShape(admin))
+      return json(await relationshipProbe(admin, Date.now()))
     }
     return json({ error: 'bad_request' }, 400)
   }

@@ -6663,3 +6663,96 @@ Deterministic gates re-run green: 2,663 tests / 105 files, 35/35 mutations, lint
 and `tsc` clean, known debt unchanged. Fix shipped in the local build.
 
 **Slice D remains NOT GO.** One more real JOIN is required.
+
+---
+
+## 271. Second real JOIN — NOT RECORDED, and the actual reason
+
+**relationship baseline recorded: NO.**
+
+A second real socially attributed JOIN was performed at
+`2026-09-01T02:21:21.569Z`. Twitch opened normally. Again **zero observations**.
+
+### The real cause
+
+**The account performing the JOINs holds no Twitch credential.**
+
+```
+2026-09-01T02:21:21Z  eligible=true  actor_has_credential=false  obs=0
+2026-09-01T00:52:09Z  eligible=true  actor_has_credential=false  obs=0
+2026-08-30T08:29:07Z  eligible=true  actor_has_credential=true   obs=0
+```
+
+There is exactly one row in `twitch_credentials`, and it belongs to a different
+actor — one whose most recent JOIN is **42 hours old**, from before the trigger
+existed. `analytics_events.actor_id` is `auth.uid()` and references
+`public.users (id)`, the same id space as `twitch_credentials.actor_id`, so this
+comparison is exact rather than suggestive.
+
+With no credential, `readinessFor({ hasCredential: false })` is
+`needs_reauthorization`, the client gate declines with `not_ready`, and **no
+observation was ever possible**. Both acceptance JOINs were structurally
+unmeasurable before any of the code under test ran.
+
+The Slice C acceptance at §239–§244 verified a credential that is `ready` — and
+that verification was correct. It was simply about a **different Watchside
+account** than the one signed in where the JOINs were clicked. Nothing in Slice
+C's evidence was wrong; it answered a question about the account it was asked
+about.
+
+### The path itself works
+
+A read-only probe walked the same steps against the credentialed actor:
+
+```json
+{"step":"ok","twitch_path_works":true,
+ "attribution_would_pass_now":false,
+ "attribution_reason":"outside_baseline_window","join_age_ms":151001911}
+```
+
+Credential fresh, decrypt, viewer identity from `connected_accounts`, broadcaster
+resolution through Helix, and the follow lookup itself **all succeeded against
+real Twitch** — the first time that path has ever run outside a fake. The only
+refusal is that this actor's newest JOIN is 42 hours old, which is exactly what
+the baseline window is for.
+
+The probe returns whether the lookup **succeeded**, never what it found.
+
+### A correction to §270
+
+§270 attributed the first failure to the `flush()` acknowledgement bug. **That
+attribution was wrong.** The bug was real — proven directly, `PENDING AFTER
+FLUSH WHILE SENDING: 1` — and fixing it was right; the two-pass flush and its
+mutation lever stand. But it was not the cause of that failure, because that
+JOIN's actor had no credential either and could never have been measured.
+
+The mistake was a specific one worth naming: the credential's `updated_at`
+moved to `02:21:11`, close to the JOIN, and only `capture` or `ensureFresh`
+write that column — so it was read as proof that the relationship action had
+run. It was not proof. It was a coincidence in time that fitted a hypothesis,
+and it was treated as confirming it. **What actually settled the question was a
+field that could only mean one thing** (`actor_has_credential`), not a timestamp
+that could mean several. The write at `02:21:11` remains unexplained, and is
+recorded as unexplained rather than given a plausible story.
+
+### Why no test could have caught this
+
+Nothing here is a code defect. Every gate was correct, every refusal honest, and
+the client did exactly what it should when told `needs_reauthorization`: JOIN
+normally, measure nothing, say nothing.
+
+What was missing is that **"this account can be measured" was never checked
+against the account actually being used**. Acceptance verified a credential and
+verified a JOIN, and never verified they belonged to the same actor. The
+diagnostic now reports `actor_has_credential` per JOIN precisely so that
+question can never again be assumed.
+
+### Status
+
+Deterministic gates unchanged and green: 2,663 tests / 105 files, 35/35
+mutations, `tsc` and `eslint` clean, known debt unchanged, schema 33, privacy
+live.
+
+**Slice D remains NOT GO.** It is blocked on a precondition, not a defect: the
+account used for acceptance must hold a Twitch credential carrying
+`user:read:follows`.
