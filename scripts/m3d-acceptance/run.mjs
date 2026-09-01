@@ -42,7 +42,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { createProfile, launch, seedProfile } from '../firefox-e2e/harness.mjs'
-import { decidePreconditions, explain } from './preconditions.mjs'
+import { decidePreconditions, decideSocialPreconditions, explain } from './preconditions.mjs'
 
 /*
  * They must start APART, or the room forms by itself and JOIN is never
@@ -186,9 +186,28 @@ async function main() {
 
     const idA = await identityWhen(a, HOME, 'Actor A to restore its session', 'A')
     const idB = await identityWhen(b, MEET, 'Actor B to restore its session', 'B')
+    /*
+     * The social half of the gate, before the credential half.
+     *
+     * Two distinct signed-in accounts, optionally pinned by login, that are
+     * already Watchside friends. Without the friendship no Gravity card can
+     * ever appear, and the run would otherwise spend a minute timing out on a
+     * card rather than saying so.
+     */
+    const social = decideSocialPreconditions({
+      actorA: idA,
+      actorB: idB,
+      expected: { a: env('WATCHSIDE_M3D_ACTOR_A'), b: env('WATCHSIDE_M3D_ACTOR_B') },
+    })
+    if (!social.ok) throw new PreconditionError(explain(social, 'social'))
     assert('Actor A is signed in', Boolean(idA.userId), `@${idA.twitchLogin}`)
     assert('Actor B is signed in', Boolean(idB.userId), `@${idB.twitchLogin}`)
     assert('the two actors are different accounts', idA.userId !== idB.userId)
+    assert(
+      'and they are already Watchside friends',
+      true,
+      `@${idA.twitchLogin} ~ @${idB.twitchLogin}`,
+    )
 
     // ------------------------------------------- PRECONDITIONS, BEFORE ANY JOIN
     /*

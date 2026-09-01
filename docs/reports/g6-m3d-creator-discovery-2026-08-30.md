@@ -6983,3 +6983,243 @@ M3D regression rather than being a Slice D one-off.
 **No further manual JOINs will be requested.** If the seeds are re-authenticated
 and the run still fails, it fails with a named precondition or a named
 assertion, having spent nothing.
+
+---
+
+# SLICE D — REAL ACCEPTANCE, AUTOMATED
+
+*Appended 2026-09-01. §1–§281 stand unchanged.*
+
+## 282. Slice D verdict
+
+# GO
+
+The first production follow baseline exists. It was produced by a real socially
+attributed JOIN, clicked by browser automation through the real production
+control, against a real stored Twitch credential, with **no human action at any
+point in the run**.
+
+```
+RELATIONSHIP BASELINE RECORDED: YES
+ACTUAL FOLLOW STATE EXPOSED:    NO
+```
+
+## 283. The seed bootstrap, and a contradiction worth having resolved
+
+The owner challenged an apparent contradiction: the harness is documented as
+never opening a seed profile, yet the bootstrap instruction was to sign in
+directly inside one. The challenge was correct to make and the answer is a
+distinction that had not been stated:
+
+* **The harness never opens a seed.** `createProfile()` copies it and refuses
+  any path outside its sandbox, so a *test run* cannot disturb the identity it
+  depends on.
+* **Authenticating a seed is the owner's deliberate seed-maintenance
+  operation** — the one sanctioned write. `seedProfile()`'s own documentation
+  says seeds are "authenticated ONCE by the owner and then copied for every
+  run", and the exact command is documented at F5 §28.10. The
+  `--keep-profile-changes` flag is what marks it as intentional: without it,
+  web-ext copies the profile and the sign-in is discarded.
+
+So yes — **the OAuth bootstrap necessarily and intentionally updates the
+canonical seed profiles**, and it is an exceptional maintenance operation rather
+than a harness run. The procedure was found to be correctly implemented; no code
+was changed for it. Prerequisites were verified rather than assumed (web-ext
+present, Firefox present, and the Firefox package containing both
+`user:read:follows` and the trigger, so one sign-in produced a scoped credential
+in the same action).
+
+## 284. Preconditions — all verified before any JOIN was spent
+
+```
+identity
+  ok  Actor A is signed in                        (@anoterostv)
+  ok  Actor B is signed in                        (@wtfchuck27)
+  ok  the two actors are different accounts
+  ok  and they are already Watchside friends      (@anoterostv ~ @wtfchuck27)
+
+preconditions (before any JOIN is spent)
+  ok  Actor A holds a Twitch credential
+  ok  Actor A has a connected Twitch account
+  ok  the credential carries user:read:follows
+  ok  and carries nothing else Watchside does not ask for
+  ok  the server reports readiness                (ready)
+  ok  observation baseline recorded               (0)
+```
+
+The friendship precondition is the gap identified after §281 and is now
+**permanent**, in `decideSocialPreconditions()`: two distinct signed-in
+accounts, optionally pinned by login through `WATCHSIDE_M3D_ACTOR_A/_B`, that
+are already Watchside friends. The friendship is **verified, never created** — a
+harness that could create the relationship it depends on would be testing
+itself. Without this, a run between non-friends waited a minute for a card that
+could never appear and reported a timeout, which reads like flakiness and names
+nothing.
+
+## 285. The automated run
+
+```
+social presence
+  ok  Actor B publishes the channel it is watching   (lirik)
+  ok  Actor A sees a Social Gravity card             (lirik)
+  ok  the card offers a JOIN
+  ok  and A is not already there                     (A is on /twitch)
+
+the JOIN
+  ok  the production JOIN control accepted the click  ({"clicked":true,"channel":"LIRIK"})
+  ok  JOIN navigated Actor A to the channel           (/lirik)
+  ok  and the panel survived the navigation
+  ok  navigation did not wait on the relationship lookup  (1962ms click to arrival)
+```
+
+Presence is produced by Watchside itself — profile B opens a channel and the
+real publisher does the rest, confirmed against the server. The JOIN is the real
+`button.kb-join` on the named card, clicked by the page agent. Nothing inserted
+an analytics row, minted an attribution, or fabricated an observation, and a
+test forbids those strings in the harness.
+
+### The non-blocking proof, better than expected
+
+Navigation took **1962 ms**; the baseline was recorded **1232 ms** after the
+click. **The measurement completed before the navigation did** — so the two ran
+concurrently, which is the strongest available evidence that the JOIN never
+waited on the relationship lookup. Asserted rather than observed in passing.
+
+## 286. The baseline
+
+```
+the follow baseline
+  ok  exactly one new observation exists            (1 total, baseline 0)
+  ok  it is bound to a real JOIN of this actor
+  ok  aimed at the creator that was joined
+  ok  and that JOIN was socially initiated
+  ok  exactly one observation for that attribution
+  ok  it is a follow relationship
+  ok  a real Twitch answer was recorded, not an empty row
+  ok  the baseline was taken at the JOIN            (1232ms after the click)
+```
+
+Confirmed independently against production afterwards:
+
+```
+total observations: 1
+  answered=true  join_found=true  dest_match=true  social=true
+  per_attribution=1  lag_ms=1232  type=follow
+```
+
+**The whole real Twitch path executed**: credential read, freshness check,
+decrypt, viewer identity from `connected_accounts`, broadcaster resolution
+through Helix, and the follow lookup itself. `answered=true` means
+`relationship_present` is **not null** — a real Twitch answer, not a row written
+without one.
+
+**1232 ms against a 120 000 ms window.** The window assessment at §258 estimated
+"well under 2 s" for the typical case; the first real measurement lands at 1.2 s.
+That is ~1% of the window, and the first evidence the estimate was sound. It
+remains PROVISIONAL — one sample is not a distribution.
+
+## 287. Idempotency
+
+```
+idempotency
+  ok  a repeated attempt reports the baseline as recorded
+  ok  and creates no second observation             (1)
+  ok  nothing leaked in the replay response
+```
+
+**Performed, not asserted.** `relationship_replay` calls the same
+`recordRelationship` the production caller uses, so what was demonstrated is the
+real guarantee: the pre-check finds the existing row, makes no Twitch call, and
+returns `recorded`. The database's partial unique index remains the actual
+constraint behind it.
+
+## 288. The privacy boundary held
+
+* The follow answer never reached the client, the harness, the terminal, this
+  report, or any log. The diagnostic does not return the value — only
+  `answered` — so the harness could not print it if it tried.
+* No token, ciphertext, scope list or credential material crossed any boundary.
+  The harness reads no Twitch token at all; the credential never left the
+  server.
+* The public disclosure was re-fetched from the live page after the run and
+  still contains both the question asked and the permission named.
+
+## 289. G6 / D7
+
+Untouched and still proven. The deletion asymmetry — Twitch deauthorization
+takes the observations and the credential while `join_clicked`, `join_arrived`,
+`watching_together_ended` and `channel_dwell_ended` survive; account deletion
+takes everything; sign-out takes nothing — is covered by
+`tests/db/relationshipObservation.test.ts` and by two mutation levers, both
+DETECTED. **Nothing was weakened for testing.**
+
+The one real observation this run produced is not test litter: it is a genuine
+product event from a genuine JOIN, and it obeys the same lifecycle as any other.
+
+## 290. Gates
+
+| Gate | Result |
+| --- | --- |
+| `npm test` | **2,688 / 2,688** (106 files) |
+| `npm run test:destruction` | **37 / 37 DETECTED** |
+| `tsc -b` | clean |
+| `eslint` | clean |
+| `verify:firefox` | clean, reproducible |
+| harness tree state | identical before and after the mutation run |
+
+New coverage this slice: `acceptancePreconditions.test.ts` grew to **25 tests**,
+now including the social half — signed-out seeds, both seeds resolving to one
+account, missing friendship, case-insensitive login comparison, optional
+pinning, and that the check happens before the JOIN and stops rather than warns.
+
+## 291. Deltas
+
+| | |
+| --- | --- |
+| schema | **33** — unchanged, no migration |
+| extension version | **0.7.0** — not bumped |
+| Chrome permissions / host permissions | unchanged |
+| Firefox data categories | `authenticationInfo`, `browsingActivity`, `personalCommunications`, `websiteActivity` — unchanged; technical NO, financial NO |
+| Store / AMO uploads | none |
+| production relationship callers | 1 |
+| **production observations** | **1** |
+| known debt | analytics 6 · presence 0 · layout 0 · lab 11 — unchanged |
+
+## 292. Human interaction, before and after
+
+| | Before | After |
+| --- | --- | --- |
+| per acceptance run | reload, open a second account, watch a channel, click JOIN, report back | **none** |
+| per seed session lifetime | — | one OAuth sign-in per profile |
+
+`npm run verify:m3d` is reusable for every future M3D regression rather than a
+Slice D one-off. It refuses with its own exit code, naming the exact missing
+precondition, before spending anything.
+
+## 293. Unresolved
+
+Carried forward from §268, none of them blocking:
+
+1. **Confirmed scope removal does not delete existing observations.** Now that
+   one exists, this stops being hypothetical. Deliberate, not improvised.
+2. **The acknowledgement gate is conservative**, so some eligible JOINs will go
+   unmeasured. The §270 flush fix removed the systematic case; what remains is
+   a batch split or a signed-out worker. Bias is toward missing data rather than
+   wrong data, and whether it correlates with anything is unmeasured.
+3. **Clock skew consumes the baseline window** (§258). Fails closed.
+4. **Worker eviction mid-measurement** yields no observation.
+5. **The window is validated by one sample.** 1232 ms is reassuring, not a
+   distribution.
+
+## 294. Slice E readiness
+
+**Not started, per instruction.**
+
+Slice D delivers trustworthy raw collection and exactly one real baseline. No
+metric, rate or view is computed, and the sentence *"X% of JOINs went to
+creators not already followed"* is still not calculable from anything shipped.
+
+Slice E should open with **coverage, not the headline**: of eligible JOINs, how
+many produced an observation, and is what is missing missing at random? Items 2
+and 3 above bear directly on that, and a denominator nobody has checked is how a
+measurement programme produces a confident wrong answer.

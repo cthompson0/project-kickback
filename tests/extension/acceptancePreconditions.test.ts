@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 // @ts-expect-error - plain ESM harness module, deliberately not TypeScript
-import { decidePreconditions, explain } from '../../scripts/m3d-acceptance/preconditions.mjs'
+import { decidePreconditions, decideSocialPreconditions, explain } from '../../scripts/m3d-acceptance/preconditions.mjs'
 
 /**
  * The guard that would have saved two human JOINs.
@@ -217,5 +217,101 @@ describe('the harness refuses before it drives a browser', () => {
     expect(pkg.scripts['verify:m3d']).toContain('m3d-acceptance')
     // `npm test` stays fakes-only.
     expect(pkg.scripts.test).not.toContain('m3d-acceptance')
+  })
+})
+
+// ------------------------------------------------------- the social half
+
+/**
+ * The gap this closes.
+ *
+ * A run whose actors are not friends can never produce a Social Gravity card,
+ * so it waited sixty seconds and reported a timeout - which reads like a flaky
+ * harness and says nothing about the cause. It is knowable before either
+ * browser is driven anywhere, so it is checked there.
+ *
+ * The friendship is VERIFIED, never created. A harness that could create the
+ * relationship it depends on would be testing itself.
+ */
+describe('the actors must be the right two, and actually connected', () => {
+  const A = { userId: 'a', twitchLogin: 'actor_a', friendLogins: ['actor_b'] }
+  const B = { userId: 'b', twitchLogin: 'actor_b' }
+
+  it('accepts two distinct signed-in accounts that are already friends', () => {
+    expect(decideSocialPreconditions({ actorA: A, actorB: B })).toEqual({ ok: true })
+  })
+
+  it('refuses when either seed is signed out', () => {
+    expect(decideSocialPreconditions({ actorA: {}, actorB: B })).toEqual({
+      ok: false,
+      reason: 'actor_a_signed_out',
+    })
+    expect(decideSocialPreconditions({ actorA: A, actorB: {} })).toEqual({
+      ok: false,
+      reason: 'actor_b_signed_out',
+    })
+  })
+
+  /** One account twice proves nothing about social discovery. */
+  it('refuses when both seeds resolve to the same account', () => {
+    expect(decideSocialPreconditions({ actorA: A, actorB: { ...B, userId: 'a' } })).toMatchObject({
+      ok: false,
+      reason: 'actors_identical',
+    })
+  })
+
+  it('refuses actors who are not Watchside friends', () => {
+    expect(
+      decideSocialPreconditions({ actorA: { ...A, friendLogins: [] }, actorB: B }),
+    ).toMatchObject({ ok: false, reason: 'not_friends' })
+    expect(
+      decideSocialPreconditions({ actorA: { ...A, friendLogins: ['someone_else'] }, actorB: B }),
+    ).toMatchObject({ ok: false, reason: 'not_friends' })
+  })
+
+  it('compares logins case-insensitively, as Twitch does', () => {
+    expect(
+      decideSocialPreconditions({
+        actorA: { ...A, friendLogins: ['ACTOR_B'] },
+        actorB: { ...B, twitchLogin: 'Actor_B' },
+      }),
+    ).toEqual({ ok: true })
+  })
+
+  /**
+   * Pinning catches a seed re-authenticated as somebody else - which would
+   * otherwise measure the wrong actor silently, the exact confusion that cost
+   * two human JOINs.
+   */
+  it('refuses a seed signed in as an unexpected account when pinned', () => {
+    expect(
+      decideSocialPreconditions({ actorA: A, actorB: B, expected: { a: 'someone_else' } }),
+    ).toMatchObject({ ok: false, reason: 'actor_a_unexpected' })
+    expect(
+      decideSocialPreconditions({ actorA: A, actorB: B, expected: { b: 'someone_else' } }),
+    ).toMatchObject({ ok: false, reason: 'actor_b_unexpected' })
+  })
+
+  it('is optional, so an unpinned run still checks everything else', () => {
+    expect(decideSocialPreconditions({ actorA: A, actorB: B, expected: {} })).toEqual({ ok: true })
+  })
+
+  it('explains a missing friendship as a product action, not a harness one', () => {
+    const message = explain(
+      decideSocialPreconditions({ actorA: { ...A, friendLogins: [] }, actorB: B }),
+      'social',
+    )
+    expect(message).toContain('not Watchside friends')
+    expect(message).toContain('never creates it')
+  })
+
+  it('is checked before the JOIN, in the harness', () => {
+    const run = readFileSync('scripts/m3d-acceptance/run.mjs', 'utf8')
+    const socialAt = run.indexOf('decideSocialPreconditions({')
+    const joinAt = run.indexOf("'join', { channel: card.channel }")
+    expect(socialAt).toBeGreaterThan(-1)
+    expect(socialAt).toBeLessThan(joinAt)
+    // And it stops the run rather than logging a warning.
+    expect(run).toContain('if (!social.ok) throw new PreconditionError')
   })
 })

@@ -94,11 +94,87 @@ export function decidePreconditions(snapshot) {
   return { ok: true }
 }
 
+/**
+ * The social preconditions: are these the right two accounts, and are they
+ * actually connected?
+ *
+ * Separate from the credential check because they fail for entirely different
+ * reasons and have entirely different fixes. A credential problem is fixed by
+ * signing in; a friendship problem is fixed in the product, by two people.
+ *
+ * WHY FRIENDSHIP IS A PRECONDITION AND NOT AN ASSERTION
+ *
+ * Without it, a run whose actors are not friends waits sixty seconds for a
+ * Social Gravity card that can never appear, then reports a timeout - which
+ * reads like a flaky harness and says nothing about the actual cause. It is
+ * knowable before the browsers are even driven to their channels, so it is
+ * checked there.
+ *
+ * The friendship is VERIFIED, never created. These are real accounts with real
+ * social state; a harness that could create the relationship it depends on
+ * would be testing itself.
+ *
+ * @param {object} input
+ * @param {{userId?: string, twitchLogin?: string, friendLogins?: string[]}} input.actorA
+ * @param {{userId?: string, twitchLogin?: string}} input.actorB
+ * @param {{a?: string|null, b?: string|null}} [input.expected] optional pinned logins
+ */
+export function decideSocialPreconditions({ actorA, actorB, expected = {} }) {
+  if (!actorA?.userId) return { ok: false, reason: 'actor_a_signed_out' }
+  if (!actorB?.userId) return { ok: false, reason: 'actor_b_signed_out' }
+
+  /*
+   * Two accounts, not one profile copied twice. A run where both seeds resolve
+   * to the same account would show a card for a channel the actor is already
+   * on, and prove nothing about social discovery.
+   */
+  if (actorA.userId === actorB.userId) {
+    return { ok: false, reason: 'actors_identical', detail: actorA.twitchLogin }
+  }
+
+  /*
+   * Optional pinning. When the expected logins are configured, a seed that has
+   * been re-authenticated as somebody else is caught here rather than by a
+   * confusing failure later - or worse, by silently measuring the wrong actor,
+   * which is exactly the confusion that cost two human JOINs.
+   */
+  const lower = (value) => (typeof value === 'string' ? value.toLowerCase() : null)
+  if (expected.a && lower(actorA.twitchLogin) !== lower(expected.a)) {
+    return { ok: false, reason: 'actor_a_unexpected', detail: `@${actorA.twitchLogin}` }
+  }
+  if (expected.b && lower(actorB.twitchLogin) !== lower(expected.b)) {
+    return { ok: false, reason: 'actor_b_unexpected', detail: `@${actorB.twitchLogin}` }
+  }
+
+  const friends = (actorA.friendLogins ?? []).map((login) => lower(login))
+  if (!friends.includes(lower(actorB.twitchLogin))) {
+    return {
+      ok: false,
+      reason: 'not_friends',
+      detail: `A's friends: ${friends.length ? friends.join(', ') : 'none'}`,
+    }
+  }
+
+  return { ok: true }
+}
+
 /** Human-readable, and specific enough to act on without a second run. */
 export function explain(decision, actorLabel) {
   if (decision.ok) return `${actorLabel} is ready to measure`
   const detail = decision.detail ? ` (${decision.detail})` : ''
   switch (decision.reason) {
+    case 'actor_a_signed_out':
+      return 'seed profile A is not signed in to Watchside'
+    case 'actor_b_signed_out':
+      return 'seed profile B is not signed in to Watchside'
+    case 'actors_identical':
+      return `both seeds resolve to the same account${detail}; two distinct accounts are required`
+    case 'actor_a_unexpected':
+      return `seed A is signed in as an account other than the expected one${detail}`
+    case 'actor_b_unexpected':
+      return `seed B is signed in as an account other than the expected one${detail}`
+    case 'not_friends':
+      return `the two actors are not Watchside friends, so no Social Gravity card can appear${detail}. Add the friendship in the product - the harness verifies it and never creates it.`
     case 'actor_unknown':
       return `${actorLabel}: the server does not know this actor id`
     case 'no_credential':
