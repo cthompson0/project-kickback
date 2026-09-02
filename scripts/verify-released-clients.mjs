@@ -44,10 +44,24 @@ const RELEASES = 'releases'
 const MIGRATIONS = join('supabase', 'migrations')
 const FUNCTIONS = join('supabase', 'functions')
 
-/** The builds that are live or queued, and therefore must not be stranded. */
+/**
+ * The builds that are live or queued, and therefore must not be stranded.
+ *
+ * KEPT CURRENT DELIBERATELY. This list said "Firefox 0.6.0 (awaiting first AMO
+ * review)" for a while after Mozilla approved 0.8.0 and made it the build
+ * Firefox users actually run - so the script was proving compatibility for a
+ * version nobody had while saying nothing about the one everybody had. A
+ * compatibility check aimed at the wrong artifact is worse than none, because
+ * it reports success.
+ *
+ * 0.6.0 stays alongside it: AMO does not force updates instantly, so somebody
+ * is still running it.
+ */
 const RELEASED = [
   { label: 'Chrome 0.7.0 (live)', file: 'Watchside-Store-v0.7.0.zip' },
-  { label: 'Firefox 0.6.0 (awaiting first AMO review)', file: 'Watchside-Firefox-v0.6.0.zip' },
+  { label: 'Chrome 0.8.0 (submitted, in review)', file: 'Watchside-Store-v0.8.0.zip' },
+  { label: 'Firefox 0.8.0 (live on AMO)', file: 'Watchside-AMO-Candidate-v0.8.0.zip' },
+  { label: 'Firefox 0.6.0 (still installed by some)', file: 'Watchside-Firefox-v0.6.0.zip' },
 ]
 
 let failures = 0

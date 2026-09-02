@@ -2,9 +2,46 @@
 
 What changed in each Watchside release, written for the people using it.
 
-Watchside is in a small private beta. Testers install it from the Chrome Web
-Store, so a change is only in your hands once a new version has been published
+Watchside is published on the Chrome Web Store and on Firefox Add-ons, so a
+change is only in your hands once a new version has been reviewed and published
 there — the version in the account panel tells you which build you are running.
+
+---
+
+## 0.9.0 — Getting your first friend actually works
+
+Watchside is only useful once somebody you know is in it, and this release is
+about that first connection working every time.
+
+### Invites reach people on Firefox
+
+The page your invite link opens offered Chrome and nothing else. If the person
+you sent it to used Firefox, they were told to install something they could
+not — on the browser Watchside was actually available for. It now offers both,
+always, whichever browser you happen to be reading it in. On a phone it says
+plainly that Watchside is a desktop extension rather than sending you to a store
+that cannot help.
+
+### An invite no longer gets lost while you sign in
+
+If you clicked a friend's invite, installed Watchside and then took your time
+over the Twitch permission screen, the invite could quietly vanish — you would
+arrive with no friend and no error, and your friend would never know you had
+tried. The invite is now remembered properly and is still there when you finish
+signing in. It lasts a day, and a dropped connection no longer throws it away.
+
+### Invite links are Watchside links
+
+New invites are **watchside.app/i/…** instead of the long GitHub address they
+used to be. Every link anybody has already shared keeps working.
+
+### Quieter housekeeping
+
+- Friend search now has a sensible ceiling, so nobody can sit and page through
+  who does and does not use Watchside.
+- We can now see how many people install Watchside and never manage to find a
+  single friend — which is the thing we most need to fix, and the thing we
+  previously could not see at all.
 
 ---
 

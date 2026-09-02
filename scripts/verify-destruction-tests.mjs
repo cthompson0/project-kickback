@@ -71,6 +71,8 @@ const SEARCH_MIGRATION = 'supabase/migrations/0041_search_rate_budget.sql'
 const SEARCH_SUITE = 'tests/db/searchRateBudget.test.ts'
 const ACTIVATION_MIGRATION = 'supabase/migrations/0042_activation_denominator.sql'
 const ACTIVATION_SUITE = 'tests/db/activationDenominator.test.ts'
+const REVOKE_MIGRATION = 'supabase/migrations/0043_revoke_reporting_views.sql'
+const AUTHZ_SUITE = 'tests/db/authorizationSurface.test.ts'
 const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
@@ -1336,6 +1338,24 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: "  case when count(*) >= 3",
     to: "  case when count(*) >= 0",
     expect: 'suppresses rates below three actors, as NULL rather than zero',
+  },
+  {
+    /*
+     * A per-actor reporting view goes back to being readable by every signed-in
+     * client - and by anon, which is anybody holding the publishable key that
+     * ships inside the extension. Views run with their owner s privileges, so
+     * the table revokes in 0002 do not protect one built on top of them.
+     *
+     * This is the defect 0043 exists for, found in the v0.9 RC security pass
+     * after four migrations in a row forgot the revoke that every earlier
+     * reporting view performs.
+     */
+    name: 'authz: expose a per-actor reporting view to clients',
+    file: REVOKE_MIGRATION,
+    suite: AUTHZ_SUITE,
+    from: "revoke all on public.activation_actor_v          from public, anon, authenticated;",
+    to: "-- revoke removed",
+    expect: 'keeps measurement surfaces off the client',
   },
 ]
 

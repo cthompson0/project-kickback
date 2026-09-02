@@ -338,6 +338,38 @@ M3C.1 accepted
       from AMO; the v0.7 checklist tests an UNSIGNED v0.7 package locally.
 ```
 
+### v0.9 RC - BUILT AND VERIFIED, held for human validation
+
+`0.9.0` candidates exist for both stores and **neither has been submitted**.
+Chrome v0.8 is still in review - the public listing reads 0.7.0 - and the
+no-submit rule holds until it clears and the owner approves.
+
+**The RC security pass found one stop-ship defect, and it was live in
+production.** Supabase grants SELECT on anything new in `public` to `anon`
+and `authenticated` by default. Every earlier reporting view revokes
+explicitly - the `analytics_*` set, the `m3d_*` set, `feedback_v` - and four
+migrations in a row did not: 0038, 0039, 0040 and 0042. Nine per-actor and
+per-cohort views were therefore readable by any signed-in user, and by
+anybody holding the publishable key that ships inside the extension. A view
+runs with its owner's privileges, so the table revokes in 0002 did not
+protect them.
+
+**Fixed by migration 0043**, which revokes all nine plus two trigger
+functions. `tests/db/authorizationSurface.test.ts` now introspects the built
+schema and fails on any future reporting view that forgets - which is the
+real fix, since this was missed four times by review alone.
+
+Everything else in the pass was clean: no eval or remote code, no secrets in
+either artifact, no `innerHTML` or `dangerouslySetInnerHTML` in Watchside's
+own code, no `externally_connectable`, no page-message listener, every
+SECURITY DEFINER function has a pinned `search_path`, anon can execute
+nothing and read no table, and production dependencies report zero
+vulnerabilities.
+
+**Human validation is next**, using `docs/FIRST_IMPRESSION_VALIDATION.md`.
+
+---
+
 ### v0.9 - LAUNCH ACTIVATION: the five P0 items, complete
 
 The cold-start audit found the social machinery substantially built and the
