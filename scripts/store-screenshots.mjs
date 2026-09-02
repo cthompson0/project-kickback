@@ -56,9 +56,9 @@ const LAYOUT = { v: 1, x: WIDTH - 400 - 24, y: 64, width: 400, height: 640, size
  * them.
  */
 const CHANNELS = {
-  gathering: 'theburntpeanut',
+  gathering: 'esl_sc2',
   elsewhere: 'summit1g',
-  third: 'gingy',
+  third: 'zchum',
 }
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -209,6 +209,21 @@ function closeAnyCard() {
  * the product - so it cannot be found by its text the way the fixed tabs can.
  * The class is what identifies it.
  */
+/**
+ * Open the find-friends surface, where suggestions and the invite link live.
+ *
+ * The "+ Add" control beside the tabs. Found by its accessible name rather than
+ * by position, because the label is deliberately short to survive the 280px
+ * minimum width and the aria-label is the thing that actually says what it does.
+ */
+function openFindFriends() {
+  const root = document.getElementById('kickback-host')?.shadowRoot ?? null
+  const button =
+    root?.querySelector('[aria-label="Add friends"]') ?? root?.querySelector('.kb-add-btn')
+  button?.click()
+  return Boolean(button)
+}
+
 function openSessionTab() {
   const root = document.getElementById('kickback-host')?.shadowRoot ?? null
   const tab = root?.querySelector('.kb-tab-session')
@@ -332,6 +347,31 @@ async function main() {
         },
       }),
     ])
+
+    /*
+     * 4 - FIND FRIENDS. The story's last beat and the one the old set was
+     * missing entirely: Watchside is worth more as your Twitch social graph
+     * forms, and here is how it forms. Suggestions come from friends of the
+     * people you already have, with the mutual COUNT and never the names.
+     *
+     * This is the surface M5A rebuilt, and no screenshot has ever shown it.
+     */
+    report.push([
+      'store-04-find-friends.png',
+      await shoot(browser, {
+        file: 'store-04-find-friends.png',
+        channel: CHANNELS.elsewhere,
+        prepare: async (page) => {
+          const opened = await page.evaluate(openFindFriends)
+          await wait(1_200)
+          if (!opened) {
+            console.log('   WARNING  no Add friends control - the panel may not be signed in')
+          }
+          return opened
+        },
+      }),
+    ])
+
   } finally {
     await browser.close()
   }

@@ -102,6 +102,26 @@ export async function launch({ extension = null, headful = false, width = 1600, 
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-features=Translate,MediaRouter',
+
+    /*
+     * SILENCE, and not as an option.
+     *
+     * Every browser this launches goes to twitch.tv, where a live stream starts
+     * playing the moment the page settles. A headless browser is still a real
+     * browser: --headless=new renders and plays audio exactly like a visible
+     * one, so a Store-asset capture run filled the room with whatever three
+     * streams happened to be on.
+     *
+     * --mute-audio is the right mechanism rather than blocking autoplay,
+     * because the screenshot needs the video to actually be playing - a paused
+     * player with a play button over it is not what the product looks like.
+     * The stream runs; nothing comes out of the speakers.
+     *
+     * Deliberately NOT a parameter. There is no automation in this repository
+     * that should make noise, and an option is a thing somebody forgets to
+     * pass. tests/extension/captureAudio.test.ts asserts it stays here.
+     */
+    '--mute-audio',
     `--window-size=${width},${height}`,
     'about:blank',
   ]

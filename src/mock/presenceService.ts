@@ -33,9 +33,22 @@ const watching = (channel: string): Activity => ({
  * the demo client is exactly how a screenshot ends up on the wrong streamer.
  */
 export const CHANNELS = {
-  gathering: 'theburntpeanut',
+  /*
+   * Owner-chosen for the Store capture run.
+   *
+   * ESL_SC2 carries the gathering because an esports broadcast is the most
+   * legible reason three friends would be on one channel at once - it reads as
+   * "they are all watching the tournament" rather than as a coincidence.
+   * summit1g is where the viewer already is, so screenshot 2 is a real choice
+   * between two things rather than an empty panel with one card in it.
+   *
+   * These names appear in a public store listing. They are Twitch channels
+   * shown in Twitch's own product, and nothing in the listing suggests any of
+   * them knows Watchside exists.
+   */
+  gathering: 'esl_sc2',
   elsewhere: 'summit1g',
-  third: 'gingy',
+  third: 'zchum',
 }
 
 const SEED: Presence[] = [

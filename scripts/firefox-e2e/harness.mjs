@@ -71,6 +71,28 @@ const STRICT_ETP_PREFS = [
 ]
 
 /**
+ * Silence, on every profile this harness builds.
+ *
+ * These runs go to twitch.tv, where a live stream begins playing as soon as
+ * the page settles - so an unattended acceptance run fills the room with
+ * whatever happens to be on. The Chromium side solves this with --mute-audio;
+ * Firefox has no equivalent flag, so it is a pref.
+ *
+ * media.volume_scale silences OUTPUT while leaving playback running, which is
+ * what the runs need: a paused player is a different page from a playing one,
+ * and the M3D acceptance depends on the real thing.
+ *
+ * Deliberately not optional, for the same reason as the Chromium flag: there
+ * is no run here that should make noise.
+ */
+const QUIET_PREFS = [
+  'user_pref("media.volume_scale", "0.0");',
+  // Belt and braces: no audible notification chirps either.
+  'user_pref("accessibility.typeaheadfind.soundURL", "");',
+  'user_pref("browser.tabs.remote.autostart.sound", false);',
+]
+
+/**
  * A disposable profile, optionally seeded from an authenticated one.
  *
  * `seed` is copied, never opened in place, so the source cannot be mutated by
@@ -118,7 +140,7 @@ export function createProfile({ name, seed = null, strictEtp = false }) {
     const existing = existsSync(join(dir, 'user.js'))
       ? readFileSync(join(dir, 'user.js'), 'utf8')
       : ''
-    writeFileSync(join(dir, 'user.js'), `${existing}\n${STRICT_ETP_PREFS.join('\n')}\n`)
+    writeFileSync(join(dir, 'user.js'), `${existing}\n${[...STRICT_ETP_PREFS, ...QUIET_PREFS].join('\n')}\n`)
   }
   return dir
 }

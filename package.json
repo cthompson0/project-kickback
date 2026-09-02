@@ -30,6 +30,7 @@
     "verify:store": "node scripts/verify-store-readiness.mjs",
     "package:store": "node scripts/package-beta.mjs --store",
     "screenshots:store": "node scripts/store-screenshots.mjs",
+    "assets:store": "node scripts/store-assets.mjs",
     "package:firefox": "node scripts/package-firefox.mjs",
     "package:firefox-beta": "node scripts/package-firefox.mjs --beta",
     "verify:firefox": "node scripts/verify-firefox.mjs",

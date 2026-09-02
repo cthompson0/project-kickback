@@ -56,6 +56,13 @@ dist-testlab
 # `npm run brand:icons` from assets/brand/geometry.mjs, and committed because a
 # store listing should not need a build to get a 512.
 !assets/brand/icons/*.png
+# The Store listing set. Same reasoning as the icons above, and a stronger case:
+# these are photographs of LIVE Twitch, so re-running the capture produces a
+# different picture rather than the same one. If they are not committed, the set
+# the owner uploaded cannot be recovered, compared against, or re-uploaded after
+# a listing edit. Assembled by `npm run assets:store`.
+!assets/store/current/**/*.png
+!assets/store/current/*.png
 
 # Private-beta archives. Built by `npm run package:beta`, sent by hand, and
 # never committed - a release is reproducible from a tag plus the script.

@@ -319,7 +319,42 @@ export function createDemoClient(): KickbackClient {
   reportInvite: () => {},
   // No backend here, so a campaign touch has nowhere to bind.
   reportCampaign: () => {},
-  suggestFriends: async () => [],
+  /*
+   * People you may know, seeded so the demo can show the surface at all.
+   *
+   * The growth loop needs a live backend, so this used to resolve empty - which
+   * is correct for a demo of the watching experience and wrong for a store
+   * screenshot, where the empty state would advertise "Watchside has nobody to
+   * suggest" as though that were the feature.
+   *
+   * Friends-of-friends of the seeded roster, with mutual counts that match the
+   * story: Priya knows three of your five, Tom knows two. No real person is
+   * named, and the mutual COUNT is all that is ever shown - the product never
+   * names a mutual, because a friendship is not the viewer's to publish.
+   */
+  suggestFriends: async () => [
+    {
+      userId: 'u_priya',
+      displayName: 'Priya',
+      twitchLogin: 'priyaplays',
+      avatarUrl: null,
+      mutualCount: 3,
+    },
+    {
+      userId: 'u_tom',
+      displayName: 'Tom',
+      twitchLogin: 'tomwatches',
+      avatarUrl: null,
+      mutualCount: 2,
+    },
+    {
+      userId: 'u_ade',
+      displayName: 'Ade',
+      twitchLogin: 'adeonline',
+      avatarUrl: null,
+      mutualCount: 1,
+    },
+  ],
   inviteCode: async () => '0123456789ABCDEFGHJKMN',
   claimInvite: async () => 'unknown',
   bindAcquisition: async () => 'unknown' as const,
