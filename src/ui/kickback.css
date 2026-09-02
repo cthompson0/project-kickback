@@ -1051,6 +1051,20 @@
   margin-bottom: 14px;
 }
 
+/*
+ * The one quiet line under the sign-in button.
+ *
+ * Dim rather than the decorative tier, because it answers a question the very
+ * next screen asks - Twitch is about to request a permission - and text that
+ * matters is text somebody has to be able to read. See tests/extension/contrast.
+ */
+.kb-signin-note {
+  margin-top: 10px;
+  color: var(--kb-dim);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
 .kb-signin-btn {
   width: 100%;
   padding: 9px 12px;

@@ -67,6 +67,7 @@ const ERRORS = 'src/core/errors.ts'
 const A11Y_SUITE = 'tests/dom/accessibilityAudit.test.tsx'
 const CONTRAST_SUITE = 'tests/extension/contrast.test.ts'
 const ERROR_SUITE = 'tests/extension/errorMessages.test.ts'
+const FIRSTRUN_SUITE = 'tests/dom/firstRun.test.tsx'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -1050,6 +1051,29 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: '        open={sessionOpen}',
     to: '        open={sessionAvailable}',
     expect: 'is wired to the surface actually being open',
+  },
+  // ------------------------------------------------- M6A stranger activation
+  {
+    // The first screen goes back to describing a mood instead of a product.
+    // A stranger arrives from a listing promising "see where your Twitch
+    // friends are watching", meets four words naming none of it, and is then
+    // asked to approve a Twitch authorisation.
+    name: 'activation: make the first screen stop saying what Watchside does',
+    file: AUTH_UI,
+    suite: FIRSTRUN_SUITE,
+    from: '        See where your friends are watching on Twitch, and jump in.',
+    to: '        See who is around.',
+    expect: 'says what Watchside does before asking for anything',
+  },
+  {
+    // The line answering "why does it want my Twitch account" disappears, so
+    // the consent screen's follow permission arrives with no preparation.
+    name: 'activation: drop the reason for signing in with Twitch',
+    file: AUTH_UI,
+    suite: FIRSTRUN_SUITE,
+    from: '      <div className="kb-signin-note">',
+    to: '      <div className="kb-signin-note" hidden>',
+    expect: 'answers why it wants a Twitch sign-in, before Twitch asks',
   },
 ]
 

@@ -17,15 +17,41 @@ import { BackIcon, WatchsideMark } from './Icons'
  * should not feel like onboarding.
  */
 
+/**
+ * The first screen anybody sees, and the one that has to earn a Twitch
+ * authorisation from somebody who has never heard of us.
+ *
+ * IT USED TO SAY "See who's around."
+ *
+ * Four words that mention neither Twitch, nor friends, nor watching - to a
+ * person who arrived from a listing promising "see where your Twitch friends
+ * are watching and jump into the stream with them", and who is about to be
+ * asked to approve an authorisation. The zero-friend state one screen later was
+ * rewritten carefully in M5A; this one, which comes FIRST, was never given the
+ * same treatment.
+ *
+ * Still one message and one action - "signing in should not feel like
+ * onboarding" is the right rule and this does not break it. What changed is
+ * that the message is now about the product, and a quiet line answers the
+ * question the next screen is about to raise: Twitch's consent page asks to
+ * view the channels you follow, and a stranger who meets that with no
+ * preparation is a stranger who cancels.
+ */
 export function SignInCard({ onSignIn, busy }: { onSignIn: () => void; busy: boolean }) {
   return (
     <div className="kb-signin">
       <WatchsideMark size={36} />
       <div className="kb-signin-title">Watchside</div>
-      <div className="kb-signin-sub">See who&rsquo;s around.</div>
+      <div className="kb-signin-sub">
+        See where your friends are watching on Twitch, and jump in.
+      </div>
       <button type="button" className="kb-signin-btn" onClick={onSignIn} disabled={busy}>
         {busy ? 'Waiting for Twitch…' : 'Continue with Twitch'}
       </button>
+      <div className="kb-signin-note">
+        Sign in with Twitch so Watchside knows who you are. It never sees your
+        password.
+      </div>
     </div>
   )
 }
