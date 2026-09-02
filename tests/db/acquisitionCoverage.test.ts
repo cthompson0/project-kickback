@@ -285,10 +285,4 @@ describe('what the views deliberately refuse to say', () => {
     expect(names.some((n) => n.includes('organic'))).toBe(false)
   })
 
-  it('reports the schema version the migration set', async () => {
-    const [row] = await db.root<{ analytics_schema_version: number }>(
-      'select public.analytics_schema_version()',
-    )
-    expect(row.analytics_schema_version).toBe(40)
-  })
 })

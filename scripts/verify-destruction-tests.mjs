@@ -67,6 +67,8 @@ const EMOTES = 'src/core/emotes.ts'
 const PRIVACY_SUITE = 'tests/extension/privacyAccuracy.test.ts'
 const COVERAGE_MIGRATION_40 = 'supabase/migrations/0040_acquisition_coverage.sql'
 const ACQ_COVERAGE_SUITE = 'tests/db/acquisitionCoverage.test.ts'
+const SEARCH_MIGRATION = 'supabase/migrations/0041_search_rate_budget.sql'
+const SEARCH_SUITE = 'tests/db/searchRateBudget.test.ts'
 const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
@@ -1276,6 +1278,27 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: '    when count(*) >= 3',
     to: '    when count(*) >= 0',
     expect: 'suppresses the rate below three actors, as NULL rather than zero',
+  },
+  {
+    // Search goes unbudgeted again: ten names per prefix with no ceiling is a
+    // downloadable list of who uses Watchside, and asking whether one specific
+    // person is on it becomes free and traceless.
+    name: 'search: let user search run without a budget',
+    file: SEARCH_MIGRATION,
+    suite: SEARCH_SUITE,
+    from: "  if not public.consume_rate_budget('user_search', 60, interval '10 minutes') then",
+    to: '  if false then',
+    expect: 'goes quiet once the budget is spent',
+  },
+  {
+    // The budget is charged before the length check, so a client burns the
+    // allowance on the way to typing a real name and ordinary search breaks.
+    name: 'search: charge the budget for queries too short to run',
+    file: SEARCH_MIGRATION,
+    suite: SEARCH_SUITE,
+    from: '  if char_length(v_raw) < 2 then',
+    to: "  perform public.consume_rate_budget('user_search', 60, interval '10 minutes');\n  if char_length(v_raw) < 2 then",
+    expect: 'does not charge for a query too short to run',
   },
 ]
 
