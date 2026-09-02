@@ -338,6 +338,53 @@ M3C.1 accepted
       from AMO; the v0.7 checklist tests an UNSIGNED v0.7 package locally.
 ```
 
+### The M7 launch gates - current standing
+
+**G5 is SATISFIED by explicit owner decision, 2026-09-02.**
+
+> **`subscribed_at_join` is DEFERRED.** The owner accepts the permanent
+> historical loss, for socially attributed JOINs occurring during the deferral
+> window, of whether the viewer was already subscribed to that creator at the
+> moment of JOIN. Conversions occurring in that gap may likewise be permanently
+> unrecoverable.
+
+G5 was always satisfiable *"by a decision rather than by delivery - the invariant
+demands that the loss be chosen and recorded, not that it never happen."* It has
+now been chosen and recorded. Accepted because the loss is **per-JOIN and
+time-bounded rather than a whole acquisition cohort**; production volume is
+currently near zero; the metric is potentially misleading at small scale; Prime
+and paid Tier 1 are indistinguishable in the relevant API result; and shipping it
+would need a second Twitch scope, reauthorization for every existing user, and
+possibly a fresh Firefox consent - activation friction that is least affordable
+immediately before public launch. **M3D's `followed_at_join` already provides the
+more important early-stage baseline**: whether socially initiated viewing reaches
+creators outside an existing follow relationship.
+
+**Revisit at ~1,000 MAU with a measurable social JOIN rate, or when a credible
+randomised-lift measurement becomes viable. Resolve D8 before implementing.**
+
+Full analysis: `docs/reports/g5-subscribed-at-join-decision-2026-09-02.md`
+(`71270bb`).
+
+**The existing assertions prohibiting subscription and purchase measurement stay
+exactly as they are.** Eight of them, across six test files. They are the
+mechanism that keeps this decision true, not an obstacle to it.
+
+| Gate | Standing |
+|---|---|
+| **G1** dwell confirmed emitting in production | **OPEN - needs real production observations, not implementation.** Possible for the first time now that v0.8 is distributed |
+| **G2** repeat-creator analysis | follows G1 |
+| **G3** `experiment_arm` on `authenticated_session_started` | **SATISFIED** - shipped in v0.7 |
+| **G4** `following_at_join` | **SATISFIED by delivery** - M3D |
+| **G5** `subscribed_at_join` | **SATISFIED by recorded decision** - above |
+| **G6** deletion path before any Twitch-derived write | **SATISFIED** |
+| **G7** D7 legal read of the Twitch DSA | **OPEN - counsel.** Note: recorded as blocking for M3D/M3E-a, and M3D shipped while it was open. That inconsistency predates this pass and should be closed deliberately |
+| **G8** D8 AMO `financialAndPaymentInfo` clarification | **RETIRED / NON-BLOCKING for M7** while M3E-a is deferred. D8 asks how to *declare* data Watchside has now chosen not to collect; there is nothing to declare. It returns if and only if `subscribed_at_join` is revisited |
+| **G9** privacy policy updated for every shipped measurement | **SATISFIED** - accuracy pass, `5d3b65b` |
+
+**M7 is therefore blocked by G1 (data, not work) and G7 (counsel)** - plus the
+cold-start question below, which is a product judgement rather than a gate.
+
 ### v0.7.0 - RELEASE CANDIDATE / PACKAGED / NOT SUBMITTED
 
 **Cut 2026-08-30.** See
