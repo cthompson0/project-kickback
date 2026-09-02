@@ -51,6 +51,7 @@ export type RpcMethod =
   | 'claimInvite'
   | 'referralSummary'
   | 'badges'
+  | 'badgeCatalog'
   | 'setDisplayedBadge'
 
 /** Tab -> worker. */

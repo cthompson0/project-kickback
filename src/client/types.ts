@@ -14,6 +14,7 @@ import type { RoomMember } from '../core/streamRoom'
 import type { RoomMessage } from '../core/roomMessages'
 import type { DestinationsByUser } from '../core/socialGravity'
 import type {
+  BadgeDefinition,
   DisplayedBadge,
   EarnedBadge,
   FriendSuggestion,
@@ -475,6 +476,8 @@ export interface KickbackClient {
   claimInvite(code: string): Promise<string>
   referralSummary(): Promise<{ successful: number; pending: number }>
   badges(): Promise<EarnedBadge[]>
+  /** Every badge that exists, so the panel can show what is still to earn. */
+  badgeCatalog(): Promise<BadgeDefinition[]>
   setDisplayedBadge(key: string | null): Promise<void>
 
   // --- analytics -----------------------------------------------------------

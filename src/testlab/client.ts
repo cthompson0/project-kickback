@@ -523,6 +523,9 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     claimInvite: async () => 'unknown',
     referralSummary: async () => ({ successful: 0, pending: 0 }),
     badges: async () => [],
+    // The lab awards nothing, so it lists nothing to earn either. Returning the
+    // real ladder here would show a shelf of locked badges no lab run can move.
+    badgeCatalog: async () => [],
     setDisplayedBadge: async () => {},
     getState: () => state,
     subscribe(listener) {

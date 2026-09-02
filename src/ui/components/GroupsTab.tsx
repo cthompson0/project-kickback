@@ -540,6 +540,22 @@ export function GroupsTab({
                 A group is somewhere your people gather, even the ones who don&rsquo;t know each
                 other.
               </div>
+              {/*
+                * The one sentence that stops Groups and the stream tab being
+                * confused for each other.
+                *
+                * They are the only two places in Watchside where people talk,
+                * and nothing said which was which - so a new user could
+                * reasonably think a group had to be made before joining
+                * anybody, which is the opposite of how watching together works.
+                * A group is something you keep; the stream tab is something
+                * that happens.
+                */}
+              <div className="kb-quiet-sub">
+                It stays put. The tab that appears while you&rsquo;re watching alongside
+                someone is different &mdash; that one comes and goes with the stream, and
+                you never make it.
+              </div>
               <button
                 type="button"
                 className="kb-signin-btn kb-find-btn"

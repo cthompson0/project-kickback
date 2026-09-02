@@ -322,6 +322,7 @@ export function createDemoClient(): KickbackClient {
   claimInvite: async () => 'unknown',
   referralSummary: async () => ({ successful: 0, pending: 0 }),
   badges: async () => [],
+  badgeCatalog: async () => [],
   setDisplayedBadge: async () => {},
   }
 }

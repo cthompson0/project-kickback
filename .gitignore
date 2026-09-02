@@ -43,6 +43,7 @@ supabase/.temp
 # Demo build output
 dist-demo
 dist-firefox
+dist-site
 
 # Test Lab build output. The lab is normally RUN, not built - see docs/TEST_LAB.md.
 dist-testlab
@@ -63,3 +64,4 @@ releases
 # Firefox E2E seed profiles. Machine-specific paths to profiles holding real
 # sessions - never committed. See scripts/firefox-e2e/seeds.example.json.
 scripts/firefox-e2e/seeds.local.json
+dist-pages

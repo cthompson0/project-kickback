@@ -9,7 +9,7 @@ import type {
 import { PORT_NAME, isWorkerMessage } from './messages'
 import { runtime } from '../platforms/browser'
 import type { ExtensionPort } from '../platforms/browser'
-import type { EarnedBadge, FriendSuggestion } from '../background/supabaseBackend'
+import type { BadgeDefinition, EarnedBadge, FriendSuggestion } from '../background/supabaseBackend'
 import type { ClientMessage, RpcMethod } from './messages'
 
 /**
@@ -284,6 +284,7 @@ export function createPortClient(): KickbackClient {
     claimInvite: (code) => rpc<string>('claimInvite', code),
     referralSummary: () => rpc<{ successful: number; pending: number }>('referralSummary'),
     badges: () => rpc<EarnedBadge[]>('badges'),
+    badgeCatalog: () => rpc<BadgeDefinition[]>('badgeCatalog'),
     setDisplayedBadge: async (key) => {
       await rpc('setDisplayedBadge', key)
     },

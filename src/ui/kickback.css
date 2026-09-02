@@ -3354,3 +3354,45 @@ a.kb-ghost-btn {
   /* Never a reason to break a line between a name and its badge. */
   white-space: nowrap;
 }
+
+/* ---------- account: support link and quiet hints ---------- */
+
+/*
+ * A link that has to sit in a column of buttons.
+ *
+ * Support leaves Watchside, so it is an anchor rather than a button - the
+ * browser then gives it the middle-click, the context menu and the status-bar
+ * preview a person expects from a link, none of which a button can offer.
+ */
+.kb-ghost-link {
+  display: block;
+  text-align: center;
+  text-decoration: none;
+  line-height: normal;
+}
+
+.kb-hint-quiet {
+  color: var(--kb-dim);
+  opacity: 0.85;
+}
+
+.kb-inline-link {
+  color: var(--kb-accent);
+  text-decoration: underline;
+}
+
+/*
+ * A badge nobody has earned yet.
+ *
+ * Not a button: there is nothing to press. Dimmed, and the fact that it is
+ * unearned is also in the tooltip text, so it does not depend on somebody
+ * distinguishing two greys.
+ */
+.kb-badge-locked {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.kb-section-label-sub {
+  margin-top: 10px;
+}

@@ -2,7 +2,7 @@
 
 *The authoritative living record of what exists, who can reach it, and how ready
 it is for strangers. Audited at M4.5 (2026-09-01, `71ab6ef`); growth surfaces
-updated at M5A (2026-09-01).*
+updated at M5A and public surfaces at M5B (2026-09-01).*
 
 ## Lifecycle vocabulary
 
@@ -151,9 +151,10 @@ referral attributed.
 
 **Findings:**
 
-- The link base is **`https://anoteros-labs.github.io/watchside/invite/`** —
-  a GitHub Pages URL that M5 must migrate to `watchside.app/i/<code>` while
-  keeping the old one working.
+- The canonical route **`watchside.app/i/<code>`** is built and tested in M5B;
+  the domain is PREPARED, not live. The extension still generates the current
+  Pages URL on purpose — switching before DNS resolves would produce dead links —
+  and M5E flips the one constant. Both shapes are read, so old links keep working.
 - `referral_succeeded` is **emitted in M5A**, from `settle_referral` — the one
   authoritative place the three-condition rule is decided, and already idempotent.
 - Referral state is surfaced only as a count next to the invite box.
@@ -163,11 +164,16 @@ success.
 
 ## 8. Badges
 
-**Status:** IMPLEMENTED · RELEASED (0.6.0) · **weakly USER-FACING**
-**Readiness:** M5 POLISH
+**Status:** IMPLEMENTED · USER-FACING (main) · RELEASED (0.6.0, older behaviour)
+**Readiness:** READY (main)
 
-Discovery: account panel → badge shelf. Earned badges are shown; **unearned ones
-are not**, so there is no way to learn what can be earned or how.
+Discovery: account panel → badge shelf. Earned badges and, since M5B, the ones
+still to earn — read from `badge_definitions` rather than a client-side ladder.
+
+The catalogue read was written, wired and shipped past a passing typecheck while
+the worker never imported the function it calls. `requestCoverage` now asserts
+that no handler calls an identifier the worker does not have; see the M5B report
+§29 for why `tsc --noEmit` said nothing.
 
 `badge_awarded` is **emitted in M5A**, from `award_badge` — the only place a
 badge is ever granted — and only when a row is actually inserted, so a repeat
@@ -178,9 +184,11 @@ Kickback." and are shown to users in the badge tooltip. They live in the
 database, which is why the M4.5 source sweep concluded no human-facing Kickback
 branding remained.
 
-Showing **unearned** milestones is deliberately left to M5B: it is a badge-UI
-question, and letting it into the growth surface now would crowd the thing being
-fixed.
+**Changed in M5B.** The shelf now shows what is still to earn, from
+`badge_definitions` rather than a ladder hardcoded in the client. Locked
+milestones render as dimmed non-buttons with "not earned yet" in the tooltip, so
+the state is not carried by colour alone. No counter, no progress bar and no
+"two more to go" — a visible ladder is not a quota.
 
 Backend: `badges`, referral milestone logic (0026).
 
@@ -195,8 +203,9 @@ joined — the room forms because two people are in the same place.
 Includes: roster, ephemeral chat, reactions, combos. Messages are deleted after
 30 minutes server-side.
 
-**Overlap risk with Groups (§10)** is real: both present as a chat surface, and
-nothing in the product explains why there are two.
+**Addressed in M5B.** The Groups empty state now draws the distinction in one
+sentence: a group stays put, and the tab that appears while you are watching
+alongside somebody comes and goes with the stream and is never made by hand.
 
 Analytics: `automatic_room_entered` is emitted; **`automatic_room_opened` and
 `automatic_room_left` are registered and emitted by nothing** — room lifecycle
@@ -209,9 +218,9 @@ is half-measured.
 Discovery: the Groups tab. Create, invite by friend, accept, leave; group chat
 and a presence summary of where members are watching.
 
-Predates Social Gravity as the primary loop. It still earns its place —
-durable circles are a different thing from an ephemeral room — but the product
-never says so.
+Predates Social Gravity as the primary loop, and still earns its place — durable
+circles are a different thing from an ephemeral room. **M5B makes the product say
+so**, in the Groups empty state.
 
 Analytics: `group_invite_sent`, `group_invite_accepted`, group chat events.
 
@@ -237,8 +246,11 @@ is in the account panel, on by default. Cooldowns prevent repeats.
 
 Clicking one is a real JOIN through the same path as the button.
 
-**M5 polish:** if the browser denies notification permission there is no
-in-product explanation of why nothing arrives.
+**Clarified in M5B.** `notifications` is a **manifest** permission granted at
+install — there is no runtime prompt, so there is no denial to recover from and
+nothing to nag about. What can still stop a notification is the browser or the
+operating system, which Watchside can neither see nor change. The toggle now says
+so and links to Support, which explains where the other half lives.
 
 Analytics: `gathering_notification_shown`, `gathering_notification_clicked`.
 
@@ -267,8 +279,11 @@ Discovery: account panel → Feedback. Four categories and a free-text box;
 diagnostics (version, environment, browser, friend count, channel, realtime
 health) are attached automatically.
 
-**M5 polish:** there is no support URL or public contact route for somebody who
-cannot open the panel at all.
+**Fixed in M5B** — built, and publishable today without DNS. A support page
+exists that works whether or not the extension does, covering the panel not appearing, sign-in trouble, stale builds,
+notifications and account deletion. The account panel links to it beside
+Feedback — Feedback stays the better route while Watchside works, because it
+attaches context automatically.
 
 ## 16. Account and deletion
 
@@ -352,12 +367,35 @@ and `invite_claimed` were described as missing; both existed. The impression was
 measuring the wrong thing, which is worse than missing and was only visible by
 reading the emitter.
 
+## 23. Public web (watchside.app)
+
+**Status:** IMPLEMENTED · **NOT LIVE** · **Readiness:** M5 POLISH (DNS remains)
+
+Built in M5B: a root page, `/privacy` generated from `docs/PRIVACY.md`,
+`/support`, and the canonical invite route `/i/<code>` — which works on a static
+host because GitHub Pages answers unmatched paths with `404.html`.
+
+No trackers, no cookies, no external requests of any kind. The root page offers
+Chrome, which is genuinely published, and says plainly that Firefox is awaiting
+Mozilla's review rather than implying it is available.
+
+**PREPARED, not LIVE.** DNS, domain verification and HTTPS are external; see
+`docs/web/watchside-app/README.md`. Old Pages URLs keep working untouched.
+
+The same sources also build against the **currently live** Pages subpath
+(`npm run build:site:pages`), which is what makes the Support link in a shipped
+build resolve without waiting for a domain. That tree never carries a `CNAME`,
+a `404.html` or an `/i/` route — asserted, because a `CNAME` there would rebind
+the whole org site.
+
+Tests: `publicRouting` (41). Build: `npm run build:site`, `npm run build:site:pages`.
+
 ## Readiness summary
 
 | | Count |
 | --- | --- |
-| READY | 10 |
-| M5 POLISH | 8 |
+| READY | 12 |
+| M5 POLISH | 7 |
 | M5 BLOCKER | 1 |
 | EXPERIMENTAL | 1 |
 | POST-LAUNCH | 1 |

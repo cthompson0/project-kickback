@@ -78,10 +78,43 @@ export function normalizeInviteCode(value: string): string | null {
   if (trimmed.length === 0) return null
 
   // A whole URL: take the parameter if it is there, otherwise the last path
-  // segment, which is what a shortened link tends to leave behind.
-  const fromUrl = trimmed.includes('://') || trimmed.includes('?') ? codeFromUrl(trimmed) : null
+  // segment, which is what the canonical /i/<code> link leaves behind.
+  const looksLikeUrl = trimmed.includes('://') || trimmed.includes('?')
+  const fromUrl = looksLikeUrl ? (codeFromUrl(trimmed) ?? codeFromPath(trimmed)) : null
   const candidate = (fromUrl ?? trimmed).toUpperCase()
   return isInviteCode(candidate) ? candidate : null
+}
+
+/**
+ * The code from the path of a canonical invite link.
+ *
+ * `watchside.app/i/<code>` carries the code in the path rather than a query
+ * parameter, and people paste whole links - so without this, the canonical link
+ * would be the one shape the product could not read back.
+ *
+ * The comment above this function's caller had claimed this behaviour since the
+ * beginning; only the query was ever parsed. Canonicalisation is what made the
+ * difference matter.
+ *
+ * Deliberately NOT folded into codeFromUrl(). That runs on twitch.tv against
+ * whatever path the viewer is on, and a channel name is a path segment too -
+ * matching one against the code alphabet is vanishingly unlikely but it is not a
+ * risk worth taking for no gain.
+ */
+function codeFromPath(url: string): string | null {
+  const withoutQuery = url.split(/[?#]/)[0]
+  const segments = withoutQuery.split('/').filter((segment) => segment.length > 0)
+  const last = segments[segments.length - 1]
+  if (last === undefined) return null
+
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(last)
+  } catch {
+    return null
+  }
+  const code = decoded.trim().toUpperCase()
+  return isInviteCode(code) ? code : null
 }
 
 /** The invite link to share. */

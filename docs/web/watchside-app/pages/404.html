@@ -1,0 +1,110 @@
+      <div class="mark">
+        <svg width="28" height="28" viewBox="0 0 32 32" role="img" aria-label="Watchside">
+          <circle cx="16" cy="16" r="15" fill="none" stroke="#ff8452" stroke-width="2" />
+          <circle cx="16" cy="16" r="5" fill="#ff8452" />
+        </svg>
+        <span class="wordmark">watchside</span>
+      </div>
+
+      <h1 id="headline">Page not found</h1>
+      <p class="lede" id="blurb">
+        That address does not exist. Watchside is a browser extension that shows
+        you where your friends are watching on Twitch.
+      </p>
+
+      <p>
+        <a class="cta" id="install" href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+          >Add to Chrome</a
+        >
+      </p>
+      <p class="dim" id="next" hidden>
+        Install Watchside, then continue to Twitch and sign in. The invite is
+        remembered until you do.
+      </p>
+      <p id="continue-wrap" hidden>
+        <a class="cta" id="continue" href="https://www.twitch.tv/"
+          >Already installed — continue to Twitch</a
+        >
+      </p>
+
+      <footer>
+        <a href="/">Watchside</a>
+        <a href="/privacy">Privacy</a>
+        <a href="/support">Support</a>
+      </footer>
+
+      <script>
+        /*
+         * THE INVITE ROUTE, AND NOTHING ELSE.
+         *
+         * GitHub Pages serves this file for any path it does not have, which is
+         * how a static host answers /i/CODE with no server behind it. So this
+         * page is both the 404 and the invite landing, and it has to be careful
+         * about which one it is: anything that is not a valid code stays a 404.
+         *
+         * WHAT DOES NOT CHANGE
+         *
+         * The referral identity. The code is validated against the same pattern
+         * it always was and handed to Twitch as ?kickback_invite=, where the
+         * extension's content script already picks it up. A new URL shape must
+         * not become a new referral concept, and this file is the only place
+         * that could have made it one.
+         *
+         * WHY THE HOP THROUGH TWITCH
+         *
+         * A content script on this page would need a host permission, which the
+         * browser shows the user as "read your data on that site" - for one
+         * string. The hop avoids asking for that.
+         *
+         * Nothing is stored, nothing is sent anywhere, no analytics run, and no
+         * destination is taken from the URL: the only link this page can build
+         * points at twitch.tv.
+         */
+        (function () {
+          var CODE_PATTERN = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{22}$/
+
+          /*
+           * The code, from the path or the query.
+           *
+           * /i/CODE is canonical. ?c=CODE is what every link shared before today
+           * carries, and those must keep working - so both are read, and the
+           * path wins if somehow both are present.
+           */
+          function readCode() {
+            var path = window.location.pathname || ''
+            var match = /^\/i\/([^/?#]+)\/?$/.exec(path)
+            if (match) {
+              try {
+                return decodeURIComponent(match[1]).trim().toUpperCase()
+              } catch (error) {
+                return ''
+              }
+            }
+            var query = new URLSearchParams(window.location.search).get('c') || ''
+            return query.trim().toUpperCase()
+          }
+
+          var code = readCode()
+          if (!CODE_PATTERN.test(code)) {
+            /*
+             * Not an invite. A typo, a truncated link, or curiosity. Watchside
+             * still works for them - they simply arrive unattributed, which
+             * costs them nothing and costs the inviter one credit.
+             */
+            return
+          }
+
+          document.getElementById('headline').textContent =
+            'A friend invited you to Watchside'
+          document.getElementById('blurb').textContent =
+            'Watchside shows you where your friends are watching on Twitch, so you can jump in together.'
+          document.getElementById('next').hidden = false
+          document.getElementById('continue-wrap').hidden = false
+          document
+            .getElementById('continue')
+            .setAttribute(
+              'href',
+              'https://www.twitch.tv/?kickback_invite=' + encodeURIComponent(code),
+            )
+        })()
+      </script>

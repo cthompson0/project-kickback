@@ -1030,6 +1030,15 @@ export async function myReferralSummary(
 }
 
 /** One badge this account has earned. */
+/** A badge that exists. Says nothing about whether anybody has it. */
+export interface BadgeDefinition {
+  key: string
+  name: string
+  description: string
+  icon: string
+  issuer: 'kickback' | 'twitch'
+}
+
 export interface EarnedBadge {
   key: string
   name: string
@@ -1038,6 +1047,38 @@ export interface EarnedBadge {
   icon: string
   issuer: 'kickback' | 'twitch'
   displayed: boolean
+}
+
+/**
+ * Every badge that exists, earned or not.
+ *
+ * `badge_definitions` is readable by any signed-in account on purpose - knowing
+ * a badge EXISTS reveals nothing about anybody. That is what makes it possible
+ * to show somebody what they could earn without inventing a second source of
+ * truth or shipping the ladder in the client, where it would drift.
+ */
+export async function badgeCatalog(
+  supabase: SupabaseClient,
+): Promise<{ value: BadgeDefinition[] | null; error?: string }> {
+  try {
+    const { data, error } = await supabase
+      .from('badge_definitions')
+      .select('key, name, description, icon, issuer, sort_order')
+      .order('sort_order', { ascending: true })
+    if (error) return { value: null, error: describe(error) }
+    return {
+      value: ((data ?? []) as Record<string, unknown>[]).map((row) => ({
+        key: String(row.key),
+        name: String(row.name),
+        description: String(row.description),
+        icon: String(row.icon),
+        // Never invent an issuer: an unknown value is Watchside's own.
+        issuer: row.issuer === 'twitch' ? ('twitch' as const) : ('kickback' as const),
+      })),
+    }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
 }
 
 export async function myBadges(

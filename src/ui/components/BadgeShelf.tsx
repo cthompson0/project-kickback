@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { KickbackClient } from '../../client/types'
-import type { EarnedBadge } from '../../background/supabaseBackend'
+import type { BadgeDefinition, EarnedBadge } from '../../background/supabaseBackend'
 
 /**
  * The badges this account has earned, and which one it is showing.
@@ -19,6 +19,7 @@ import type { EarnedBadge } from '../../background/supabaseBackend'
  */
 export function BadgeShelf({ client }: { client: KickbackClient }) {
   const [badges, setBadges] = useState<EarnedBadge[] | null>(null)
+  const [catalog, setCatalog] = useState<BadgeDefinition[] | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -33,6 +34,30 @@ export function BadgeShelf({ client }: { client: KickbackClient }) {
         // A shelf that fails to load is not worth an error: everything else in
         // the account panel still works, and nothing here is actionable.
         if (!cancelled) setBadges([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [client])
+
+  /*
+   * Everything that EXISTS, not just what has been earned.
+   *
+   * Without this the shelf could only ever say "here is what you have", so a
+   * person had no way to learn what was possible or how any of it happened.
+   * Knowing a badge exists reveals nothing about anybody, which is why the
+   * definitions are readable and why this needs no new privacy thinking.
+   */
+  useEffect(() => {
+    let cancelled = false
+    client
+      .badgeCatalog()
+      .then((rows) => {
+        if (!cancelled) setCatalog(rows)
+      })
+      .catch(() => {
+        // The shelf still works without it; it simply shows only what is earned.
+        if (!cancelled) setCatalog([])
       })
     return () => {
       cancelled = true
@@ -56,9 +81,19 @@ export function BadgeShelf({ client }: { client: KickbackClient }) {
     }
   }
 
-  // Nothing earned yet. No empty state, no "keep going" nudge - an account with
-  // no badges should simply not have a badge section.
-  if (!badges || badges.length === 0) return null
+  if (!badges) return null
+
+  const earned = new Set(badges.map((badge) => badge.key))
+  const locked = (catalog ?? []).filter((badge) => !earned.has(badge.key))
+
+  /*
+   * An account with nothing earned and nothing to earn has no badge section.
+   *
+   * But one with nothing earned and a ladder ahead of it does - that is the
+   * whole point of showing what is possible, and it is the state every new
+   * account is in.
+   */
+  if (badges.length === 0 && locked.length === 0) return null
 
   const equipped = badges.find((badge) => badge.displayed) ?? null
 
@@ -89,10 +124,43 @@ export function BadgeShelf({ client }: { client: KickbackClient }) {
         ))}
       </div>
 
+      {/*
+        * What is still to earn.
+        *
+        * Shown greyed and NOT as buttons - there is nothing to press, and a
+        * disabled button invites the press anyway. "Locked" is carried by the
+        * word in the tooltip and by the heading, never by the colour alone.
+        *
+        * Deliberately not a progress bar, a counter, or "2 more to go". The
+        * ladder is visible; turning it into a target is how a badge shelf
+        * becomes pressure to spam invitations at people.
+        */}
+      {locked.length > 0 && (
+        <>
+          <div className="kb-section-label kb-section-label-sub">Still to earn</div>
+          <div className="kb-badge-row">
+            {locked.map((badge) => (
+              <span
+                key={badge.key}
+                className="kb-badge kb-badge-locked"
+                title={`${badge.name} (not earned yet) — ${badge.description}`}
+              >
+                <span className="kb-badge-icon" aria-hidden="true">
+                  {badge.icon}
+                </span>
+                <span className="kb-badge-name">{badge.name}</span>
+              </span>
+            ))}
+          </div>
+        </>
+      )}
+
       <div className="kb-quiet-sub">
         {equipped
           ? `Showing ${equipped.name}. Tap it again to show none.`
-          : 'Tap a badge to show it. Earned by inviting friends to Watchside.'}
+          : badges.length > 0
+            ? 'Tap a badge to show it. Earned by inviting friends to Watchside.'
+            : 'Badges are earned when friends you invited start using Watchside.'}
       </div>
     </div>
   )

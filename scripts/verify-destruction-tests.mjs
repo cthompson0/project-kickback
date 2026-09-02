@@ -51,6 +51,12 @@ const AUTH_UI = 'src/ui/components/AuthStates.tsx'
 const GRAVITY_UI = 'src/ui/components/SocialGravity.tsx'
 const ZERO_SUITE = 'tests/extension/zeroFriendLoop.test.tsx'
 const SUGGEST_SUITE = 'tests/dom/friendSuggestions.test.tsx'
+const SITE_404 = 'docs/web/watchside-app/pages/404.html'
+const SITE_ROOT = 'docs/web/watchside-app/pages/index.html'
+const ROUTING_SUITE = 'tests/extension/publicRouting.test.ts'
+const INVITES = 'src/core/invites.ts'
+const SHELF = 'src/ui/components/BadgeShelf.tsx'
+const COMPREHENSION_SUITE = 'tests/dom/productComprehension.test.tsx'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -578,6 +584,80 @@ grant select on public.m3d_relationship_v to authenticated;`,
                                                       as observed_baselines,`,
     to: `  count(o.attribution_id)                             as observed_baselines,`,
     expect: 'counts only observations belonging to eligible JOINs',
+  },
+
+  // ------------------------------------- the public surface (M5B)
+  {
+    // The canonical route stops carrying the code, so every /i/<code> link
+    // silently becomes an unattributed install and the inviter loses credit.
+    name: 'site: drop the code from the canonical /i/ route',
+    file: SITE_404,
+    suite: ROUTING_SUITE,
+    from: "            var match = /^\\/i\\/([^/?#]+)\\/?$/.exec(path)",
+    to: '            var match = null',
+    expect: 'carries the code from /i/<code> to Twitch',
+  },
+  {
+    // The old ?c= shape stops working, breaking every link already shared in
+    // messages, clipboards and browser histories.
+    name: 'site: drop compatibility with the old ?c= links',
+    file: SITE_404,
+    suite: ROUTING_SUITE,
+    from: "            var query = new URLSearchParams(window.location.search).get('c') || ''",
+    to: "            var query = ''",
+    expect: 'still carries the code from the old ?c= shape',
+  },
+  {
+    // Validation goes, so any path segment becomes a "code" - including one
+    // carrying somebody else's URL.
+    name: 'site: accept any code shape at all',
+    file: SITE_404,
+    suite: ROUTING_SUITE,
+    from: '          if (!CODE_PATTERN.test(code)) {',
+    to: '          if (false) {',
+    expect: 'refuses an absolute URL smuggled into the code',
+  },
+  {
+    // Firefox presented as available, sending people to a listing that does
+    // not exist because Mozilla has never published it.
+    name: 'site: advertise Firefox as available',
+    file: SITE_ROOT,
+    suite: ROUTING_SUITE,
+    from: '        Watchside is in a small private beta. A Firefox version is built and',
+    to: '        <a href="https://addons.mozilla.org/">Add to Firefox</a>. Also built and',
+    expect: 'does not offer Firefox, which is not',
+  },
+  {
+    // A pasted canonical link stops being recognised, so the one shape the
+    // product now hands people is the one it cannot read back.
+    name: 'invites: stop reading a code from a pasted /i/ link',
+    file: INVITES,
+    suite: ROUTING_SUITE,
+    from: '  const fromUrl = looksLikeUrl ? (codeFromUrl(trimmed) ?? codeFromPath(trimmed)) : null',
+    to: '  const fromUrl = looksLikeUrl ? codeFromUrl(trimmed) : null',
+    expect: 'reads a code pasted as a canonical /i/ link',
+  },
+
+  // ------------------------------- product comprehension (M5B)
+  {
+    // Locked milestones disappear again, so nobody can learn what exists or
+    // how it is earned - the M4.5 finding, restored.
+    name: 'badges: hide everything not yet earned',
+    file: SHELF,
+    suite: COMPREHENSION_SUITE,
+    from: '  const locked = (catalog ?? []).filter((badge) => !earned.has(badge.key))',
+    to: '  const locked: BadgeDefinition[] = []',
+    expect: 'shows the ladder to somebody who has earned nothing',
+  },
+  {
+    // "Not earned yet" stops being said in words, leaving the state carried by
+    // opacity alone.
+    name: 'badges: convey locked state by colour alone',
+    file: SHELF,
+    suite: COMPREHENSION_SUITE,
+    from: 'title={`${badge.name} (not earned yet) — ${badge.description}`}',
+    to: 'title={badge.name}',
+    expect: 'says "not earned yet" in words, not only in grey',
   },
 
   // --------------------------------------------- the growth loop (M5A)

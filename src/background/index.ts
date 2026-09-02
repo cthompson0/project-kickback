@@ -102,6 +102,7 @@ import {
   listFriendDestinations,
   listDisplayedBadges,
   claimInvite,
+  badgeCatalog,
   myBadges,
   myInviteCode,
   myReferralSummary,
@@ -2005,6 +2006,12 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
   badges: async () => {
     const result = await myBadges(supabase)
     if (result.error) logError('badges.list', result.error)
+    return result.value ?? []
+  },
+
+  badgeCatalog: async () => {
+    const result = await badgeCatalog(supabase)
+    if (result.error) logError('badges.catalog', result.error)
     return result.value ?? []
   },
 

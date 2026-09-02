@@ -667,6 +667,28 @@ export function AccountCard({
             ? 'Desktop alert when friends gather on a channel'
             : 'No desktop alerts'}
         </div>
+        {/*
+          * Two different things, and only one of them is ours.
+          *
+          * This switch is Watchside's preference. Whether a notification ever
+          * reaches the screen is the browser's and the operating system's
+          * decision, and Watchside cannot see or change it - so the honest
+          * thing is to say where the other half lives rather than let the
+          * switch imply a guarantee it cannot make.
+          */}
+        {preferences.gatheringNotifications && (
+          <div className="kb-presence-hint kb-hint-quiet">
+            Your browser has to allow them too.{' '}
+            <a
+              className="kb-inline-link"
+              href="https://anoteros-labs.github.io/watchside/support/"
+              target="_blank"
+              rel="noreferrer noopener"
+            >
+              If none arrive
+            </a>
+          </div>
+        )}
       </div>
 
       <MutedPeople mutedUserIds={mutedUserIds} people={knownPeople} onUnmute={onUnmute} />
@@ -688,6 +710,23 @@ export function AccountCard({
       <button type="button" className="kb-ghost-btn" onClick={onFeedback}>
         Feedback
       </button>
+
+      {/*
+        * Support, beside Feedback rather than anywhere louder.
+        *
+        * Feedback is the better route while Watchside is working - it attaches
+        * the version and a little context automatically. Support is the page
+        * that still exists when the panel does not, which is why it is a link
+        * to somewhere outside rather than another panel view.
+        */}
+      <a
+        className="kb-ghost-btn kb-ghost-link"
+        href="https://anoteros-labs.github.io/watchside/support/"
+        target="_blank"
+        rel="noreferrer noopener"
+      >
+        Support
+      </a>
 
       <MeasurementPermission client={client} readiness={measurementReadiness} />
 
