@@ -68,6 +68,9 @@ const A11Y_SUITE = 'tests/dom/accessibilityAudit.test.tsx'
 const CONTRAST_SUITE = 'tests/extension/contrast.test.ts'
 const ERROR_SUITE = 'tests/extension/errorMessages.test.ts'
 const FIRSTRUN_SUITE = 'tests/dom/firstRun.test.tsx'
+const OPS_MIGRATION = 'supabase/migrations/0039_operations.sql'
+const OPS_DB_SUITE = 'tests/db/operations.test.ts'
+const FAILOPEN_SUITE = 'tests/extension/analyticsFailOpen.test.ts'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -1074,6 +1077,59 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: '      <div className="kb-signin-note">',
     to: '      <div className="kb-signin-note" hidden>',
     expect: 'answers why it wants a Twitch sign-in, before Twitch asks',
+  },
+  // ----------------------------------------------- M6B production operations
+  {
+    // The friend-request budget disappears, so one account can spray requests
+    // at every user search can find. Nothing breaks; it works perfectly, for
+    // the spammer.
+    name: 'ops: remove the friend-request rate budget',
+    file: OPS_MIGRATION,
+    suite: OPS_DB_SUITE,
+    from: "  if not public.consume_rate_budget('friend_request', 20, interval '1 hour') then",
+    to: '  if false then',
+    expect: 'refuses once the hourly budget is spent',
+  },
+  {
+    // The budget is charged before the early returns, so pressing Add twice on
+    // the same person costs twice - and a real user runs out on people they
+    // never actually contacted.
+    name: 'ops: charge budget for clicks rather than for strangers contacted',
+    file: OPS_MIGRATION,
+    suite: OPS_DB_SUITE,
+    from: '  if p_target = v_actor then',
+    to: "  perform public.consume_rate_budget('friend_request', 20, interval '1 hour');\n  if p_target = v_actor then",
+    expect: 'does not charge for pressing Add again on a pending request',
+  },
+  {
+    // The failure view stops distinguishing people from events, so one person
+    // on a train looks identical to an outage.
+    name: 'ops: count failures without counting how many people had them',
+    file: OPS_MIGRATION,
+    suite: OPS_DB_SUITE,
+    from: '  count(distinct e.actor_id)::int        as actors,',
+    to: '  count(*)::int                          as actors,',
+    expect: 'separates one unlucky person from an outage',
+  },
+  {
+    // Internal actors enter the failure view, so the owner testing an error
+    // path looks like users hitting one.
+    name: 'ops: let internal actors into the failure view',
+    file: OPS_MIGRATION,
+    suite: OPS_DB_SUITE,
+    from: "from public.analytics_reportable_events_v e\nwhere e.event_name = 'client_error'",
+    to: "from public.analytics_events e\nwhere e.event_name = 'client_error'",
+    expect: 'excludes internal actors, who test failure paths on purpose',
+  },
+  {
+    // track() becomes awaitable, so one await in a click handler turns an
+    // analytics outage into a broken JOIN.
+    name: 'ops: make analytics track() async and awaitable',
+    file: RECORDER,
+    suite: FAILOPEN_SUITE,
+    from: '    track(request): void {',
+    to: '    async track(request) {',
+    expect: 'keeps track() synchronous and void-returning',
   },
 ]
 

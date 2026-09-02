@@ -190,7 +190,7 @@ describe('the generated bundle', () => {
      * scope-loss deletion; 0035 for the small-cohort suppression; 0036 for the
      * coverage numerator; 0037 for the growth-loop outcome events.
      */
-    expect(version).toBe(38)
+    expect(version).toBe(39)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.
