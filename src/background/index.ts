@@ -838,11 +838,112 @@ const friendDestinationsStore = createFriendDestinations({
  *
  * A recipient clicks a link, installs, and only then signs in - so the code
  * arrives from a Twitch URL long before there is an actor. It is held here and
- * claimed the moment authentication completes. Kept in session memory only: an
- * unclaimed code is worth nothing, and persisting it would mean storing
- * somebody else's identifier for no benefit.
+ * claimed the moment authentication completes.
+ *
+ * PERSISTED SINCE v0.9, AND IT SHOULD ALWAYS HAVE BEEN.
+ *
+ * This was memory-only, on the reasoning that "an invite arrives on Twitch
+ * moments before a sign-in that the link itself was pushing towards, so worker
+ * memory covers the gap". That reasoning is wrong in the one case that matters
+ * most: the recipient is a brand-new user, so between capture and claim they
+ * have to find the panel, press Continue with Twitch, read a consent screen
+ * naming a permission, and approve it. That is a user-driven detour of
+ * unbounded length, and MV3 gives no guarantee across it - as the header of
+ * this very file says, "nothing here may live only in memory".
+ *
+ * When the worker was recycled mid-OAuth the code vanished, and the failure was
+ * silent in both directions: the recipient arrived with no friend and no error,
+ * indistinguishable from an ordinary cold install, and the inviter was never
+ * told anything had happened. That sat on the only path a stranger with no
+ * Watchside friends has to a first connection.
+ *
+ * SEPARATE FROM THE CAMPAIGN TOUCH, deliberately, though the mechanism rhymes.
+ * A campaign answers "how did this person come to Watchside"; an invite answers
+ * "who invited them". They are different facts with different lifetimes, they
+ * bind through different RPCs, and they are stored under different keys so
+ * neither can ever be read as the other.
+ *
+ * WHAT IS STORED is one invite code and the moment it was seen. The code is not
+ * a credential - possession grants nothing server-side, and `claim_invite`
+ * re-checks self-referral, blocks and prior claims every time.
  */
-let pendingInviteCode: string | null = null
+const PENDING_INVITE_KEY = 'watchside:pendingInvite'
+
+/**
+ * How long a captured invite may wait for a sign-in.
+ *
+ * Shorter than the campaign window's seven days, because the journeys differ in
+ * length. A campaign touch spans "see a streamer mention Watchside, install,
+ * sign in whenever you next open Twitch". An invite is a message from somebody
+ * you know with a page that tells you to install and come straight back, so a
+ * day is generous for the honest case and short enough that a code cannot
+ * resurface against an unrelated login a fortnight later.
+ *
+ * A judgement, not a measurement - and revisable, because it is enforced in one
+ * place with its own tests.
+ */
+const PENDING_INVITE_TTL_MS = 24 * 60 * 60 * 1000
+
+interface PendingInvite {
+  code: string
+  capturedAt: number
+}
+
+let pendingInvite: PendingInvite | null = null
+
+/** Whether a held invite may still be offered to the server. */
+function inviteIsBindable(held: PendingInvite | null, now: number): held is PendingInvite {
+  if (!held) return false
+  if (!normalizeInviteCode(held.code)) return false
+  // A capture dated in the future means a wrong clock, not a fresh invite.
+  if (held.capturedAt > now) return false
+  return now - held.capturedAt <= PENDING_INVITE_TTL_MS
+}
+
+/** Read the held invite back, discarding anything malformed or aged out. */
+async function loadPendingInvite(): Promise<void> {
+  try {
+    const stored = await ext.storage.get(PENDING_INVITE_KEY)
+    const value = stored?.[PENDING_INVITE_KEY]
+    if (!value || typeof value !== 'object') return
+
+    const { code, capturedAt } = value as Record<string, unknown>
+    if (typeof code !== 'string' || typeof capturedAt !== 'number') return
+
+    const held = { code, capturedAt }
+    /*
+     * Checked on the way IN as well as on the way out, so an invite that aged
+     * out while the browser was closed never reaches the rest of the worker.
+     */
+    if (!inviteIsBindable(held, Date.now())) {
+      void ext.storage.remove(PENDING_INVITE_KEY)
+      return
+    }
+    pendingInvite = held
+  } catch {
+    // An invite we cannot read is an invite we do not have. Never fatal.
+  }
+}
+
+async function rememberPendingInvite(code: string): Promise<void> {
+  pendingInvite = { code, capturedAt: Date.now() }
+  try {
+    await ext.storage.set({ [PENDING_INVITE_KEY]: pendingInvite })
+  } catch {
+    // Memory still holds it for this worker's life, which is strictly better
+    // than failing the visit over a storage error.
+  }
+}
+
+async function forgetPendingInvite(): Promise<void> {
+  pendingInvite = null
+  try {
+    await ext.storage.remove(PENDING_INVITE_KEY)
+  } catch {
+    // Storage that will not forget is not worth failing a sign-in over; the
+    // TTL expires it regardless.
+  }
+}
 let inviteLinkAnnounced = false
 let displayedBadge: EarnedBadge | null = null
 let referralCount = 0
@@ -869,13 +970,18 @@ async function claimPendingInvite(raw: string): Promise<string> {
     return 'unknown'
   }
   if (authState.status !== 'signed_in') {
-    // Nothing to attribute to yet. Hold it for the sign-in.
-    pendingInviteCode = code
+    // Nothing to attribute to yet. Hold it, on disk, for the sign-in.
+    await rememberPendingInvite(code)
     return 'pending'
   }
 
   const result = await claimInvite(supabase, code)
   if (result.error) {
+    /*
+     * KEPT, NOT DISCARDED. A network failure is not an answer, and the code is
+     * still the best thing to try again with when auth settles or the next
+     * sign-in happens. The TTL is what stops "try again" becoming forever.
+     */
     logError('invite.claim', result.error)
     return 'unknown'
   }
@@ -883,17 +989,37 @@ async function claimPendingInvite(raw: string): Promise<string> {
   analytics.track('invite_claimed', {
     outcome: outcome as 'attributed' | 'already' | 'self' | 'blocked' | 'unknown',
   })
-  if (outcome === 'attributed') pendingInviteCode = null
+
+  /*
+   * Every one of these is the server's final word, so the held invite is spent
+   * whichever it was.
+   *
+   * `attributed` succeeded. `already`, `self` and `blocked` are refusals no
+   * retry can change - and `already` in particular is the idempotency rule
+   * working, since one invitee may hold exactly one referral forever. Keeping
+   * the code after any of them would mean re-offering it on every subsequent
+   * sign-in for nothing.
+   */
+  await forgetPendingInvite()
   void refreshBadges()
   return outcome
 }
 
-/** Whatever was waiting for an account, now that there is one. */
+/**
+ * Whatever was waiting for an account, now that there is one.
+ *
+ * The held invite is NOT cleared before the attempt. It used to be, which meant
+ * a failed claim - a dropped connection at exactly the wrong moment - threw the
+ * code away and could never be retried. `claimPendingInvite` clears it once the
+ * server has actually ruled on it.
+ */
 function claimInviteAfterSignIn(): void {
-  if (!pendingInviteCode) return
-  const code = pendingInviteCode
-  pendingInviteCode = null
-  void claimPendingInvite(code)
+  if (!inviteIsBindable(pendingInvite, Date.now())) {
+    // Aged out or malformed while it waited. Tidy up rather than offer it.
+    if (pendingInvite) void forgetPendingInvite()
+    return
+  }
+  void claimPendingInvite(pendingInvite.code)
 }
 
 // --------------------------------------------------------------- acquisition
@@ -1515,7 +1641,8 @@ async function loadChannelNames(): Promise<void> {
 }
 
 void loadChannelNames()
-// A campaign touch outlives the worker on purpose; read it back at startup.
+// Both pre-auth touches outlive the worker on purpose; read them back at startup.
+void loadPendingInvite()
 void loadCampaignTouch()
 
 function pushActivity(): void {

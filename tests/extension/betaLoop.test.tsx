@@ -4,7 +4,12 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { AccountCard } from '../../src/ui/components/AuthStates'
 import { BadgeShelf } from '../../src/ui/components/BadgeShelf'
 import { MessageList } from '../../src/ui/components/Conversation'
-import { codeFromUrl, inviteLinkFor } from '../../src/core/invites'
+import {
+  codeFromUrl,
+  inviteLinkFor,
+  legacyInviteLinkFor,
+  normalizeInviteCode,
+} from '../../src/core/invites'
 import { INITIAL_STATE } from '../../src/client/types'
 import type {
   KickbackClient,
@@ -82,11 +87,27 @@ describe('an invite survives the whole journey', () => {
    * was needed.
    */
   it('carries the code from the shared link to Twitch and back out', () => {
+    /*
+     * Hop 1's reader changed with the canonical link, and the distinction is
+     * deliberate. `codeFromUrl` parses QUERY parameters only, because it runs
+     * on twitch.tv where a channel name is a path segment too. The canonical
+     * link carries the code in the PATH, so a shared link is read by
+     * `normalizeInviteCode`, which understands every shape ever minted.
+     */
     const shared = inviteLinkFor(CODE)
-    expect(codeFromUrl(shared)).toBe(CODE)
+    expect(shared).toBe(`https://watchside.app/i/${CODE}`)
+    expect(normalizeInviteCode(shared)).toBe(CODE)
 
-    const onward = `https://www.twitch.tv/?kickback_invite=${codeFromUrl(shared)}`
+    // Hop 2 is unchanged: the landing page hands the code to Twitch.
+    const onward = `https://www.twitch.tv/?kickback_invite=${normalizeInviteCode(shared)}`
     expect(codeFromUrl(onward)).toBe(CODE)
+  })
+
+  /** Links already sitting in somebody's DMs keep working forever. */
+  it('still reads a legacy link end to end', () => {
+    const legacy = legacyInviteLinkFor(CODE)
+    expect(codeFromUrl(legacy)).toBe(CODE)
+    expect(normalizeInviteCode(legacy)).toBe(CODE)
   })
 
   it('leaves an ordinary Twitch visit unattributed', () => {

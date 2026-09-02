@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { INVITE_LANDING_BASE, inviteLinkFor, normalizeInviteCode } from '../../src/core/invites'
+import { INVITE_LANDING_BASE, inviteLinkFor, legacyInviteLinkFor, normalizeInviteCode } from '../../src/core/invites'
 
 /**
  * The public routing contract for watchside.app.
@@ -233,17 +233,24 @@ describe('nothing here can redirect anywhere else', () => {
   })
 })
 
-describe('the extension side is unchanged until the domain is live', () => {
+describe('the extension mints canonical links, and reads every old one', () => {
   /**
-   * The link the extension generates still points at the live Pages host.
-   *
-   * Switching it before DNS resolves would mean every invite copied in the
-   * meantime pointed at nothing. The canonical base is declared beside it so
-   * the switch is one line, and M5E makes it when the domain actually answers.
+   * SWITCHED IN v0.9. This test used to assert the opposite - that the
+   * extension still minted the Pages host - because switching before DNS
+   * resolved would have meant invites pointing at nothing. The domain answers
+   * now, over HTTPS, and the canonical page offers both browsers where the
+   * legacy one offered Chrome alone.
    */
-  it('still generates the currently-live link', () => {
+  it('generates the canonical link', () => {
+    expect(inviteLinkFor(CODE)).toBe(`https://watchside.app/i/${CODE}`)
+    expect(inviteLinkFor(CODE)).not.toContain('github.io')
+  })
+
+  /** Links already sitting in somebody's DMs keep working forever. */
+  it('still reads every shape ever minted', () => {
+    expect(normalizeInviteCode(legacyInviteLinkFor(CODE))).toBe(CODE)
+    expect(normalizeInviteCode(inviteLinkFor(CODE))).toBe(CODE)
     expect(INVITE_LANDING_BASE).toBe('https://anoteros-labs.github.io/watchside/invite/')
-    expect(inviteLinkFor(CODE)).toBe(`${INVITE_LANDING_BASE}?c=${CODE}`)
   })
 
   it('validates codes exactly as it always has', () => {

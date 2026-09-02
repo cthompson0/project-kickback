@@ -46,6 +46,27 @@
 export const INVITE_LANDING_BASE = 'https://anoteros-labs.github.io/watchside/invite/'
 
 /**
+ * Where a NEW invite points, since v0.9.
+ *
+ * `watchside.app/i/<code>` - the canonical domain, carrying the code in the
+ * path. The legacy base above is kept because links already sitting in
+ * somebody's DMs must keep working forever, and `normalizeInviteCode` still
+ * reads every shape ever minted; it is simply no longer what gets handed out.
+ *
+ * WHY THIS MATTERED MORE THAN BRANDING
+ *
+ * The legacy page offered Chrome only, and Firefox was the one build a person
+ * could actually install. So the URL the product handed people was both the
+ * least trustworthy-looking thing it could show them and, for half of them, a
+ * dead end. The canonical page offers both stores and has since M5.
+ *
+ * A raw string rather than a URL built from parts: this is the one place the
+ * shape is decided, and a template with a slash in the wrong place is the kind
+ * of thing that only shows up in somebody else's DM.
+ */
+export const CANONICAL_INVITE_BASE = 'https://watchside.app/i/'
+
+/**
  * The query parameter the landing page's continue button carries to Twitch.
  *
  * Deliberately still `kickback_invite` after the rename. This name is a wire
@@ -117,8 +138,20 @@ function codeFromPath(url: string): string | null {
   return isInviteCode(code) ? code : null
 }
 
-/** The invite link to share. */
+/**
+ * The invite link to share.
+ *
+ * Canonical since v0.9. Every previously minted link keeps working -
+ * `normalizeInviteCode` reads the legacy `?c=` shape, the canonical path shape,
+ * and the `kickback_invite` parameter Twitch carries - so this changes what is
+ * handed out, and nothing about what can be read back.
+ */
 export function inviteLinkFor(code: string): string {
+  return `${CANONICAL_INVITE_BASE}${encodeURIComponent(code)}`
+}
+
+/** The legacy link shape, kept so the compatibility claim can be tested. */
+export function legacyInviteLinkFor(code: string): string {
   return `${INVITE_LANDING_BASE}?c=${encodeURIComponent(code)}`
 }
 

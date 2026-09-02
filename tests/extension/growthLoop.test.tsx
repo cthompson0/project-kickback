@@ -3,11 +3,11 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { KickbackPanel } from '../../src/ui/KickbackPanel'
 import {
-  INVITE_LANDING_BASE,
   INVITE_PARAM,
   codeFromUrl,
   inviteLinkFor,
   isInviteCode,
+  legacyInviteLinkFor,
   normalizeInviteCode,
 } from '../../src/core/invites'
 import { mutualBucket } from '../../src/core/analytics'
@@ -46,9 +46,9 @@ describe('invite codes travel by URL', () => {
     expect(isInviteCode(`${CODE}A`)).toBe(false)
   })
 
-  it('builds a link people can share', () => {
+  it('builds a link people can share, on the canonical domain', () => {
     const link = inviteLinkFor(CODE)
-    expect(link.startsWith(INVITE_LANDING_BASE)).toBe(true)
+    expect(link).toBe(`https://watchside.app/i/${CODE}`)
     expect(link).toContain(CODE)
   })
 
@@ -57,8 +57,16 @@ describe('invite codes travel by URL', () => {
     expect(codeFromUrl(`https://www.twitch.tv/?${INVITE_PARAM}=${CODE}`)).toBe(CODE)
   })
 
-  it('reads the code off the landing link itself', () => {
-    expect(codeFromUrl(inviteLinkFor(CODE))).toBe(CODE)
+  it('reads the code off a shared link, old shape or new', () => {
+    /*
+     * codeFromUrl reads QUERY parameters only, deliberately - it runs on
+     * twitch.tv where a channel name is a path segment too. The canonical link
+     * carries the code in the path, so a pasted link is read by
+     * normalizeInviteCode, which understands both.
+     */
+    expect(codeFromUrl(legacyInviteLinkFor(CODE))).toBe(CODE)
+    expect(normalizeInviteCode(inviteLinkFor(CODE))).toBe(CODE)
+    expect(normalizeInviteCode(legacyInviteLinkFor(CODE))).toBe(CODE)
   })
 
   it('ignores an ordinary Twitch URL', () => {
