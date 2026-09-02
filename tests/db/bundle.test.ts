@@ -188,9 +188,10 @@ describe('the generated bundle', () => {
      *
      * 0034 took it for the M3D coverage views and the narrower
      * scope-loss deletion; 0035 for the small-cohort suppression; 0036 for the
-     * coverage numerator; 0037 for the growth-loop outcome events.
+     * coverage numerator; 0037 for the growth-loop outcome events; 0039 for the
+     * operational views; 0040 for acquisition coverage.
      */
-    expect(version).toBe(39)
+    expect(version).toBe(40)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.

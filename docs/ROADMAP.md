@@ -3,7 +3,14 @@
 Where things stand, and — more usefully — what has already been decided so it
 does not get re-decided by accident.
 
-**Last updated:** 2026-08-27, at Friends Beta Patch 1.
+**Last updated:** 2026-09-02, after the M3D + M5C acquisition-coverage pass.
+
+> **Read the state table in "Measurement" and the v0.8 section with the dates in
+> mind.** Both were written while M3D was blocked and describe a world that no
+> longer exists: the custody decision was taken, M3D shipped, M5A–M5E shipped,
+> and Watchside is public on two stores. Corrected in place below; the
+> superseded reasoning is kept where it explains why a decision was made, and
+> marked where it no longer describes the present.
 
 ---
 
@@ -194,8 +201,11 @@ Full definitions: `docs/ANALYTICS.md` §8b and §14.
 | **M3C / M3C.1** | Observed **per-stream** dwell, focus/background split, concurrency views, repeat-creator foundation | **IMPLEMENTED AND ACCEPTED**, awaiting v0.7. Zero production rows existed, so the contract was corrected rather than versioned around |
 | **D7** | Twitch DSA / policy read | **OPEN** - substantively researched; counsel confirmation outstanding. See `docs/reports/m3d-m3e-policy-gates-2026-08-30.md` |
 | **D8** | Mozilla `financialAndPaymentInfo` classification for `subscribed_at_join` | **OPEN - genuinely unresolved.** Mozilla publishes no category-choice guidance; **must ask AMO** |
-| **G6 + M3D + M3E-a** | Deletion architecture, `following_at_join`, `subscribed_at_join` | **BLOCKED on an owner decision, not on architecture.** O3 (2026-08-31) proved the Twitch credential is obtainable; what is unapproved is *holding* it. See below and `docs/reports/g6-m3d-creator-discovery-2026-08-30.md` |
-| **M3E-b** | Token custody, refresh loop, scheduled polling | **NO LONGER OPTIONAL, AND NO LONGER A PRECISION LAYER.** It is the *precondition* for any Twitch relationship baseline. Owner decision **O1** |
+| **G6 + M3D** | Deletion architecture, `following_at_join` | **SHIPPED.** Custody was approved, the lifecycle built and the deletion path proved before the first credential existed. Migrations 0033–0036; contract in `docs/M3D-MEASUREMENT.md`; acceptance is `npm run verify:m3d`. **Distributed for the first time in v0.8** |
+| **M3E-a** | `subscribed_at_join` | **HOLD, unchanged.** No subscription scope is requested and tests assert its absence. Still conditional on **D8** |
+| **M3E-b** | Token custody, refresh loop, scheduled polling | **SHIPPED as part of M3D.** The credential is captured at sign-in, stored encrypted with a key held outside the database, and destroyed on de-authorisation or account deletion |
+| **M5A–M5E** | Public product pack, delivered as five sub-milestones | **SHIPPED.** Zero-friend loop (M5A), public surface (M5B), **acquisition attribution (M5C)**, product closure (M5D), release convergence (M5E). See the reports of the same names |
+| **M5C.1** | Acquisition **coverage** — the denominator M5C shipped without | **SHIPPED 2026-09-02.** Migration 0040. §"Acquisition coverage" below |
 
 ### The M3D blocker - corrected 2026-08-30, refined 2026-08-31
 
@@ -255,6 +265,48 @@ the strategic evidence - exposure, JOIN, arrival, **observed stream dwell**,
 repeat viewing, randomised lift - **outside Twitch's data terms entirely**,
 because those are Watchside observing its own product rather than reading
 Twitch's API. Keep Twitch-derived data minimal, separable and small.
+
+---
+
+### Acquisition coverage - the denominator M5C shipped without
+
+M5C answered "which campaign brought this account". It did not answer **"how
+often do we know that at all"**, and the difference is what makes campaign
+numbers mean something.
+
+All three M5C views start from `acquisition_attribution`, so every number they
+produce is conditioned on attribution existing. `acquisition_campaign_v` reads
+identically whether campaigns brought most of Watchside's users or almost none
+of them: the rows are well-formed, the rates are correct, the suppression works,
+and the picture can still be completely unrepresentative. **That is not a
+miscalculation - it is a missing denominator**, and no test of any single view
+could see it.
+
+M3D had already learned this lesson. `m3d_coverage_v` exists so relationship
+numbers can be read against how much of the population they cover, and 0034
+states the rule outright: *defining a denominator by the outcome makes coverage
+tautologically 100%*. M5C shipped without the equivalent; **0040 adds it**.
+
+**`acquisition_coverage_v`** - attributed vs unattributed actors over the real
+arrival population, grouped by the build each actor was first seen on. That
+grain is load-bearing: the acquisition parameter is read only by builds carrying
+M5C and **there is no backfill**, so every account created earlier is
+permanently unattributable. Without the split, a working campaign looks like it
+is missing most of its arrivals.
+
+**`acquisition_touch_outcomes_v`** - closes a blind spot in 0038.
+`bind_acquisition` has four outcomes and recorded two: `unknown` and `inactive`
+returned to the caller and wrote nothing. So a campaign link resolving to no
+registry row - mistyped on a poster, retired while links still circulated,
+forged - was discarded in silence, and **"that campaign brought nobody" was the
+conclusion whether the campaign failed or its instrumentation did.** Refusals
+are now recorded, without the code.
+
+**Deliberately not built: a "direct" bucket.** Watchside cannot distinguish
+somebody who typed the Store URL from somebody who followed a campaign link
+whose touch expired. Both are unattributed, calling either "direct" would invent
+a fact about people, and the column does not exist for a dashboard to pick up by
+mistake.
 
 ---
 
@@ -321,11 +373,26 @@ while v0.6 is in review would replace the pending submission.
 Tagging is **deferred**: the repository has no git tags, so there is no
 established convention, and one was not invented.
 
-### v0.8 - relationship measurement, BLOCKED
+### v0.8 - relationship measurement, SHIPPED
 
-**The v0.8 content below is not currently buildable.** The fallback previously
-recorded here - "ship **M3D alone** and hold M3E-a" - **is no longer available**,
-because M3D and M3E-a are blocked by the same token constraint, not by D8.
+**Firefox 0.8.0 is approved and public on AMO. Chrome 0.8.0 is submitted and in
+review.** v0.8 carries M3D, M5A–M5E and the compatibility work, verified marker
+by marker by `npm run verify:candidate`.
+
+**What actually happened**, against the blocked plan recorded below: the custody
+decision (**O1**) was taken, the credential lifecycle was built with deletion
+proved *before* the first credential existed, and M3D shipped. `subscribed_at_join`
+(M3E-a) was **not** shipped and remains on hold, so the OAuth change was
+`user:read:follows` alone — one scope, not two — and no financial declaration was
+ever needed.
+
+**The measurement systems are only now observing anybody.** M3D and M5C were both
+written, accepted and released before any build carrying them was distributed;
+Firefox 0.8 going public is the first time either has seen a real user. Numbers
+from them should be read as early and thin rather than as findings.
+
+*The blocked plan is kept below because it records why custody was treated as a
+decision rather than a task. It no longer describes the present.*
 
 - **G6 deletion architecture** - must land *before* the first Twitch-derived
   write, and its shape **depends on the custody decision**: with custody,

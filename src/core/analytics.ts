@@ -436,6 +436,23 @@ export interface AnalyticsEventMap {
    * event stream is not where campaign identity should be joined from.
    */
   acquisition_attributed: { source: AcquisitionSource; touch: 'first' | 'repeat' }
+
+  /*
+   * A campaign touch the server REFUSED.
+   *
+   * `bind_acquisition` has always had four outcomes and only ever recorded
+   * two of them. A code matching no campaign - a mistyped one on a poster, a
+   * retired one still circulating, a forged one - was discarded in silence,
+   * which in the data is indistinguishable from nobody clicking. "That
+   * campaign brought nobody" was therefore the conclusion whether the
+   * campaign failed or its instrumentation did.
+   *
+   * Separate from `acquisition_attributed` because nothing was attributed,
+   * and carries NO campaign code: an `unknown` code has no registry row to
+   * name anyway, and 0038 keeps campaign identity out of the event stream.
+   * The signal wanted is the rate, not the name.
+   */
+  acquisition_touch_rejected: { reason: 'unknown' | 'inactive' }
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap
@@ -654,6 +671,7 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   invite_claimed: ['outcome'],
   referral_succeeded: [],
   acquisition_attributed: ['source', 'touch'],
+  acquisition_touch_rejected: ['reason'],
   badge_awarded: ['badge_key'],
   badge_displayed: ['badge_key'],
 }
@@ -801,6 +819,7 @@ export const EVENT_DATA_CATEGORY: Record<AnalyticsEventName, MozillaDataCategory
    * environment signal at all.
    */
   acquisition_attributed: 'websiteActivity',
+  acquisition_touch_rejected: 'websiteActivity',
   badge_awarded: 'websiteActivity',
   badge_displayed: 'websiteActivity',
 

@@ -65,6 +65,8 @@ const BACKEND_SUITE = 'tests/extension/backendOrigin.test.ts'
 const PRIVACY_POLICY = 'docs/PRIVACY.md'
 const EMOTES = 'src/core/emotes.ts'
 const PRIVACY_SUITE = 'tests/extension/privacyAccuracy.test.ts'
+const COVERAGE_MIGRATION_40 = 'supabase/migrations/0040_acquisition_coverage.sql'
+const ACQ_COVERAGE_SUITE = 'tests/db/acquisitionCoverage.test.ts'
 const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
@@ -929,21 +931,21 @@ grant select on public.m3d_relationship_v to authenticated;`,
     // client-supplied text ends up in a table that is later read as if the
     // server had agreed to it.
     name: 'acquisition: accept a campaign the registry has never heard of',
-    file: ACQ_MIGRATION,
-    suite: ACQ_DB_SUITE,
-    from: "  if v_source is null then\n    return 'unknown';\n  end if;",
-    to: "  if v_source is null then\n    v_source := 'other';\n  end if;",
-    expect: 'refuses a campaign that does not exist, and writes nothing at all',
+    file: COVERAGE_MIGRATION_40,
+    suite: ACQ_COVERAGE_SUITE,
+    from: "  if v_source is null then\n    perform public.analytics_emit_server(",
+    to: "  if false then\n    perform public.analytics_emit_server(",
+    expect: 'still returns exactly what every released client expects',
   },
   {
     // A retired campaign keeps accepting new attribution, so disabling a bad
     // link does nothing at all.
     name: 'acquisition: keep binding to a campaign that was retired',
-    file: ACQ_MIGRATION,
-    suite: ACQ_DB_SUITE,
-    from: "  if not v_active then\n    return 'inactive';\n  end if;",
-    to: '  if false then\n    return \'inactive\';\n  end if;',
-    expect: 'refuses an inactive campaign without destroying its history',
+    file: COVERAGE_MIGRATION_40,
+    suite: ACQ_COVERAGE_SUITE,
+    from: "  if not v_active then",
+    to: "  if false then",
+    expect: 'still returns exactly what every released client expects',
   },
   {
     // A campaign's source becomes editable. Historical `acquisition_attributed`
@@ -1237,6 +1239,43 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: 'Watchside is an independent project.',
     to: 'Watchside is an independent project, currently in a small private beta.',
     expect: 'does not describe Watchside as an unreleased private beta',
+  },
+  {
+    /*
+     * The denominator becomes the numerator. Coverage then reports every
+     * attributed actor over every attributed actor - 100%, always, on a view
+     * whose entire purpose is to say how much of the population campaigns
+     * actually explain. Exactly the tautology 0034 warned about for M3D.
+     */
+    name: 'acquisition: define coverage by the outcome, making it tautologically 100%',
+    file: COVERAGE_MIGRATION_40,
+    suite: ACQ_COVERAGE_SUITE,
+    from: '  left join public.acquisition_attribution att on att.actor_id = a.actor_id',
+    to: '  join public.acquisition_attribution att on att.actor_id = a.actor_id',
+    expect: 'reports the rate against arrivals, never against attributions',
+  },
+  {
+    /*
+     * Refusals go silent again. A campaign link resolving to no registry row
+     * is discarded without trace, so a broken campaign and an unclicked one
+     * produce identical data - and the wrong one of those gets believed.
+     */
+    name: 'acquisition: discard a refused campaign touch without recording it',
+    file: COVERAGE_MIGRATION_40,
+    suite: ACQ_COVERAGE_SUITE,
+    from: "      v_actor, 'acquisition_touch_rejected', jsonb_build_object('reason', 'unknown')",
+    to: "      v_actor, 'acquisition_attributed', jsonb_build_object('source','tiktok','touch','first')",
+    expect: 'records a malformed code without storing the string offered',
+  },
+  {
+    // Small-cohort suppression removed, so a single person becomes a
+    // percentage and one campaign looks like it converts at 100%.
+    name: 'acquisition: report a coverage rate for a cohort of one',
+    file: COVERAGE_MIGRATION_40,
+    suite: ACQ_COVERAGE_SUITE,
+    from: '    when count(*) >= 3',
+    to: '    when count(*) >= 0',
+    expect: 'suppresses the rate below three actors, as NULL rather than zero',
   },
 ]
 
