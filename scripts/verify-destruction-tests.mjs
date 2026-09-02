@@ -62,6 +62,9 @@ const ACQ_MIGRATION = 'supabase/migrations/0038_acquisition_attribution.sql'
 const MANIFEST_TRANSFORM = 'scripts/manifest.mjs'
 const CHROME_MANIFEST = 'public/manifest.json'
 const BACKEND_SUITE = 'tests/extension/backendOrigin.test.ts'
+const PRIVACY_POLICY = 'docs/PRIVACY.md'
+const EMOTES = 'src/core/emotes.ts'
+const PRIVACY_SUITE = 'tests/extension/privacyAccuracy.test.ts'
 const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
@@ -1197,6 +1200,43 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: '  const host = new URL(origin).hostname',
     to: '  const host = new URL(origin).hostname; return true',
     expect: 'does NOT grant the branded host, which is why the packager now checks',
+  },
+  {
+    /*
+     * The emote CDN quietly drops out of the disclosure list. It is still
+     * contacted by every emote <img> in the panel - removing its host
+     * PERMISSION did not stop that - so a policy that stops naming it is
+     * describing a product that talks to somebody it does not admit to.
+     */
+    name: 'privacy: drop a third party from the disclosure list',
+    file: PRIVACY_POLICY,
+    suite: PRIVACY_SUITE,
+    from: "| **Twitch's image server** (`static-cdn.jtvnw.net`)",
+    to: "| **Twitch images** (undisclosed)",
+    expect: 'names every one of them in the policy',
+  },
+  {
+    /*
+     * The other direction, and the one that actually matters: the software
+     * starts contacting a new host and the policy says nothing. Derived from
+     * source, so this cannot be satisfied by editing prose.
+     */
+    name: 'privacy: contact a new third party without disclosing it',
+    file: EMOTES,
+    suite: PRIVACY_SUITE,
+    from: 'https://cdn.7tv.app/emote/',
+    to: 'https://cdn.undisclosed-example.net/emote/',
+    expect: 'names every one of them in the policy',
+  },
+  {
+    // The private-beta framing comes back, on a product published in two
+    // stores. This is the exact sentence that went stale unnoticed.
+    name: 'privacy: describe the shipped product as a private beta',
+    file: PRIVACY_POLICY,
+    suite: PRIVACY_SUITE,
+    from: 'Watchside is an independent project.',
+    to: 'Watchside is an independent project, currently in a small private beta.',
+    expect: 'does not describe Watchside as an unreleased private beta',
   },
 ]
 

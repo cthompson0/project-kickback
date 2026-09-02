@@ -1,8 +1,9 @@
 # Watchside — Privacy Policy
 
-**Last updated:** 25 August 2026
+**Last updated:** 2 September 2026
 
-**Applies to:** Watchside browser extension, private beta (v0.4.x)
+**Applies to:** the Watchside browser extension for Chrome and Firefox, and the
+watchside.app website.
 
 Watchside shows you which of your friends are watching Twitch, and lets you join
 them. This policy describes exactly what it handles, where that goes, and what
@@ -17,22 +18,46 @@ advertising or analytics SDK in it.
 
 ## Who runs it
 
-Watchside is an independent project, currently in a small private beta. Contact:
-**anoteros.dev@gmail.com** — the same address for privacy questions,
-support, and data deletion requests.
+Watchside is an independent project. Contact: **anoteros.dev@gmail.com** — the
+same address for privacy questions, support, and data deletion requests.
 
 ## Where your data goes
 
-Two places, and nowhere else:
+Everything Watchside stores about you is in two places, and nowhere else:
 
-1. **Your own browser**, using Chrome's `storage` permission (`chrome.storage.local`).
-2. **Watchside's backend**, hosted on Supabase (`*.supabase.co`).
+1. **Your own browser**, in the extension's own storage
+   (`chrome.storage.local` on Chrome, `browser.storage.local` on Firefox).
+2. **Watchside's backend**, hosted on Supabase.
 
-Watchside also reads **public emote metadata** from 7TV (`7tv.io`) and displays
-emote images from `cdn.7tv.app`, so that chat shows the emotes you already see
-on Twitch. These requests carry **the channel name**, so that channel's emote set can be
-looked up, and nothing else. **No information about you is sent to 7TV** — not
-your identity, not who your friends are, not what you type.
+Beyond that, the extension loads some images and looks up emote sets, which
+means your browser contacts a small number of other servers. **None of them is
+sent your account, your friends, or anything you write**, but a request is a
+request, so they are listed here in full:
+
+| Who | What for | What the request contains |
+| --- | --- | --- |
+| **7TV** (`7tv.io`) | looking up the emote set for the channel you are watching | the channel name, and nothing else |
+| **7TV's image server** (`cdn.7tv.app`) | the emote pictures themselves | the emote's own id, sent with **no referrer** |
+| **Twitch's image server** (`static-cdn.jtvnw.net`) | Twitch avatars and Twitch emotes shown in the panel | the picture's own address |
+
+No account, user id, friend code, token or cookie of ours is attached to any of
+them, and Watchside sends nothing to 7TV about who you are, who your friends
+are, or what you type.
+
+### What any web request unavoidably reveals
+
+We would rather say this than let the list above imply more than it can.
+
+Every request a browser makes — including the ones above, and every request to
+Watchside's own backend — necessarily tells the server it is talking to your **IP
+address**, because that is how the reply gets back to you. This is true of every
+website you visit and is not something an extension can opt out of.
+
+**Watchside does not store your IP address, and never puts one in the database.**
+There is no IP or device column anywhere in it, and no IP appears in analytics,
+in feedback, or in anything another user can see. Our hosting provider processes
+IP addresses in the ordinary course of serving and protecting the service, as any
+host does; the same is true of 7TV and Twitch for the images above.
 
 ## What Watchside handles
 
@@ -287,12 +312,12 @@ never sold or shared with third parties, and it is not used for advertising.
 
 If you send feedback from the account panel, we receive **what you wrote**, plus
 a small set of diagnostics assembled by the extension: the Watchside version, the
-build, which Watchside
-tab was open, the Twitch channel you were on, how many friends you have, whether
-a stream session existed, and whether the realtime connection was healthy. On
-Chrome it also includes your browser name and major version (e.g. "Chrome 141");
-**on Firefox that field is omitted**, because it is browser information and
-Watchside collects none of that on Firefox.
+build, which Watchside tab was open and whether the panel was collapsed, the
+Twitch channel you were on and whether you were on a channel at all, how many
+friends you have, whether a stream session existed, and whether the two realtime
+connections were healthy. On Chrome it also includes your browser name and major
+version (e.g. "Chrome 141"); **on Firefox that field is omitted**, because it is
+browser information and Watchside collects none of that on Firefox.
 
 That is the complete list, and it is enforced by the server, which rebuilds it
 field by field and discards anything else. **Feedback never carries tokens,
@@ -311,13 +336,16 @@ friends.** We can see who sent it, so that we can follow up.
 - **No selling or sharing** of personal data with third parties.
 - **No reading of web pages.** Watchside runs on `twitch.tv` only, and only to
   place its own panel and read which channel the page is showing. It does not
-  read Twitch chat, scrape the page, or touch any other site.
+  read Twitch chat, scrape the page, or run on any other site — it cannot see
+  any other page you have open. (It does load emote and avatar *images* from the
+  servers listed under "Where your data goes"; that is fetching a picture, not
+  reading a page.)
 - **No credential handling.** Sign-in goes through Twitch's own OAuth page via
-  Chrome's `identity` API. Watchside never sees your Twitch password, and the
-  extension contains no client secret.
+  the browser's `identity` API. Watchside never sees your Twitch password, and
+  the extension contains no client secret.
 - **No Twitch access token in the page.** Provider tokens stay in the extension's
-  background service worker and are never given to the content script — the part
-  that runs alongside Twitch's own code.
+  background script and are never given to the content script — the part that
+  runs alongside Twitch's own code.
 - **No remote code.** Everything Watchside executes ships inside the extension
   package. Nothing is downloaded and run.
 - **No use or transfer of your data to determine creditworthiness, or for
@@ -329,21 +357,25 @@ friends.** We can see who sent it, so that we can follow up.
 ## Permissions, and why
 
 - **`identity`** — to sign you in with Twitch.
-- **`storage`** — to keep your session, panel position and mute list on your
-  device.
-- **`alarms`** — to refresh your sign-in session periodically. A Chrome
-  extension service worker is shut down when idle, so this is the only way to
-  schedule that.
+- **`storage`** — to keep, on your device: your sign-in session, your panel
+  position and size, the people you have muted, your analytics session id, and
+  the stretches of viewing currently in progress.
+- **`alarms`** — to refresh your sign-in session periodically. The extension's
+  background script is shut down when idle on both browsers, so this is the only
+  way to schedule that.
 - **`notifications`** — for the optional desktop alert when several friends
   gather on one channel. You can turn it off in the account panel.
 - **Watchside's own backend** — sign-in, presence, friends, groups and rooms.
-  The Firefox add-on grants exactly one origin, our own Supabase project. The
-  Chrome extension currently grants `https://*.supabase.co/*`; it reaches only
-  the same single project, and will be narrowed to match at its next release.
-- **`https://7tv.io/*`, `https://cdn.7tv.app/*`** — public emote metadata and
-  images. The request carries the **channel name**, so that channel's emote set
-  can be looked up, and nothing that identifies you: no account, no user id, no
-  token, and no cookie of ours.
+- **`https://7tv.io/*`** — looking up the emote set for the channel you are
+  watching, as described above.
+
+**Where the two browsers differ.** The Firefox add-on names our single Supabase
+project as the only backend it may reach. The Chrome extension asks for
+`https://*.supabase.co/*` — broader than it needs, though it reaches only that
+same project — and additionally lists `https://cdn.7tv.app/*`, which later
+builds drop because an image does not need a host permission to load. Neither
+difference changes what Watchside does or what it collects; the permission a
+browser shows you is a ceiling, not a description of use.
 
 Watchside requests **no access to sites other than Twitch**, and cannot read any
 other page you visit.
@@ -424,9 +456,9 @@ requirements. Do not use Watchside if you are not permitted to use Twitch.
 
 ## Changes
 
-This is a private beta and the product is changing. Material changes to this
-policy will be reflected here, with the date at the top updated, and told to
-beta testers directly.
+The product is changing, and this policy changes with it. Material changes will
+be reflected here, with the date at the top updated. The current version is
+always at [watchside.app/privacy](https://watchside.app/privacy).
 
 ---
 
