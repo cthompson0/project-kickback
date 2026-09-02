@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import { Avatar } from './Avatar'
 import { mutualBucket } from '../../core/analytics'
 import { inviteLinkFor } from '../../core/invites'
@@ -94,7 +95,7 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
           outcome === 'friends' || outcome === 'already_friends' ? 'Friends' : 'Requested',
       }))
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not send that request.')
+      setError(humanMessage(cause, 'Could not send that request.'))
     } finally {
       setBusyUserId(null)
     }

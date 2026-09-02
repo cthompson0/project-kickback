@@ -53,6 +53,20 @@
   --kb-accent-2: #6d28d9;
   /* Quiet borders and inactive chips that still want to be brand-coloured. */
   --kb-accent-dim: #3b1d63;
+
+  /*
+   * The accent, one step deeper, for surfaces that carry TEXT.
+   *
+   * White on --kb-accent measures 3.96:1 - below the 4.5:1 floor - and the
+   * controls filled with it are the smallest, boldest text in the product
+   * (JOIN at 10px/800, Sign in at 12px/800). This is 5.4:1 and is close enough
+   * to the brand purple that a filled button reads as the same colour.
+   *
+   * --kb-accent itself is unchanged and remains the identity: it is used for
+   * borders, indicators, focus rings and glows, none of which is text and all
+   * of which clear the 3:1 non-text floor comfortably.
+   */
+  --kb-accent-deep: #9333ea;
   /*
    * Text on top of the accent gradient.
    *
@@ -79,7 +93,8 @@
   --kb-radius: 12px;
   --kb-radius-lg: 18px;
   /* One gradient definition. Everything that gradients points here. */
-  --kb-gradient: linear-gradient(135deg, var(--kb-accent), var(--kb-accent-2));
+  /* Both ends carry text, so both ends have to pass. See --kb-accent-deep. */
+  --kb-gradient: linear-gradient(135deg, var(--kb-accent-deep), var(--kb-accent-2));
   /*
    * ONE glow token, and one only.
    *
@@ -552,7 +567,13 @@
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
-  color: var(--kb-faint);
+  /*
+   * A section heading is how somebody finds their way around the panel -
+   * "People you may know", "Still to earn". At 10px uppercase it is already the
+   * hardest text here to read; in the decorative tier it was 3.5:1. Dim keeps
+   * it quiet without making it a guess.
+   */
+  color: var(--kb-dim);
 }
 
 .kb-empty {
@@ -629,7 +650,17 @@
 }
 
 .kb-row-offline .kb-row-name {
-  color: var(--kb-faint);
+  /*
+   * Dim, not faint.
+   *
+   * A friend's NAME is the thing a person came to read, and most of a friend
+   * list is offline most of the time - so this is not an edge case, it is the
+   * common case. --kb-faint measures 3.5:1 against the panel, below the 4.5:1
+   * floor for body text; --kb-dim is 6.9:1 and still visibly recedes from an
+   * online row. The offline signal is carried by the dot and the status line
+   * as well, so nothing is lost by keeping the name readable.
+   */
+  color: var(--kb-dim);
 }
 
 .kb-row-main {
@@ -668,7 +699,9 @@
 }
 
 .kb-row-offline .kb-row-status {
-  color: var(--kb-faint);
+  /* Same reasoning as the name above: "Offline" and a last-seen time are the
+     answer to the question the row was opened for, so they stay readable. */
+  color: var(--kb-dim);
 }
 
 .kb-time {
@@ -973,7 +1006,7 @@
   font-weight: 800;
   letter-spacing: 0.1em;
   color: var(--kb-on-accent);
-  background: var(--kb-accent);
+  background: var(--kb-accent-deep);
 }
 
 .kb-avatar-btn {
@@ -1303,7 +1336,7 @@
   margin-left: 5px;
   padding: 0 4px;
   border-radius: 8px;
-  background: var(--kb-accent);
+  background: var(--kb-accent-deep);
   color: var(--kb-on-accent);
   font-size: 9.5px;
   font-weight: 800;
@@ -1311,7 +1344,7 @@
 }
 
 .kb-launcher-badge-request {
-  background: var(--kb-accent);
+  background: var(--kb-accent-deep);
   color: var(--kb-on-accent);
 }
 
@@ -1490,7 +1523,13 @@
 
 .kb-presence-hint {
   font-size: 10.5px;
-  color: var(--kb-faint);
+  /*
+   * This is the explanatory line under a setting - what the visibility choice
+   * actually does, and where the other half of a notification permission lives.
+   * It is the text most likely to be needed and least likely to be re-read, so
+   * putting it in the decorative tier at 3.5:1 was exactly backwards.
+   */
+  color: var(--kb-dim);
   line-height: 1.35;
 }
 
@@ -3139,7 +3178,7 @@ a.kb-ghost-btn {
   margin-left: 4px;
   padding: 0 3px;
   border-radius: 7px;
-  background: var(--kb-accent);
+  background: var(--kb-accent-deep);
   color: var(--kb-on-accent);
   font-size: 9px;
   font-weight: 800;

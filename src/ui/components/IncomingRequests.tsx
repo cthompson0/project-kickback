@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import type { FriendRequest, KickbackClient } from '../../client/types'
 import { Avatar } from './Avatar'
 
@@ -27,7 +28,7 @@ export function IncomingRequests({
     try {
       await client.respondToFriendRequest(request.requestId, accept)
     } catch (cause) {
-      onError(cause instanceof Error ? cause.message : 'Could not answer that request.')
+      onError(humanMessage(cause, 'Could not answer that request.'))
     } finally {
       setBusyId(null)
     }

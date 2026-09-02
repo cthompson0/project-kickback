@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import type { KickbackClient } from '../../client/types'
 import type { BadgeDefinition, EarnedBadge } from '../../background/supabaseBackend'
 
@@ -75,7 +76,7 @@ export function BadgeShelf({ client }: { client: KickbackClient }) {
           : current,
       )
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not update your badge.')
+      setError(humanMessage(cause, 'Could not update your badge.'))
     } finally {
       setBusy(false)
     }

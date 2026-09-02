@@ -61,6 +61,12 @@ const ACQUISITION = 'src/core/acquisition.ts'
 const ACQ_MIGRATION = 'supabase/migrations/0038_acquisition_attribution.sql'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
+const PANEL_UI = 'src/ui/KickbackPanel.tsx'
+const CSS_UI = 'src/ui/kickback.css'
+const ERRORS = 'src/core/errors.ts'
+const A11Y_SUITE = 'tests/dom/accessibilityAudit.test.tsx'
+const CONTRAST_SUITE = 'tests/extension/contrast.test.ts'
+const ERROR_SUITE = 'tests/extension/errorMessages.test.ts'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -971,6 +977,79 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: "  const match = /\\/c\\/([^/?#]+)\\/?$/.exec(withoutQuery)",
     to: "  const match = /\\/([^/?#]+)\\/?$/.exec(withoutQuery)",
     expect: 'refuses a trailing segment that is not under /c/',
+  },
+  // ------------------------------------------------------- M5D public closure
+  {
+    // Raw failure text reaches the user again - the exact defect M5D found in
+    // eighteen places, where a friend request showed "TypeError: Failed to
+    // fetch" because the written sentence was the branch nobody took.
+    name: 'closure: show the thrown error text instead of the written sentence',
+    file: ERRORS,
+    suite: ERROR_SUITE,
+    from: '  void cause\n  return fallback',
+    to: '  return cause instanceof Error ? cause.message : fallback',
+    expect: 'returns the sentence for a real Error',
+  },
+  {
+    // The server sentence filter stops refusing jargon, so a Postgres
+    // constraint name can reach a person through the one path that is allowed
+    // to pass a server message through.
+    name: 'closure: let server jargon through to the panel',
+    file: ERRORS,
+    suite: ERROR_SUITE,
+    from: '  if (JARGON.test(clean)) return fallback',
+    to: '',
+    expect: 'refuses a constraint and uses the written sentence',
+  },
+  {
+    // Which tab is current stops being exposed, so it is carried by colour
+    // alone and by nothing at all for anybody who cannot see it.
+    name: 'closure: stop telling assistive technology which tab is selected',
+    file: PANEL_UI,
+    suite: A11Y_SUITE,
+    from: "              aria-pressed={tab === 'friends' && !finding}",
+    to: '',
+    expect: 'marks the selected tab as pressed or selected',
+  },
+  {
+    // The panel goes back to being an anonymous div inside Twitch's page, so a
+    // screen-reader user arriving at it is told nothing about what it is.
+    name: 'closure: remove the panel’s landmark role and name',
+    file: PANEL_UI,
+    suite: A11Y_SUITE,
+    from: '      role="complementary"\n      aria-label="Watchside"',
+    to: '',
+    expect: 'gives the panel an accessible landmark or label',
+  },
+  {
+    // An offline friend's name goes back to the decorative tier at 3.5:1 -
+    // below the floor, and most of a friend list is offline most of the time.
+    name: 'closure: dim an offline friend’s name below the contrast floor',
+    file: CSS_UI,
+    suite: CONTRAST_SUITE,
+    from: '.kb-row-offline .kb-row-name {',
+    to: '.kb-row-offline .kb-row-name { color: var(--kb-faint); }\n.kb-unused-offline-name {',
+    expect: 'is never used for the panel’s meaningful text classes',
+  },
+  {
+    // Text goes back onto the bare brand accent, where white is 3.96:1 - the
+    // JOIN button and every count badge.
+    name: 'closure: put small text back on the bare brand accent',
+    file: CSS_UI,
+    suite: CONTRAST_SUITE,
+    from: '  --kb-gradient: linear-gradient(135deg, var(--kb-accent-deep), var(--kb-accent-2));',
+    to: '  --kb-gradient: linear-gradient(135deg, var(--kb-accent), var(--kb-accent-2));',
+    expect: 'checks the stops --kb-gradient really uses',
+  },
+  {
+    // The room-opened event fires on availability rather than on opening, so
+    // "does anybody actually open the contextual tab" reads as always yes.
+    name: 'closure: record a Stream Room as opened when it merely appears',
+    file: PANEL_UI,
+    suite: A11Y_SUITE,
+    from: '        open={sessionOpen}',
+    to: '        open={sessionAvailable}',
+    expect: 'is wired to the surface actually being open',
   },
 ]
 

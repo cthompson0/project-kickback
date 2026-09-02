@@ -21,11 +21,18 @@ how somebody encounters it. Code on `main` is not shipping.
 
 | Build | Chrome | Firefox |
 | --- | --- | --- |
-| Published | **0.6.0** (live) | none — 0.6.0 pending first AMO review |
-| Submitted | 0.7.0 (owner-reported) | **0.6.0 — awaiting first AMO review** |
-| Development HEAD | 0.7.0 + M3D (unreleased) | same |
+| Published | **0.7.0 — approved and LIVE** | none |
+| Pending review | **nothing** | **0.6.0 — awaiting its FIRST AMO review** |
+| Packaged, not submitted | — | 0.7.0 |
+| Development HEAD | 0.7.0 + M3D + M5A–M5D (unreleased) | same |
 
-Everything marked RELEASED below means **0.6.0**, unless it says 0.7.0.
+Owner-confirmed at M5D and authoritative over anything inferred from repository
+artifacts. **Chrome has nothing in the queue**, which changes the cost of a
+submission but not the recommendation — see the M5D report's Store assessment.
+
+Everything marked RELEASED below means **0.6.0**, unless it says 0.7.0. Nothing
+added after the 0.7.0 package — M3D, and all of M5A through M5D — is in any
+distributed build.
 Anything added after the 0.7.0 package — all of M3D — is **IMPLEMENTED only**.
 
 ## Readiness key
@@ -66,7 +73,7 @@ Backend: `presence`, `presence_destinations`. Analytics:
 
 ## 3. Social Gravity
 
-**Status:** VERIFIED (0.6.0) · **Readiness:** M5 POLISH
+**Status:** VERIFIED (0.6.0) · **Readiness:** READY
 
 Discovery: the Friends tab, above the friend list. Shows clusters of friends on
 the same channel, ranked, with JOIN. **Empty until at least one friend is
@@ -98,7 +105,7 @@ baseline.
 
 ## 5. Friends and friend requests
 
-**Status:** VERIFIED (0.6.0) · **Readiness:** M5 POLISH
+**Status:** VERIFIED (0.6.0) · **Readiness:** READY
 
 Discovery: the **+** button beside the panel tabs → *Find friends*. Search by
 Twitch username or friend code. Incoming requests appear at the top of the
@@ -143,7 +150,7 @@ was measuring the wrong thing.
 ## 7. Invite links / referrals
 
 **Status:** IMPLEMENTED · USER-FACING · RELEASED (0.6.0)
-**Readiness:** M5 POLISH — the URL migration remains
+**Readiness:** **M5E RELEASE GATE** — the constant flip, once HTTPS is live
 
 Discovery: **+** → *Find friends* → *Invite a friend*, with a copyable link.
 Flow: copy → share → recipient opens the landing page → installs → signs in →
@@ -194,7 +201,7 @@ Backend: `badges`, referral milestone logic (0026).
 
 ## 9. Stream Rooms (Automatic Together)
 
-**Status:** VERIFIED (0.6.0) · **Readiness:** M5 POLISH
+**Status:** VERIFIED (0.6.0) · **Readiness:** READY
 
 Discovery: a contextual tab labelled with the streamer's name, which appears
 only while you are on a channel where somebody else is. Nothing is created or
@@ -207,13 +214,20 @@ Includes: roster, ephemeral chat, reactions, combos. Messages are deleted after
 sentence: a group stays put, and the tab that appears while you are watching
 alongside somebody comes and goes with the stream and is never made by hand.
 
-Analytics: `automatic_room_entered` is emitted; **`automatic_room_opened` and
-`automatic_room_left` are registered and emitted by nothing** — room lifecycle
-is half-measured.
+Analytics: `automatic_room_entered` (the tab became available) and, **since
+M5D, `automatic_room_opened`** — whether anybody actually opens it, which is the
+whole navigation bet and was previously unmeasured.
+
+`automatic_room_left` remains registered and unemitted, **deliberately**: its
+`reason` vocabulary (`destination_closed` / `retention_expired` / `signed_out`)
+is decided in the worker's room lifecycle, and the panel — the only place that
+sees the surface disappear — cannot tell those apart. A guessed reason would be
+worse than a missing event. Room duration is approximable from
+`automatic_room_opened` and `channel_dwell_ended`.
 
 ## 10. Groups
 
-**Status:** VERIFIED (0.6.0) · **Readiness:** M5 POLISH
+**Status:** VERIFIED (0.6.0) · **Readiness:** READY
 
 Discovery: the Groups tab. Create, invite by friend, accept, leave; group chat
 and a presence summary of where members are watching.
@@ -239,7 +253,7 @@ happens but never what it was.
 
 ## 12. Notifications
 
-**Status:** VERIFIED (0.6.0) · **Readiness:** M5 POLISH
+**Status:** VERIFIED (0.6.0) · **Readiness:** READY
 
 Discovery: a desktop notification when friends gather on a channel; the toggle
 is in the account panel, on by default. Cooldowns prevent repeats.
@@ -273,7 +287,7 @@ client filter.
 
 ## 15. Feedback
 
-**Status:** VERIFIED (0.6.0) · **Readiness:** M5 POLISH
+**Status:** VERIFIED (0.6.0) · **Readiness:** READY
 
 Discovery: account panel → Feedback. Four categories and a free-text box;
 diagnostics (version, environment, browser, friend count, channel, realtime
@@ -322,7 +336,7 @@ split and an end reason. Disclosed in full in the privacy policy.
 
 ## 20. M3D creator-discovery measurement
 
-**Status:** IMPLEMENTED · **NOT RELEASED** · **Readiness:** M5 BLOCKER (release)
+**Status:** IMPLEMENTED · **NOT RELEASED** · **Readiness:** **M5E DISTRIBUTION GATE**
 
 At an eligible socially initiated JOIN, whether the viewer already followed that
 creator. Server-side, privacy-aware, deletion-aware, automatically testable.
@@ -371,7 +385,7 @@ reading the emitter.
 
 ## 23. Public web (watchside.app)
 
-**Status:** IMPLEMENTED · **NOT LIVE** · **Readiness:** M5 POLISH (DNS remains)
+**Status:** IMPLEMENTED · **NOT LIVE** · **Readiness:** **M5E RELEASE GATE** (TLS remains)
 
 Built in M5B: a root page, `/privacy` generated from `docs/PRIVACY.md`,
 `/support`, and the canonical invite route `/i/<code>` — which works on a static
@@ -413,7 +427,7 @@ Tests: `publicRouting` (41). Build: `npm run build:site`, `npm run build:site:pa
 ## 24. Acquisition attribution (campaigns)
 
 **Status:** IMPLEMENTED (main) · **NOT RELEASED**
-**Readiness:** M5 BLOCKER — needs a distributed build to collect anything
+**Readiness:** **M5E DISTRIBUTION GATE** — needs a distributed build to collect anything
 
 How somebody came to Watchside, kept strictly apart from who invited them.
 Campaign links are `watchside.app/c/<code>`; the code is the only payload, and
@@ -437,13 +451,42 @@ Schema 38. Views: `acquisition_actor_v`, `acquisition_campaign_v`,
 `acquisition_downstream_v`. Tests: `acquisition` (43 db + 47 core), routing (13).
 Minting: `npm run campaign`.
 
+## 25. Accessibility and failure recovery
+
+**Status:** IMPLEMENTED (main) · **Readiness:** READY, with one human item
+
+**Closed in M5D**, which is where M5B's deferred contrast audit and
+screen-reader pass landed.
+
+The panel is a named `complementary` landmark rather than an anonymous div
+inside Twitch's page; tabs expose which one is current instead of carrying it in
+colour alone. Contrast is computed from the tokens: five surfaces were below the
+4.5:1 floor and were fixed — an offline friend's name and status, section
+headings, the settings hint, and white on the bare brand accent (3.96:1) behind
+JOIN and every count badge.
+
+**The failure-recovery defect was the largest single finding.** Eighteen call
+sites read `cause instanceof Error ? cause.message : 'a written sentence'`,
+which looks like "detail with a fallback" and behaves as the reverse — a thrown
+cause is nearly always an Error, so users were shown `TypeError: Failed to
+fetch` and could have been shown Postgres constraint names. The sentences were
+already written; they were simply never reached. All eighteen now route through
+`humanMessage`.
+
+Tests: `accessibilityAudit` (10, mounts the whole panel), `contrast` (19),
+`errorMessages` (16). Mutations: 7 M5D levers.
+
+**Not claimed:** WCAG certification. One narrow human acceptance remains — a
+single real screen-reader pass over sign-in → friends → JOIN. Everything a
+machine can decide is decided.
+
 ## Readiness summary
 
 | | Count |
 | --- | --- |
-| READY | 12 |
-| M5 POLISH | 7 |
-| M5 BLOCKER | 2 |
+| READY | 19 |
+| M5E RELEASE GATE | 2 |
+| M5E DISTRIBUTION GATE | 2 |
 | EXPERIMENTAL | 1 |
 | POST-LAUNCH | 1 |
 | REMOVE / excluded | 1 |

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import type {
   KickbackClient,
   FeedbackCategory,
@@ -249,7 +250,7 @@ export function FeedbackForm({
       setState('sent')
     } catch (cause: unknown) {
       setState('idle')
-      setError(cause instanceof Error ? cause.message : 'Could not send that. Try again.')
+      setError(humanMessage(cause, 'Could not send that. Try again.'))
     }
   }
 
@@ -500,7 +501,7 @@ function DeleteAccountSection({
               })
               .catch((cause: unknown) => {
                 setBusy(false)
-                setError(cause instanceof Error ? cause.message : 'Something went wrong.')
+                setError(humanMessage(cause, 'Something went wrong.'))
               })
           }}
         >

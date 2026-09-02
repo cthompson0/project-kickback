@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import { VIOLET as BRAND_ACCENT } from '../../../assets/brand/geometry.mjs'
 import { avatarTint } from '../avatarTint'
 import { EMOTES, isEmoteOnly, parseMessage } from '../../core/emotes'
@@ -421,7 +422,7 @@ export function Composer({
       await onSend(body)
       setDraft('')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Message not sent.')
+      setError(humanMessage(cause, 'Message not sent.'))
     } finally {
       setSending(false)
       inputRef.current?.focus()

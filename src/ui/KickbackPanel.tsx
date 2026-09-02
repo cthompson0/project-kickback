@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { humanMessage } from '../core/errors'
 import { VIOLET as BRAND_ACCENT } from '../../assets/brand/geometry.mjs'
 import { ChannelLabel, ChannelNameProvider, useChannelName } from './ChannelNames'
-import { AnalyticsProvider } from './Analytics'
+import { AnalyticsProvider, useAnalytics } from './Analytics'
 import { describePresence } from '../core/personPresence'
 import type { KickbackClient } from '../client/types'
 import type { RoomMember } from '../core/streamRoom'
+import type { RoomOpenedFrom } from '../core/analytics'
 import { useKickbackState } from './useKickbackState'
 import { Avatar } from './components/Avatar'
 import { AVATAR_SIZE } from './avatarSizes'
@@ -67,6 +69,7 @@ function SessionTab({
       type="button"
       className={`kb-tab kb-tab-session${active ? ' kb-tab-active' : ''}`}
       title={name}
+      aria-pressed={active}
       onClick={onSelect}
     >
       <span className="kb-tab-streamer">{name}</span>
@@ -113,6 +116,66 @@ function writeCollapsed(collapsed: boolean): void {
   } catch {
     // Storage can be unavailable; the panel just forgets its state.
   }
+}
+
+/**
+ * The Stream Room was actually opened, and by which route.
+ *
+ * WHY THIS EXISTS AT ALL. `automatic_room_entered` says the contextual tab
+ * BECAME AVAILABLE - it fires whether or not anybody looks. The whole
+ * navigation bet behind Stream Rooms is that a tab named after the streamer
+ * gets opened on its own, and nothing measured whether that ever happened. For
+ * a feature whose open question is "would anybody miss this", that was the one
+ * number worth having.
+ *
+ * Emitted on the transition into open, once per opening, deliberately not on
+ * every render while it stays open - a room somebody leaves running is one
+ * opening, which is what a person would count.
+ */
+function RoomOpenedProbe({
+  open,
+  channel,
+  participantCount,
+  directFriendCount,
+  openedFromRef,
+}: {
+  open: boolean
+  channel: string | null
+  participantCount: number
+  directFriendCount: number
+  /*
+   * The ref itself rather than its value, because the route is read at the
+   * moment of opening and reading a ref during render is both a lint error and
+   * a real one - the render that shows the room is not necessarily the render
+   * on which the route was chosen.
+   */
+  openedFromRef: { current: RoomOpenedFrom }
+}) {
+  const analytics = useAnalytics()
+  const reported = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!open || !channel) {
+      // Closing arms the next opening, so returning to the same room counts
+      // again. Without this, a person who opened it twice would look like one.
+      reported.current = null
+      return
+    }
+    if (reported.current === channel) return
+    reported.current = channel
+
+    analytics.track(
+      'automatic_room_opened',
+      {
+        participant_count: participantCount,
+        direct_friend_count: directFriendCount,
+        opened_from: openedFromRef.current,
+      },
+      { source: 'together', channel },
+    )
+  }, [open, channel, participantCount, directFriendCount, openedFromRef, analytics])
+
+  return null
 }
 
 export function KickbackPanel({
@@ -213,9 +276,19 @@ export function KickbackPanel({
    * the conversation read - both of which have to outlive this component,
    * because the panel is torn down on every navigation.
    */
+  /*
+   * Which way into the Stream Room was used, for the one event that answers
+   * whether the contextual tab earns its place. A ref rather than state: it
+   * feeds an effect and must never itself cause a render.
+   */
+  const openedFrom = useRef<RoomOpenedFrom>('restored')
+
   const chooseTab = (next: Tab) => {
     setRequestedTab(next)
     setFinding(false)
+    // How the session was reached, for automatic_room_opened. A choice made
+    // here is 'tab'; a session resolved with no choice at all is 'restored'.
+    if (next === 'session') openedFrom.current = 'tab'
     if (next === 'session' && sessionChannel) client.selectSession(sessionChannel)
     // Leaving is remembered as leaving, so a refresh does not put them back.
     else if (tab === 'session') client.selectSession(null)
@@ -511,7 +584,7 @@ export function KickbackPanel({
     try {
       await client.removeFriend(userId)
     } catch (cause) {
-      setActionError(cause instanceof Error ? cause.message : 'Could not remove that friend.')
+      setActionError(humanMessage(cause, 'Could not remove that friend.'))
     }
   }
 
@@ -579,6 +652,18 @@ export function KickbackPanel({
       metadata={view.channelMetadata}
     >
     <AnalyticsProvider client={client}>
+      {/*
+        * Room lifecycle, emitted from inside the provider because that is the
+        * only place useAnalytics() resolves - the provider wraps what the panel
+        * returns rather than the panel itself.
+        */}
+      <RoomOpenedProbe
+        open={sessionOpen}
+        channel={sessionChannel}
+        participantCount={Math.max(roomPeers.length, roomMembers.length) + 1}
+        directFriendCount={roomMembers.length}
+        openedFromRef={openedFrom}
+      />
     <div
       // A height the user chose is what the panel is, not a ceiling: otherwise
       // the panel springs back to content height the moment they let go, and
@@ -586,6 +671,18 @@ export function KickbackPanel({
       // content-sized so a short friends list is not a tall empty box.
       className={`kb-panel${sized || chatOpen || gesturing ? ' kb-panel-filled' : ''}`}
       style={position}
+      /*
+       * A landmark with a name, rather than an anonymous div.
+       *
+       * Watchside sits inside Twitch's own page, so a screen-reader user
+       * arriving at it has no context at all for what this region is - it is
+       * simply more content on twitch.tv. `complementary` is the honest role
+       * (supporting content beside the main thing) and the label is what makes
+       * it navigable: assistive technology can jump between landmarks, and an
+       * unnamed one is a stop that tells you nothing.
+       */
+      role="complementary"
+      aria-label="Watchside"
     >
       <div className="kb-header" onPointerDown={beginDrag}>
         <WatchsideMark size={24} />
@@ -682,7 +779,7 @@ export function KickbackPanel({
             setActionError(null)
             client.setPreferences(patch).catch((cause: unknown) => {
               setActionError(
-                cause instanceof Error ? cause.message : 'Could not save that setting.',
+                humanMessage(cause, 'Could not save that setting.'),
               )
             })
           }}
@@ -698,14 +795,14 @@ export function KickbackPanel({
           onUnblock={(userId) => {
             setActionError(null)
             client.unblockUser(userId).catch((cause: unknown) => {
-              setActionError(cause instanceof Error ? cause.message : 'Could not unblock.')
+              setActionError(humanMessage(cause, 'Could not unblock.'))
             })
           }}
           onVisibilityChange={(mode) => {
             setActionError(null)
             client.setPresenceVisibility(mode).catch((cause: unknown) => {
               setActionError(
-                cause instanceof Error ? cause.message : 'Could not change your presence setting.',
+                humanMessage(cause, 'Could not change your presence setting.'),
               )
             })
           }}
@@ -761,6 +858,16 @@ export function KickbackPanel({
             <button
               type="button"
               className={`kb-tab${tab === 'friends' && !finding ? ' kb-tab-active' : ''}`}
+              /*
+               * Which tab is current is drawn with colour and weight, which is
+               * the whole of the signal for anybody who cannot see it.
+               * aria-pressed rather than aria-selected because these are
+               * buttons in a plain container, not an ARIA tablist - claiming
+               * the tablist role would promise arrow-key navigation between
+               * them that the panel does not implement, and a half-kept
+               * promise is worse than none.
+               */
+              aria-pressed={tab === 'friends' && !finding}
               onClick={() => chooseTab('friends')}
             >
               Friends
@@ -797,6 +904,7 @@ export function KickbackPanel({
             <button
               type="button"
               className={`kb-tab${tab === 'groups' && !finding ? ' kb-tab-active' : ''}`}
+              aria-pressed={tab === 'groups' && !finding}
               onClick={() => chooseTab('groups')}
             >
               Groups

@@ -230,8 +230,29 @@ describe('the panel token system', () => {
    * in the sheet points at the token rather than restating the two colours.
    */
   it('keeps exactly one gradient definition and one glow', () => {
-    const literalGradients = css.match(/linear-gradient\([^)]*--kb-accent\)/g) ?? []
-    expect(literalGradients).toHaveLength(1) // the token's own definition
+    /*
+     * Exactly one gradient is built from the BRAND ACCENTS, and it is the
+     * token's own definition - every accent gradient in the sheet points at
+     * the token rather than restating the colours.
+     *
+     * Matched by the token name rather than by which accents compose it. The
+     * previous form looked for `--kb-accent)` specifically, so it broke when
+     * the definition changed which tokens it uses - which it did, when the
+     * light end was deepened to clear the AA contrast floor for text sitting
+     * on it (see contrast.test.ts). The rule being protected is "one accent
+     * gradient", not "these two colours".
+     *
+     * The other two gradients are the here-tint and the combo wash. The combo
+     * one does reference the accent, but as rgba(var(--kb-accent-rgb), …) - a
+     * translucent tint rather than a solid accent stop, so it is not a second
+     * brand gradient and is deliberately not counted.
+     */
+    const SOLID_ACCENT = /var\(--kb-accent(?:-deep|-2)?\)/
+    const accentGradients = (css.match(/linear-gradient\([^;]*/g) ?? []).filter((g) =>
+      SOLID_ACCENT.test(g),
+    )
+    expect(accentGradients).toHaveLength(1)
+    expect(css).toMatch(/--kb-gradient:\s*linear-gradient\(/)
 
     const glowDefinitions = css.match(/--kb-glow:/g) ?? []
     expect(glowDefinitions).toHaveLength(1)

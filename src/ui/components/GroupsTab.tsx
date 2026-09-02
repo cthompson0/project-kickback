@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import type { Activity } from '../../core/types'
 import { effectiveStatus, findGatherings, isHere } from '../../core/presence'
 import { useChannelName } from '../ChannelNames'
@@ -155,7 +156,7 @@ function CreateGroup({ client, onDone }: { client: KickbackClient; onDone: () =>
       await client.createGroup(name.trim())
       onDone()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not create that group.')
+      setError(humanMessage(cause, 'Could not create that group.'))
     } finally {
       setBusy(false)
     }
@@ -458,7 +459,7 @@ function GroupDetail({
     try {
       await run()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'That did not work.')
+      setError(humanMessage(cause, 'That did not work.'))
     } finally {
       always?.()
     }
@@ -637,7 +638,7 @@ export function GroupsTab({
     try {
       await run()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'That did not work.')
+      setError(humanMessage(cause, 'That did not work.'))
     }
   }
 }

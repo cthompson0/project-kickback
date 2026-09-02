@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import type {
   FriendRequest,
   KickbackClient,
@@ -78,7 +79,7 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
         .catch((cause: unknown) => {
           if (cancelled) return
           setResults(null)
-          setError(cause instanceof Error ? cause.message : 'Search failed.')
+          setError(humanMessage(cause, 'Search failed.'))
         })
         .finally(() => {
           if (!cancelled) setSearching(false)
@@ -117,7 +118,7 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
       )
     } catch (cause) {
       applyRelationship(result.userId, previous)
-      setError(cause instanceof Error ? cause.message : 'Could not send that request.')
+      setError(humanMessage(cause, 'Could not send that request.'))
     } finally {
       setBusyUserId(null)
     }
@@ -136,7 +137,7 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
       await client.acceptFriendRequestFrom(result.userId)
       applyRelationship(result.userId, 'friend')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not accept that request.')
+      setError(humanMessage(cause, 'Could not accept that request.'))
     } finally {
       setBusyUserId(null)
     }
@@ -148,7 +149,7 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
       await client.cancelFriendRequest(request.requestId)
       applyRelationship(request.user.id, 'none')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not cancel that request.')
+      setError(humanMessage(cause, 'Could not cancel that request.'))
     } finally {
       setBusyUserId(null)
     }

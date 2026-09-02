@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { humanMessage } from '../../core/errors'
 import { describePresence, describeSelf } from '../../core/personPresence'
 import { channelUrl } from '../../platforms/twitch/channels'
 import type { Activity, Presence, User } from '../../core/types'
@@ -236,7 +237,7 @@ export function UserCard({ user, presence, client, context, onClose }: UserCardP
       await run()
       after?.()
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'That did not work.')
+      setError(humanMessage(cause, 'That did not work.'))
     } finally {
       setBusy(false)
     }
