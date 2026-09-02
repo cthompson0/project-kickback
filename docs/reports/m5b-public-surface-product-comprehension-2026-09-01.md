@@ -81,7 +81,7 @@ Everything Watchside currently exposes to somebody who is not running it:
 | `anoteros-labs.github.io/watchside/invite/` | **live** ¹ | unchanged; still the extension's link base |
 | `anoteros-labs.github.io/watchside/support/` | **live, but thin** ¹ | **LIVE — replaced, see §37** |
 | `anoteros-labs.github.io/watchside/` | 404 | **LIVE — new, see §37** |
-| `watchside.app` | registered, nothing served | **built, PREPARED** |
+| `watchside.app` | registered, nothing served | **served by GitHub; awaiting DNS — see §38** |
 | support email | `anoteros.dev@gmail.com` | unchanged, now published on a page |
 
 ¹ **Corrected after M5B GO.** Both rows originally read "not published", taken
@@ -147,7 +147,9 @@ live today. It deliberately omits `CNAME`, `404.html` and `/i/` — see §14.
 
 ## 6. DNS status
 
-**NOT CONFIGURED. NOT LIVE.**
+**NOT CONFIGURED. NOT LIVE.** *(Still true. §38 has the exact records, read from
+GitHub's `/meta` endpoint, and confirms the provider is Porkbun with no
+automatable credential anywhere in the environment.)*
 
 `watchside.app` is registered and does not resolve to any Pages host. No DNS
 record has been created, and none can be created from this repository.
@@ -165,7 +167,8 @@ No part of this report, the code, or the tests claims DNS is configured.
 
 ## 7. Domain ownership verification status
 
-**NOT VERIFIED. Optional.**
+**NOT VERIFIED. Optional.** *(§38 confirms the challenge value is not exposed by
+the REST API — three endpoints tried, all 404. It remains a UI action.)*
 
 GitHub can verify domain ownership so that no other repository can claim the
 domain. It is done in organisation settings, and it issues a `TXT` record whose
@@ -182,7 +185,8 @@ after the `CNAME`.
 
 ## 8. HTTPS status
 
-**NOT ACTIVE.**
+**NOT ACTIVE.** *(§38: GitHub's own answer when asked to enforce it was "The
+certificate does not exist yet". Blocked only on DNS.)*
 
 GitHub Pages provisions a certificate itself once DNS resolves; nothing is
 bought, and no configuration exists in this repository. The **Enforce HTTPS**
@@ -781,20 +785,21 @@ the artifact. See §37.
 **2 — ~~Publish the invite landing page~~. Already live** — the route answers 200
 and its script is byte-identical to the tested repository copy. Nothing to do.
 
-**3 — Decide the hosting shape for the domain.** README §1. The recommendation
-is a separate repository, because a `CNAME` on the org Pages repo would rebind
-`anoteros-labs.github.io` entirely, taking `/kickback/` with it.
+**3 — ~~Decide the hosting shape~~. Done.** `Anoteros-Labs/watchside-app` exists,
+serves `watchside.app`, and leaves the org site's `cname` `null`. See §38.
 
-**4 — DNS.** README §2. Four `A`, four `AAAA`, one `CNAME` for `www`. Check the
-addresses against GitHub's current documentation first.
+**4 — DNS. THE ONLY REMAINING ACTION.** Delete the two Porkbun parking `A`
+records, then add the nine records in §38. Nothing in this environment can reach
+Porkbun.
 
-**5 — Domain verification.** README §3. The `TXT` value comes from GitHub's own
-screen; it is not in this repository and cannot be.
+**5 — ~~Domain verification~~. Optional**, and not required for the site to work.
+§38 has the exact screen if wanted.
 
-**6 — HTTPS.** README §4. Tick Enforce HTTPS once DNS resolves.
+**6 — ~~HTTPS~~. Automatic** once DNS resolves; enforcement is one API call that
+needs no owner action.
 
-**7 — Confirm.** README §5, four checks. Only when all four answer is the domain
-live, and only then does M5E flip the constants.
+**7 — Confirm.** README §5. Only when those answer is the domain live, and only
+then does M5E flip the constants.
 
 ---
 
@@ -1107,3 +1112,237 @@ users who can already press it, not preparation for later.
 The live invite page is still painted in the pre-rename identity (§36). It was
 deliberately not touched here: its behaviour is correct, and this task was not
 the place to change a working referral surface for paint.
+
+---
+
+## 38. watchside.app — activation
+
+Appended after §37. The canonical domain is **configured on GitHub and serving**;
+it is **not yet reachable at its own name**, because DNS still points at the
+registrar's parking page. That is the only thing left, and it is the one thing no
+credential in this environment can do.
+
+### Final hosting architecture
+
+A **dedicated project Pages site**, `Anoteros-Labs/watchside-app`, serving
+`watchside.app` from `main` at `/`.
+
+M5B recommended this shape without proving it. It is now checked against what
+GitHub actually reports:
+
+| | Before | After |
+| --- | --- | --- |
+| `anoteros-labs.github.io` Pages `cname` | `null` | **`null`** — unchanged |
+| `watchside-app` Pages `cname` | — | `watchside.app` |
+
+The org site has **no** custom domain, which is what makes this safe. A `CNAME`
+in the org site repository would have bound `anoteros-labs.github.io` itself to
+`watchside.app` and begun redirecting every path under it — including
+`/kickback/…` and the `/watchside/invite/` route that shipped 0.6.0 and 0.7.0
+clients link to. A project site takes the domain for itself and leaves the org
+site literally where it was. Verified after the change: all eight compatibility
+routes still answer 200, unredirected, and the old invite page still carries a
+code.
+
+No paid hosting, no site builder, no backend, no analytics vendor, no pixels, no
+cookies.
+
+### What was automated
+
+Everything except DNS. The stored git credential is an OAuth token for
+`cthompson0` with `repo` scope and **admin** on the organisation, which turned
+out to be enough for all of it:
+
+| Step | How | Result |
+| --- | --- | --- |
+| create `Anoteros-Labs/watchside-app` | REST `POST /orgs/{org}/repos` | 201 |
+| publish the built site | `git push` | `bf06092` |
+| enable Pages from `main` `/` | REST `POST /repos/{…}/pages` | 201 |
+| claim the custom domain | REST `PUT /repos/{…}/pages` | 204 |
+| enforce HTTPS | REST `PUT /repos/{…}/pages` | **404 — "The certificate does not exist yet"** |
+
+§36 concluded that publication needed the owner and was wrong; §37 said so. The
+same question was asked properly this time, before assuming anything: the answer
+was that a repository, a Pages site and a custom domain could all be configured
+without the owner touching GitHub at all.
+
+The published tree is generated output. Its sources are
+`docs/web/watchside-app/` in this repository and it is produced by
+`npm run build:site`; the repository's own commit message says so, because a
+static site with no build marker invites someone to edit it in place and lose the
+change on the next publish.
+
+### GitHub configuration — confirmed by reading it back
+
+```
+Anoteros-Labs/watchside-app
+  status   built
+  source   main /
+  cname    watchside.app
+  https    not enforced — no certificate yet
+```
+
+### DNS — the boundary
+
+**NOT CONFIGURED.** `watchside.app` resolves to `207.207.210.107` and
+`207.207.210.229`, which are the registrar's parking addresses, and the zone is
+otherwise empty: no `www`, no `TXT`, no `CAA`.
+
+The provider is **Porkbun** (nameservers `*.ns.porkbun.com`). Whether it could be
+automated was tested rather than assumed:
+
+- no `PORKBUN_*` or other DNS-provider variables in the environment;
+- no Porkbun configuration file in the profile;
+- no DNS-provider entry among the stored Windows credentials;
+- no authenticated DNS CLI installed.
+
+So this genuinely stops here. The records are below, and the addresses were read
+from GitHub's own `/meta` endpoint rather than recalled — all eight fall inside
+the ranges GitHub currently publishes for Pages.
+
+**First delete the two parking `A` records** (`207.207.210.107`,
+`207.207.210.229`). Left in place, DNS would round-robin between the parking page
+and GitHub, and the site would work about half the time — which is worse than not
+working, because it looks intermittent rather than unconfigured.
+
+| Type | Host | Value |
+| --- | --- | --- |
+| `A` | `@` | `185.199.108.153` |
+| `A` | `@` | `185.199.109.153` |
+| `A` | `@` | `185.199.110.153` |
+| `A` | `@` | `185.199.111.153` |
+| `AAAA` | `@` | `2606:50c0:8000::153` |
+| `AAAA` | `@` | `2606:50c0:8001::153` |
+| `AAAA` | `@` | `2606:50c0:8002::153` |
+| `AAAA` | `@` | `2606:50c0:8003::153` |
+| `CNAME` | `www` | `anoteros-labs.github.io` |
+
+The `CNAME` target is the **organisation's** Pages host, not the repository —
+that is how GitHub routes a project site's custom domain, and it is not a typo.
+
+### HTTPS
+
+**NOT PROVISIONED**, and blocked only on the above. GitHub's own answer when
+asked to enforce it was *"The certificate does not exist yet"*. Once DNS
+resolves, GitHub issues the certificate on its own; enforcement can then be
+turned on through the same API call, which needs no owner action either.
+
+### Domain ownership verification
+
+**NOT CONFIGURED, and optional.** It prevents another repository claiming the
+domain; nothing needs it to work.
+
+The challenge value is **not exposed by the REST API** — three plausible
+endpoints were tried and all returned 404. It exists only in the organisation's
+Pages settings screen, which issues a `TXT` record named
+`_github-pages-challenge-anoteros-labs`. Its value is generated by GitHub and
+**cannot be written here without inventing it**, which would produce a record
+that fails verification while looking like progress.
+
+If the owner wants it: organisation settings → Pages → Add a domain → enter
+`watchside.app`, add the `TXT` record it shows, press Verify.
+
+### Canonical routing — verified against what is actually served
+
+The domain does not resolve yet, so verification addressed a GitHub Pages edge
+directly with `Host: watchside.app`. That proves GitHub's side end to end without
+waiting for a registrar.
+
+| Route | Status | Content |
+| --- | --- | --- |
+| `/` | 200 | byte-identical to `dist-site/index.html` |
+| `/privacy` | 301 → `/privacy/` | 200 |
+| `/support` | 301 → `/support/` | 200 |
+| `/i/<code>` | 404 | byte-identical to `dist-site/404.html` |
+
+**`/i/<code>` returning a 404 status is the design, not a defect.** A static host
+has no router; GitHub serves `404.html` for unmatched paths, and that file reads
+the code out of its own path. The page renders correctly and the handoff works.
+Making it a 200 would need a page per code, which cannot exist, or a backend,
+which is not worth having for this.
+
+### Referral — proved against the served bytes
+
+The served invite page's script was executed against ten cases:
+
+| Case | Result |
+| --- | --- |
+| `/i/<CODE>` | → `twitch.tv/?kickback_invite=<CODE>` |
+| trailing slash | same |
+| lowercased | same, uppercased |
+| legacy `?c=<CODE>` | same |
+| both present | path wins |
+| malformed | plain 404, no handoff |
+| empty | plain 404 |
+| smuggled absolute URL | plain 404 |
+| path traversal | plain 404 |
+| unrelated query params | code carried, **params not forwarded** |
+
+Both shapes reach the **same** destination, the code is unchanged, and no input
+produces a destination other than a literal `twitch.tv`. Existing codes are not
+re-issued or re-encoded; the database is untouched. Settlement and self-referral
+protections live in `0026` and were not modified, so there is no route to a
+duplicate settlement or a self-referral regression from a URL change.
+
+### Compatibility
+
+Every previously live route still answers, unredirected:
+
+`/watchside/`, `/watchside/support/`, `/watchside/privacy/`,
+`/watchside/invite/`, `/kickback/invite/`, `/kickback/privacy/`,
+`/kickback/support/`, and the org root — all 200. The old invite page still
+carries a code.
+
+Nothing was redirected. The brief allows redirecting compatibility URLs only for
+a concrete proven benefit, and there is none: a redirect would add a hop for
+shipped clients and could not make anything work that does not already.
+
+### Source of truth
+
+One set of sources, two build targets, so the canonical site and the
+compatibility surface cannot drift apart:
+
+```
+docs/web/watchside-app/        sources — shell + pages
+  npm run build:site        -> dist-site/    -> Anoteros-Labs/watchside-app  (watchside.app)
+  npm run build:site:pages  -> dist-pages/   -> anoteros-labs.github.io/watchside/
+docs/PRIVACY.md            -> both privacy pages, generated
+docs/web/pages-watchside/      the subpath bytes, checked in and gated
+```
+
+`publicRouting.test.ts` builds from source and asserts the output;
+`pagesArtifact.test.ts` asserts the checked-in subpath copy still matches its
+build. The canonical tree is not checked in — it is pushed to a repository whose
+commit message states it is generated and where its sources are.
+
+### M5C seam
+
+Unchanged and now demonstrated on the live surface: `/i/<code>` reads the code
+and **nothing else**, and unrelated query parameters are provably not forwarded.
+The whole query string stays free for M5C to define acquisition and campaign
+attribution as separate concepts from friend referral. Nothing speculative was
+added — no cookies, no fingerprinting, no pixels, no third-party requests.
+
+### Store state on the canonical root
+
+Owner-confirmed and unchanged by this task. Chrome 0.6.0 is published and the
+root page links to that real listing; 0.7.0 is pending review. Firefox 0.6.0 is
+submitted and awaiting its first AMO review, 0.7.0 was packaged locally and not
+submitted, and nothing is publicly released there — so the page says a Firefox
+version is built and waiting on Mozilla, with nothing to install yet, and carries
+no `addons.mozilla.org` link anywhere. Asserted by `publicRouting.test.ts`.
+
+### State
+
+| | |
+| --- | --- |
+| CODE READY | ✓ |
+| GITHUB CONFIGURED | ✓ repo, Pages, custom domain, serving verified by `Host` header |
+| DNS CONFIGURED | ✗ — owner, Porkbun, records above |
+| DNS PROPAGATED | ✗ |
+| HTTPS PROVISIONED | ✗ — automatic once DNS resolves |
+| PUBLIC LIVE | ✗ |
+
+**The domain is not live**, and nothing here says otherwise. The extension still
+generates the Pages invite link on purpose; M5E flips `INVITE_LANDING_BASE` and
+the two Support links once the public HTTPS URLs answer.

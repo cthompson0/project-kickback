@@ -381,8 +381,17 @@ No trackers, no cookies, no external requests of any kind. The root page offers
 Chrome, which is genuinely published, and says plainly that Firefox is awaiting
 Mozilla's review rather than implying it is available.
 
-**PREPARED, not LIVE.** DNS, domain verification and HTTPS are external; see
-`docs/web/watchside-app/README.md`. Old Pages URLs keep working untouched.
+**Served by GitHub, not yet reachable at its own name.** The site is published
+to `Anoteros-Labs/watchside-app`, a dedicated project Pages site with
+`watchside.app` as its custom domain — repository, Pages and domain all
+configured through the API. Content is verified correct by addressing a Pages
+edge with a `Host: watchside.app` header.
+
+**DNS is the only thing left**, and it is the owner's: the domain still points at
+Porkbun's parking addresses, and nothing in the environment holds a Porkbun
+credential. HTTPS follows automatically once it resolves. Exact records in
+`docs/web/watchside-app/README.md`. The org site's Pages `cname` is still
+`null`, so every old URL keeps working literally, unredirected.
 
 The same sources also build against the **currently live** Pages subpath
 (`npm run build:site:pages`), and the exact bytes now served are checked in at
