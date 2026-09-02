@@ -78,14 +78,15 @@ Everything Watchside currently exposes to somebody who is not running it:
 | Chrome Web Store listing | live, 0.6.0 | unchanged |
 | AMO listing | not published | unchanged |
 | `anoteros-labs.github.io/watchside/privacy/` | live | unchanged |
-| `anoteros-labs.github.io/watchside/invite/` | **not published** | unchanged; still the extension's link base |
-| `anoteros-labs.github.io/watchside/support/` | **not published** | **built, ready to publish, no DNS needed** |
+| `anoteros-labs.github.io/watchside/invite/` | **live** ¹ | unchanged; still the extension's link base |
+| `anoteros-labs.github.io/watchside/support/` | **live, but thin** ¹ | replacement built, ready to publish, no DNS needed |
 | `watchside.app` | registered, nothing served | **built, PREPARED** |
 | support email | `anoteros.dev@gmail.com` | unchanged, now published on a page |
 
-The honest summary of the "before" column: the only public thing Watchside had
-that a person could read was a privacy policy. Every other route either did not
-exist or was documented as ready-to-copy and never copied.
+¹ **Corrected after M5B GO.** Both rows originally read "not published", taken
+from `docs/web/invite-landing/README.md`, which still says NOT DEPLOYED. Nobody
+had asked the network. Both routes answer 200 and have for some time; the invite
+page's script is byte-identical to the tested repository copy. See §36.
 
 ---
 
@@ -99,7 +100,7 @@ exist or was documented as ready-to-copy and never copied.
 | `watchside.app/i/<code>` | canonical, PREPARED | people, then the extension | — |
 | `…github.io/watchside/invite/?c=<code>` | **live contract** | shipped 0.6.0 + 0.7.0 clients | **yes** |
 | `…github.io/watchside/privacy/` | **live contract** | store listings, shipped clients | **yes** |
-| `…github.io/watchside/support/` | **live contract** | shipped 0.7.0 clients | **yes — and not yet served** |
+| `…github.io/watchside/support/` | **live contract** | shipped 0.7.0 clients | **yes — served, see §36** |
 | `…github.io/kickback/…` | legacy | old links, old listings | **yes** |
 | `twitch.tv/?kickback_invite=<code>` | internal hop | the content script | **yes** |
 
@@ -392,15 +393,15 @@ without the panel:
 - **get in touch** — the email, and a note that the in-product Feedback form is
   faster when it is available because it attaches context for you.
 
-**The defect found here.** The account panel links to
-`…github.io/watchside/support/`, and nothing is served at that path. A shipped
-build would offer a Support link that 404s — worse than no link, because it is
-offered exactly when something is already wrong.
+**What was claimed here, and what is actually true.** This section originally
+said nothing is served at `…github.io/watchside/support/` and that the account
+panel's link 404s. **That was wrong** — the route answers 200. The claim came
+from a repository README rather than from the network. See §36.
 
-The fix needs no domain: `npm run build:site:pages` produces the tree, and
-copying `dist-pages/support/` into the existing Pages repository makes the link
-work as soon as Pages rebuilds. It is owner action 1 in §34, ahead of anything
-about DNS.
+What is true is narrower and still worth fixing: the page that is live covers
+feedback and an email address, and does not cover the panel failing to appear —
+the one case where a page outside the extension is the only thing that can help.
+The replacement above covers all six topics. It is owner action 1 in §34.
 
 ---
 
@@ -735,10 +736,10 @@ Nothing became RELEASED, because main changed and nothing was submitted.
 | --- | --- | --- |
 | **blocker** | Neither released build contains M3D, so it collects nothing from real users | M5D or a release |
 | polish | DNS, verification, HTTPS for `watchside.app` | owner, external |
-| polish | Publish `dist-pages/support/` so the shipped Support link resolves | owner, external, **no DNS needed** |
+| polish | Publish `docs/web/pages-watchside/` so Support covers what it exists for | owner, external, **no DNS needed** |
 | polish | Flip `INVITE_LANDING_BASE` and the Support links to the domain | M5E, after §6–§8 pass |
 | polish | Contrast audit and a screen-reader pass | M5 |
-| polish | Publish the invite landing page — still not deployed since M4.5 | owner, external |
+| ~~polish~~ | ~~Publish the invite landing page~~ — **already live**; see §36 | done |
 
 The M5 blocker is unchanged and is not M5B's to solve: M3D ships in a build, and
 no build was submitted here.
@@ -753,9 +754,15 @@ Chrome 0.7.0 is pending review. Submitting again now would replace a package
 already in the queue with one carrying unrelated changes, restarting the clock on
 a review that is partly through.
 
-Firefox has never been submitted, and the site now states publicly that it is
-waiting on Mozilla — a claim that becomes false the moment it is published, which
-is a reason to sequence the two together rather than a reason to rush.
+Firefox 0.6.0 **has** been submitted and is awaiting its first AMO review;
+nothing is publicly released there yet. 0.7.0 was packaged and tested locally and
+was **not** submitted. The site's copy — built and working, waiting on Mozilla's
+review, nothing to install yet — is accurate for that state and needs no change.
+It becomes false the moment AMO publishes, which is a reason to watch the review
+rather than to submit anything now.
+
+*(Corrected after M5B GO: the terminal summary said "never submitted", which was
+wrong. Owner-confirmed external state is authoritative. See §36.)*
 
 Neither recommendation is CHANGE: nothing in M5B breaks either package, and no
 finding here would fail a review.
@@ -766,21 +773,13 @@ finding here would fail a review.
 
 In order. The first needs nothing external and fixes a link in a shipped build.
 
-**1 — Publish Support (no DNS, do this first).**
+**1 — Publish the Support replacement (no DNS, do this first).** Copy both files
+from `docs/web/pages-watchside/` into the Pages repository under `watchside/`.
+No build step: they are checked in, and a test asserts they still match the build.
+See §36 for why both files go together.
 
-```
-npm run build:site:pages
-```
-
-Copy `dist-pages/support/` into the existing Pages repository at
-`watchside/support/`. The account panel's Support link starts working as soon as
-Pages rebuilds. `dist-pages/index.html` and `dist-pages/privacy/` are also built
-and correctly rebased — copy them only if you want to replace what is at those
-paths today.
-
-**2 — Publish the invite landing page**, still outstanding from M4.5.
-`docs/web/invite-landing/index.html` → `watchside/invite/index.html`. Until this
-exists, every invite link a user copies leads to a 404.
+**2 — ~~Publish the invite landing page~~. Already live** — the route answers 200
+and its script is byte-identical to the tested repository copy. Nothing to do.
 
 **3 — Decide the hosting shape for the domain.** README §1. The recommendation
 is a separate repository, because a `CNAME` on the org Pages repo would rebind
@@ -836,10 +835,200 @@ it is that a check which cannot fail is worse than no check, because it is
 counted as passing. `npm run typecheck` and `requestCoverage.test.ts` now make
 it fail properly, in two independent ways.
 
-**And:** M5B found that a shipped build links to a page nobody serves. That is the second time the gap was not in the code but in
+**And:** M5B reported that a shipped build links to a page nobody serves. That
+turned out to be wrong in the specific — the page is served — but right in the
+general: nobody had checked, and the repository's own README still says NOT
+DEPLOYED about a route that has been live for some time. §36 corrects it. That is the second time the gap was not in the code but in
 something built and never published — the invite landing page has been
 ready-to-copy since before M4.5. Both are one copy operation away from working,
 and both have been silently broken for users the whole time.
 
 **Next: M5E** for the constant flips, once §34 steps 4–7 pass. **M5D** remains
 the blocker that matters, because M3D is still measuring nobody.
+
+---
+
+## 36. Post-GO operational cleanup
+
+Appended after M5B ★ GO at `e9daa0e`. Narrow follow-up: publishability of the
+Pages routes, and a correction to Firefox's external state. M5B itself is not
+reopened.
+
+### The publishing mechanism, and what it means
+
+The Pages site is `Anoteros-Labs/anoteros-labs.github.io`. It is **not** this
+repository (`cthompson0/project-kickback`), not a remote, not a submodule, and
+not present in this workspace. There are no workflows in `.github/`, and this
+repository's own Pages URL, `cthompson0.github.io/project-kickback/`, returns
+404.
+
+So **no, publication cannot be performed through repository changes.** Nothing
+here can write to that repository. What a repository can do is make the copy
+mechanical, reviewable and impossible to get wrong, and that is what was done.
+
+### What was actually live — the correction that matters
+
+M5B asserted both `/watchside/support/` and `/watchside/invite/` were
+unpublished. That came from `docs/web/invite-landing/README.md`, which still
+opens with **NOT DEPLOYED**. Nobody asked the network. Asking it:
+
+| Route | HTTP |
+| --- | --- |
+| `…/watchside/privacy/` | 200 |
+| `…/watchside/support/` | **200** |
+| `…/watchside/invite/` | **200** |
+| `…/watchside/` | **404** |
+| `…/kickback/` | 404 |
+| `anoteros-labs.github.io/` | 200 |
+
+Two claims in M5B were wrong, and §3, §4, §17, §32 and §34 are corrected in
+place. This is the second time in this project that a documented state was
+believed over an observable one — the first cost two real Twitch JOINs. The
+pattern is the same: a plausible written claim, never checked against the thing
+it describes.
+
+**Invite: live, functionally correct, visually stale.** The published page's
+inline script is **byte-identical** to `docs/web/invite-landing/index.html`.
+Referral semantics were never at risk: same 22-character alphabet, same `?c=`
+read, same `twitch.tv/?kickback_invite=` hop.
+
+The palette differs, and getting its direction right took being wrong first. My
+initial reading was that the live page carried the current brand and the
+repository copy was stale, so I synced the repository to the published bytes.
+`brandAssets.test.ts` failed immediately: `#ff8a00`, `#6366f1` and `#0f172a` are
+the **previous Kickback identity**, and the current Watchside brand is the purple
+`#a855f7` / `#6d28d9` the repository already had. The sync was exactly backwards
+and was reverted.
+
+So the live invite page is **painted in the old identity**. Its behaviour is
+right and its branding is a rename behind. That is a smaller problem than a
+broken invite, and it is not urgent, but it is now a known one rather than an
+invisible one.
+
+**And the same defect was in M5B's own public site.** Every page built in M5B —
+the root, support, the 404/invite landing — was painted `#ff8452`, another
+accent from that buried identity. The brand test did not catch it because these
+files did not exist when its surface list was written; a brand test protects the
+surfaces it names and no others. The site is repainted to the current tokens, and
+all six new web surfaces are added to that list. Removing the fix reintroduces
+the failure, confirmed.
+
+**Support: live, but thin.** The published page covers two things — feedback from
+inside Watchside, and an email address. It does not cover the panel failing to
+appear, which is the single case where a page outside the extension is the only
+thing that can help, nor sign-in trouble, stale builds, notification delivery or
+account deletion. The M5B page covers all six.
+
+### What was prepared
+
+`docs/web/pages-watchside/` holds the exact bytes to publish, following the
+convention `docs/web/invite-landing/` already set — publishable files live in the
+repository, so publishing is a copy and not a build.
+
+```
+index.html          ->  watchside/index.html
+support/index.html  ->  watchside/support/index.html
+```
+
+**`index.html` is not optional.** `/watchside/` returns 404 today, and the support
+page's back link and footer both point there. Publishing support alone would ship
+a page whose own navigation is broken.
+
+**`privacy/` is deliberately excluded.** A privacy page is already live at
+`/watchside/privacy/`, generated from the same `docs/PRIVACY.md`. Overwriting a
+live policy page as a side effect of publishing a support page is not a trade
+worth making. `CNAME`, `404.html` and `/i/` remain excluded for the reasons in
+§14.
+
+Existing routes are preserved: nothing here touches `/watchside/privacy/`,
+`/watchside/invite/` or `/kickback/…`, and no DNS change is made.
+
+### The gate this needed
+
+`tests/extension/pagesArtifact.test.ts` (8 tests) asserts the checked-in artifact
+is byte-identical to `npm run build:site:pages`, that every internal link
+resolves within the published set, that no privacy page is tracked in the
+artifact, that it is the URL the account panel actually links to, and that the
+support page still answers all six topics.
+
+The invite landing page is the reason this gate exists. It sat checked in as
+ready-to-copy while the published copy was rebranded, and nothing compared them,
+because nothing could. **A checked-in artifact with no gate is a stale artifact
+that looks current.** Both drift directions were re-introduced by hand to confirm
+the test fails on each; it does.
+
+### Firefox external state, corrected
+
+The M5B terminal summary said "Firefox: WAIT (never submitted)". That was wrong.
+Owner-confirmed and authoritative:
+
+| | |
+| --- | --- |
+| Firefox 0.6.0 | **submitted, awaiting first AMO review** |
+| Firefox 0.7.0 | packaged and tested locally, **not submitted** |
+| Publicly released on Firefox | **nothing** |
+
+Corrected in two places:
+
+- **§33** of this report, which contained the only "never been submitted"
+  sentence in the documentation set;
+- **`docs/FEATURES.md`** release baseline, whose Submitted row read `none` for
+  Firefox. Its Published row already read "0.6.0 pending first AMO review" and
+  was correct.
+
+Nothing else needed changing, and nothing was changed that was accurate when
+written. In particular:
+
+- the site's Firefox copy — *built and working, waiting on Mozilla's review,
+  nothing to install yet* — is **accurate for the corrected state**, and the
+  assertions in `publicRouting.test.ts` still hold;
+- `docs/ROADMAP.md` deliberately says AMO state is "not assumed", which was the
+  right posture and remains true;
+- historical reports describing state at their own time were left alone.
+
+Chrome is unchanged and correct: 0.6.0 published and live, 0.7.0 pending review.
+
+**Recommendations stand: Chrome WAIT, Firefox WAIT for first AMO review.**
+Neither package was uploaded.
+
+### Validation
+
+Content, documentation, one new test file, and a palette correction to static web
+sources. No product source changed — `src/` is untouched — so the mutation suites
+were not re-run. What was run:
+
+| Gate | Result |
+| --- | --- |
+| `pagesArtifact` | 8 passed (both drift directions confirmed to fail it) |
+| `brandAssets` | 14 passed, list extended to the six new web surfaces (confirmed to fail on a repaint) |
+| `publicRouting` | 41 passed |
+| `requestCoverage` | 4 passed |
+| full suite | **2,868 passed / 115 files** |
+| `npm run typecheck` (`tsc -b`) | clean |
+| `npm run lint` | clean |
+
+### The one remaining owner action
+
+Copy the two files from `docs/web/pages-watchside/` into
+`Anoteros-Labs/anoteros-labs.github.io` under `watchside/`:
+
+```
+index.html          ->  watchside/index.html
+support/index.html  ->  watchside/support/index.html
+```
+
+Then:
+
+```
+curl -sI https://anoteros-labs.github.io/watchside/           # expect 200
+curl -sI https://anoteros-labs.github.io/watchside/support/   # expect 200
+```
+
+No build step, no DNS change, nothing else.
+
+The invite route needs nothing **functionally** — it is live and its logic is
+byte-identical to the tested copy. Republishing
+`docs/web/invite-landing/index.html` would additionally bring its branding up to
+date, since the live copy still carries the pre-rename identity. That is
+cosmetic, entirely optional, and deliberately not counted as the remaining
+action.

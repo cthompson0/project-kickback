@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>{{TITLE}}</title>
-    <meta name="description" content="{{DESCRIPTION}}" />
+    <title>Watchside — see where your friends are watching Twitch</title>
+    <meta name="description" content="Watchside is a browser extension that shows which Twitch streams your friends are on, so you can jump in and watch together." />
     <!--
       No analytics, no tracking, no external scripts, no external fonts, no
       cookies. Everything each page needs is in that page. The domain existing
@@ -116,7 +116,62 @@
   </head>
   <body>
     <main>
-{{BODY}}
+      <div class="mark">
+        <svg width="28" height="28" viewBox="0 0 32 32" role="img" aria-label="Watchside">
+          <circle cx="16" cy="16" r="15" fill="none" stroke="#a855f7" stroke-width="2" />
+          <circle cx="16" cy="16" r="5" fill="#a855f7" />
+        </svg>
+        <span class="wordmark">watchside</span>
+      </div>
+
+      <h1>See where your friends are watching Twitch.</h1>
+      <p class="lede">
+        Watchside is a browser extension that shows you which streams your
+        friends are on, so you can jump in and watch together.
+      </p>
+
+      <div class="card">
+        <h2 style="margin-top: 0">How it works</h2>
+        <ul>
+          <li>Add a few friends who also use Watchside.</li>
+          <li>
+            When one of them starts watching someone on Twitch, they appear in
+            your Watchside panel.
+          </li>
+          <li>Press JOIN and you land on that stream, alongside them.</li>
+        </ul>
+        <p class="dim">
+          Watchside sits beside Twitch in a small panel. It does not replace
+          Twitch chat and it does not change how you watch.
+        </p>
+      </div>
+
+      <h2>Get Watchside</h2>
+      <p>
+        <a class="cta" id="install" href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+          >Add to Chrome</a
+        >
+      </p>
+      <p class="dim">
+        Watchside is in a small private beta. A Firefox version is built and
+        working, and is waiting on Mozilla's review before it can be listed —
+        there is nothing to install there yet.
+      </p>
+
+      <h2>Your data</h2>
+      <p>
+        Watchside shows your friends where you are watching, and nothing else.
+        It never reads Twitch chat, never touches other sites, and never sells
+        or shares anything. The
+        <a href="/watchside/privacy">privacy policy</a> says exactly what is kept, for how
+        long, and how to delete it.
+      </p>
+
+      <footer>
+        <a href="/watchside/privacy">Privacy</a>
+        <a href="/watchside/support">Support</a>
+        <span>Watchside is not affiliated with Twitch Interactive, Inc.</span>
+      </footer>
     </main>
   </body>
 </html>

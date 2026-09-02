@@ -183,6 +183,21 @@ describe('the accent is ours, not Twitch’s', () => {
       'src/testlab/testlab.css',
       'docs/web/invite-landing/index.html',
       'scripts/build-privacy-page.mjs',
+      /*
+       * The public site, added after M5B.
+       *
+       * It shipped painted in #ff8452 - an accent from the identity this test
+       * exists to keep buried - and nothing caught it, because these files did
+       * not exist when the list was written. A brand test protects the surfaces
+       * it names and no others, so a new surface is a new entry or it is not
+       * protected at all.
+       */
+      'docs/web/watchside-app/shell.html',
+      'docs/web/watchside-app/pages/index.html',
+      'docs/web/watchside-app/pages/support.html',
+      'docs/web/watchside-app/pages/404.html',
+      'docs/web/pages-watchside/index.html',
+      'docs/web/pages-watchside/support/index.html',
     ]
     // The old accents, their gradient partner, and the navy icon ground.
     for (const stale of ['#ff8a00', '#6366f1', '#0f172a', '#ff8452']) {

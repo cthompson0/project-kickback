@@ -37,27 +37,31 @@ it.
 
 ## Publish Support first — no DNS needed
 
-**Do this one before the domain.** A shipped build already links to
+**Do this one before the domain.** A shipped build links to
 
 ```
 https://anoteros-labs.github.io/watchside/support/
 ```
 
-and nothing is served there yet, so that link is a 404 for anybody who presses
-it. The fix needs no domain, no DNS and no waiting:
+That route **is live** — but the page there covers only feedback and an email
+address. It does not cover the panel failing to appear, which is the one case
+where a page outside the extension is the only thing that can help.
+
+The replacement is checked in, already built, at `docs/web/pages-watchside/`.
+Copy both files into the Pages repository under `watchside/`:
 
 ```
-npm run build:site:pages          # -> dist-pages/, links rewritten to /watchside/
+index.html          ->  watchside/index.html
+support/index.html  ->  watchside/support/index.html
 ```
 
-Copy `dist-pages/support/` into the existing Pages repo at `watchside/support/`.
-That is the whole fix, and the link starts working as soon as Pages rebuilds.
+**Both, not just support.** `/watchside/` returns 404 today and the support
+page's back link and footer point there.
 
-`dist-pages/index.html` and `dist-pages/privacy/` are also built, rebased to the
-subpath. **Copy those only if you want to replace what is at `/watchside/` and
-`/watchside/privacy/` today** — the privacy page is generated from the same
-`docs/PRIVACY.md` the existing one is, so it should be identical, but it is your
-call rather than an automatic overwrite.
+No build step is needed — `tests/extension/pagesArtifact.test.ts` asserts the
+checked-in copies still match `npm run build:site:pages`. `privacy/` is
+deliberately not part of the artifact: one is already live, generated from the
+same policy, and publishing support should not overwrite it.
 
 The subpath build never writes a `CNAME`, a `404.html` or an `/i/` route. A
 `CNAME` there would rebind the entire org site; the other two only work from a

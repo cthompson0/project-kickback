@@ -1,12 +1,24 @@
 # Invite landing page — implementation package
 
-**Status: NOT DEPLOYED.** This is a complete, ready-to-copy implementation for
-the Anoteros Labs GitHub Pages repository, which is **not present in this
-workspace**. Nothing here is live.
+**Status: LIVE** at `https://anoteros-labs.github.io/watchside/invite/`, which is
+the base `INVITE_LANDING_BASE` generates. The invite flow works end to end.
 
-The extension and backend halves of the invite flow are complete and shipped.
-**The only thing preventing invite links from working end to end is that this
-page has not been published.**
+This file is the source of record for the published page, and it is checked in
+because the Pages repository — `Anoteros-Labs/anoteros-labs.github.io` — is not
+this repository and is not present in this workspace.
+
+**This header said NOT DEPLOYED for a long time after it was.** M5B believed it
+and reported the route as unpublished; the network says 200, and the published
+page's inline script is byte-identical to the one below. The lesson is in the
+next paragraph.
+
+**The published copy is a rename behind.** It is still painted in the old
+Kickback identity — `#ff8a00`, `#6366f1`, `#0f172a` — while this file carries the
+current Watchside purple. Behaviour is identical; only the paint differs.
+Republishing this file fixes that. It is cosmetic and not urgent.
+
+`tests/extension/pagesArtifact.test.ts` holds the referral contract, and
+`brandAssets.test.ts` keeps this file on the current identity.
 
 ---
 
