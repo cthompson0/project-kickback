@@ -31,7 +31,16 @@ import { EXPECTED_EXTENSION_ID } from '../../scripts/extension-identity.mjs'
  * not require a packaging run. verify:firefox is the gate that insists.
  */
 
-const PACKAGE = join('dist-firefox', 'package')
+/*
+ * Whichever Firefox package was built last.
+ *
+ * This named `dist-firefox/package` alone, so a run of `npm run package:amo`
+ * - which wipes dist-firefox and unpacks to `package-amo` - left these tests
+ * pointing at a directory that no longer existed. The AMO candidate, the one
+ * artifact that actually gets uploaded, was the one they could never see.
+ */
+const CANDIDATES = [join('dist-firefox', 'package'), join('dist-firefox', 'package-amo')]
+const PACKAGE = CANDIDATES.find((dir) => existsSync(join(dir, 'manifest.json'))) ?? CANDIDATES[0]
 const built = existsSync(join(PACKAGE, 'manifest.json'))
 
 // ============================================ one safety net, not two copies
@@ -165,10 +174,19 @@ describe('the Firefox packager', () => {
 // ================================================ the artifact, when it exists
 
 describe.runIf(built)('the generated Firefox package', () => {
-  const manifest = JSON.parse(readFileSync(join(PACKAGE, 'manifest.json'), 'utf8'))
+  /*
+   * Read inside the suite rather than at module scope.
+   *
+   * `describe.runIf` decides whether the TESTS run; the callback body is
+   * evaluated either way during collection. So these four reads threw ENOENT
+   * on any checkout without a packaging run - which is exactly the case the
+   * skip above was written to handle, and never did.
+   */
+  const read = (file: string) => (built ? readFileSync(join(PACKAGE, file), 'utf8') : '')
+  const manifest = built ? JSON.parse(read('manifest.json')) : {}
   const source = JSON.parse(readFileSync('public/manifest.json', 'utf8'))
-  const background = readFileSync(join(PACKAGE, 'kickback-background.js'), 'utf8')
-  const content = readFileSync(join(PACKAGE, 'kickback-content.js'), 'utf8')
+  const background = read('kickback-background.js')
+  const content = read('kickback-content.js')
 
   it('is exactly what the transform produces, for the origin it was built against', () => {
     /*

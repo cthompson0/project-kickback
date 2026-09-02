@@ -219,7 +219,14 @@ describe('on Chromium', () => {
 // ------------------------------------------------- G, H: the shipped package
 
 describe('the built Firefox package', () => {
-  const PACKAGE = 'dist-firefox/package'
+  /*
+   * Whichever package was built last. This named the development package
+   * only, so after `npm run package:amo` these two skipped silently - and the
+   * package they were declining to check was the AMO upload candidate, whose
+   * data-collection declaration is the thing Mozilla reviews most closely.
+   */
+  const CANDIDATES = ['dist-firefox/package', 'dist-firefox/package-amo']
+  const PACKAGE = CANDIDATES.find((dir) => existsSync(`${dir}/manifest.json`)) ?? CANDIDATES[0]
   const built = existsSync(`${PACKAGE}/manifest.json`)
 
   it.runIf(built)('declares no optional data collection at all', () => {

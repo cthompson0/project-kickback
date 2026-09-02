@@ -18,7 +18,7 @@
  */
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createHash } from 'node:crypto'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { RUNTIME_FILES, FORBIDDEN_PATHS, walk } from './package-shared.mjs'
 import {
   GECKO_DATA_COLLECTION,
@@ -30,8 +30,39 @@ import {
 } from './manifest.mjs'
 import { EXPECTED_EXTENSION_ID } from './extension-identity.mjs'
 
-const PACKAGE = join('dist-firefox', 'package')
+/**
+ * Which package to verify.
+ *
+ *   npm run verify:firefox                     the development package
+ *   npm run verify:firefox -- --amo            the AMO upload candidate
+ *   npm run verify:firefox -- --package=<dir>  any unpacked package
+ *
+ * WHY THIS IS A FLAG AND NOT A CONSTANT
+ *
+ * `npm run package:amo` unpacks to dist-firefox/package-amo, and this script
+ * only ever read dist-firefox/package. So running the verifier after building
+ * an AMO candidate reported PASS - about a completely different archive, built
+ * earlier, from possibly different source. The one artifact nobody could
+ * verify was the only one that gets uploaded.
+ *
+ * The default is unchanged, so every existing invocation means what it did.
+ */
+function packageDir() {
+  const explicit = process.argv.find((a) => a.startsWith('--package='))
+  if (explicit) return explicit.slice('--package='.length)
+  if (process.argv.includes('--amo')) return join('dist-firefox', 'package-amo')
+  if (process.argv.includes('--beta')) return join('dist-firefox', 'package-beta')
+  return join('dist-firefox', 'package')
+}
+
+const PACKAGE = packageDir()
 const CHROMIUM_MANIFEST = join('public', 'manifest.json')
+
+if (!existsSync(PACKAGE)) {
+  console.error(`No unpacked package at ${PACKAGE} - build it first.`)
+  process.exit(1)
+}
+console.log(`Verifying ${PACKAGE}`)
 
 const problems = []
 const notes = []
@@ -282,9 +313,18 @@ function main() {
    */
   note('reproducible: two builds of the same source produce byte-identical archives')
 
-  note('this is a DEVELOPMENT package: unsigned, no AMO source package')
+  /*
+   * This named the development package unconditionally, which is how a
+   * verified AMO candidate came to be described as "a DEVELOPMENT package".
+   */
+  if (PACKAGE.endsWith('package-amo')) {
+    note('this is the AMO UPLOAD CANDIDATE: unsigned until Mozilla signs it')
+    note('it must be uploaded with its source archive - npm run package:source')
+  } else {
+    note('this is a DEVELOPMENT package: unsigned, no AMO source package')
+  }
   note('Firefox sign-in does not work until the redirect URL is registered (F3)')
-  note('run `npx web-ext lint --source-dir dist-firefox/package` for Mozilla\'s own rules')
+  note(`run npx web-ext lint --source-dir ${PACKAGE.split(sep).join("/")} for Mozilla's own rules`)
 
   console.log('')
   for (const message of notes) console.log(`  note: ${message}`)
