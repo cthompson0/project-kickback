@@ -65,3 +65,5 @@ releases
 # sessions - never committed. See scripts/firefox-e2e/seeds.example.json.
 scripts/firefox-e2e/seeds.local.json
 dist-pages
+dist-pages-routing
+dist-pages-artifact

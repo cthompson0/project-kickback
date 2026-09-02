@@ -8,6 +8,70 @@ there — the version in the account panel tells you which build you are running
 
 ---
 
+## 0.8.0 — Easier to start, easier to read, easier to get help
+
+The release for anybody who has ever opened Watchside, seen an empty panel, and
+wondered what they were supposed to do next.
+
+### Getting started actually explains itself
+
+An empty Watchside used to look the same whether you had no friends yet or your
+friends simply were not watching anything. Those are very different situations
+and now they say so.
+
+- The first thing the panel tells you is what Watchside is for — *see where your
+  friends are watching* — before it asks you for anything.
+- **People you may know** suggests friends of your friends, and when it has
+  nobody to suggest it says why rather than showing an empty space.
+- When your friends are online but nothing is on, the panel says the map is
+  quiet instead of looking broken.
+
+### Watchside has a website, and a support page that works when it does not
+
+**watchside.app** — and, more useful, a support page you can reach when the
+panel itself will not open. It covers the panel not appearing on Twitch, sign-in
+trouble, notifications that never arrive, and how to delete your account. There
+is a link to it in the account panel, next to Feedback.
+
+Feedback is still the better route when Watchside is working, because it
+attaches your version and a little context automatically.
+
+### When something goes wrong, it says so in English
+
+Watchside used to show you the raw internal error when something failed —
+messages written for a developer reading a log, not for a person trying to add a
+friend. Every one of those now says what happened in a sentence.
+
+### Easier to read, and easier to use without a mouse
+
+- Text that was too faint to read comfortably is not any more: an offline
+  friend's name, the small headings, and the explanatory lines under settings.
+- The JOIN button, the sign-in button and the unread counts have a little more
+  contrast behind them.
+- The panel now announces itself properly to screen readers, and says which tab
+  you are on rather than showing it only in colour.
+
+### Badges show what there is to earn
+
+The badge shelf used to show only what you had already earned, so there was no
+way to find out what else existed. It now shows the rest too, greyed out. No
+counters, no progress bars, and nothing that nags you to invite people.
+
+### Groups and stream tabs are no longer confusable
+
+A group is something you make and keep. The tab that appears while you are
+watching alongside somebody comes and goes with the stream, and you never make
+it. The Groups screen now says that in one line.
+
+### Smaller things
+
+- Notifications: the toggle now mentions that your browser has to allow them
+  too, which is the usual reason none arrive.
+- Invite links keep working exactly as before, including every link already
+  shared.
+
+---
+
 ## 0.7.0 — Measuring whether any of this works
 
 An unusual release: almost nothing about Watchside looks different. Your

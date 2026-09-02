@@ -359,7 +359,15 @@ describe('the public page tells the truth about availability', () => {
  * extension points, and it does not touch anything that is not Watchside's.
  */
 describe('the subpath build serves the link a shipped extension already carries', () => {
-  const PAGES_OUT = join('dist-pages')
+  /*
+   * Its own output directory, not the shared `dist-pages`.
+   *
+   * pagesArtifact.test.ts builds the same tree, and vitest runs these two files
+   * in parallel workers - so they raced on one directory, and the loser saw a
+   * half-deleted tree and failed to build. Intermittent, and it took until M5E
+   * to surface. A build target is not a shared resource.
+   */
+  const PAGES_OUT = join('dist-pages-routing')
   const SUPPORT_URL = 'https://anoteros-labs.github.io/watchside/support/'
 
   beforeAll(() => {

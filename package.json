@@ -1,7 +1,7 @@
 {
   "name": "kickback",
   "private": true,
-  "version": "0.7.0",
+  "version": "0.8.0",
   "type": "module",
   "scripts": {
     "dev": "vite build --watch --mode development",
@@ -33,6 +33,8 @@
     "package:firefox": "node scripts/package-firefox.mjs",
     "package:firefox-beta": "node scripts/package-firefox.mjs --beta",
     "verify:firefox": "node scripts/verify-firefox.mjs",
+    "verify:released": "node scripts/verify-released-clients.mjs",
+    "verify:candidate": "node scripts/verify-candidate.mjs",
     "verify:firefox:e2e": "node scripts/firefox-e2e/run.mjs",
     "e2e:actors": "node scripts/firefox-e2e/identify-actors.mjs",
     "e2e:proofs": "node scripts/firefox-e2e/mutation-proofs.mjs",

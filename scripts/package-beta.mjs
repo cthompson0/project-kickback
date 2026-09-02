@@ -286,8 +286,8 @@ function report() {
 }
 
 function readmeForTesters(version) {
-  return `KICKBACK - PRIVATE BETA v${version}
-=====================================
+  return `WATCHSIDE - PRIVATE BETA v${version}
+======================================
 
 See who's around on Twitch, what they're watching, and jump in with one click.
 

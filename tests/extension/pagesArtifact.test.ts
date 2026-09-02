@@ -25,7 +25,9 @@ import { beforeAll, describe, expect, it } from 'vitest'
  */
 
 const SOURCE = join('docs', 'web', 'pages-watchside')
-const BUILT = join('dist-pages')
+// Its own directory: publicRouting.test.ts builds the same tree in a parallel
+// worker, and sharing one output raced them into intermittent failure.
+const BUILT = join('dist-pages-artifact')
 
 const normalise = (text: string) => text.replace(/\r\n/g, '\n')
 const read = (...parts: string[]) => normalise(readFileSync(join(...parts), 'utf8'))

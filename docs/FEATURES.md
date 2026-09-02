@@ -23,8 +23,12 @@ how somebody encounters it. Code on `main` is not shipping.
 | --- | --- | --- |
 | Published | **0.7.0 — approved and LIVE** | none |
 | Pending review | **nothing** | **0.6.0 — awaiting its FIRST AMO review** |
-| Packaged, not submitted | — | 0.7.0 |
-| Development HEAD | 0.7.0 + M3D + M5A–M5D (unreleased) | same |
+| Packaged, not submitted | **0.8.0 RC** | 0.7.0, and **0.8.0 RC** |
+| Development HEAD | 0.8.0 = 0.7.0 + M3D + M5A–M5D | same |
+
+**The 0.8.0 release candidate is built and verified** (M5E), and carries M3D,
+M5A, M5B, M5C and M5D — proven by inspecting the packaged bundle, not the
+source. Nothing is uploaded.
 
 Owner-confirmed at M5D and authoritative over anything inferred from repository
 artifacts. **Chrome has nothing in the queue**, which changes the cost of a
@@ -336,7 +340,8 @@ split and an end reason. Disclosed in full in the privacy policy.
 
 ## 20. M3D creator-discovery measurement
 
-**Status:** IMPLEMENTED · **NOT RELEASED** · **Readiness:** **M5E DISTRIBUTION GATE**
+**Status:** IMPLEMENTED · **ACCEPTED IN RC 0.8.0** · not distributed
+**Readiness:** **awaiting Store submission** — live acceptance needs owner credentials
 
 At an eligible socially initiated JOIN, whether the viewer already followed that
 creator. Server-side, privacy-aware, deletion-aware, automatically testable.
@@ -385,7 +390,8 @@ reading the emitter.
 
 ## 23. Public web (watchside.app)
 
-**Status:** IMPLEMENTED · **NOT LIVE** · **Readiness:** **M5E RELEASE GATE** (TLS remains)
+**Status:** IMPLEMENTED · **NOT LIVE** · **Readiness:** **blocked on GitHub TLS**
+— DNS correct, both hosts `is_https_eligible: true`, certificate still not issued
 
 Built in M5B: a root page, `/privacy` generated from `docs/PRIVACY.md`,
 `/support`, and the canonical invite route `/i/<code>` — which works on a static
@@ -426,8 +432,10 @@ Tests: `publicRouting` (41). Build: `npm run build:site`, `npm run build:site:pa
 
 ## 24. Acquisition attribution (campaigns)
 
-**Status:** IMPLEMENTED (main) · **NOT RELEASED**
-**Readiness:** **M5E DISTRIBUTION GATE** — needs a distributed build to collect anything
+**Status:** IMPLEMENTED (main) · **IN RC 0.8.0** · not distributed
+**Readiness:** **awaiting Store submission AND watchside.app TLS** — campaign
+links only exist at `watchside.app/c/`, which has no certificate yet, so M5C
+cannot capture anything even from a distributed build until the domain works
 
 How somebody came to Watchside, kept strictly apart from who invited them.
 Campaign links are `watchside.app/c/<code>`; the code is the only payload, and
@@ -485,8 +493,8 @@ machine can decide is decided.
 | | Count |
 | --- | --- |
 | READY | 19 |
-| M5E RELEASE GATE | 2 |
-| M5E DISTRIBUTION GATE | 2 |
+| IN RC 0.8.0, awaiting submission | 2 |
+| blocked on external TLS | 2 |
 | EXPERIMENTAL | 1 |
 | POST-LAUNCH | 1 |
 | REMOVE / excluded | 1 |
