@@ -115,6 +115,13 @@ const written = [
     description: 'Watchside — see where your friends are watching Twitch.',
     out: join('i', 'index.html'),
   }),
+  /* The bare campaign route, so /c/ resolves rather than falling through. */
+  page({
+    file: '404.html',
+    title: 'Watchside',
+    description: 'Watchside — see where your friends are watching Twitch.',
+    out: join('c', 'index.html'),
+  }),
       ]
     : []),
 ]

@@ -391,10 +391,13 @@ edge with a `Host: watchside.app` header.
 authoritative resolvers, no parking address surviving — and GitHub answers for
 the name with bytes identical to the built tree.
 
-**Waiting on the certificate.** GitHub had not issued one after 34 minutes, with
-no `CAA` record or other blocker found; enforcement is one API call once it
-exists, needing no owner action. Because `.app` is HSTS-preloaded, browsers
-refuse plain HTTP, so **the domain is not usable until then** — it is not live.
+**Waiting on the certificate, with nothing blocking it.** GitHub's own Pages
+health check reports both `watchside.app` and `www.watchside.app` as
+`is_valid: true`, `is_served_by_pages: true`, `caa_error: null` and
+**`is_https_eligible: true`** — so issuance is queued rather than refused.
+Enforcement is one API call once the certificate exists, needing no owner
+action. Because `.app` is HSTS-preloaded, browsers refuse plain HTTP, so **the
+domain is not usable until then** — it is not live.
 The org site's Pages `cname` is still `null`, so every old URL keeps working
 literally, unredirected.
 
@@ -407,13 +410,40 @@ the whole org site.
 
 Tests: `publicRouting` (41). Build: `npm run build:site`, `npm run build:site:pages`.
 
+## 24. Acquisition attribution (campaigns)
+
+**Status:** IMPLEMENTED (main) · **NOT RELEASED**
+**Readiness:** M5 BLOCKER — needs a distributed build to collect anything
+
+How somebody came to Watchside, kept strictly apart from who invited them.
+Campaign links are `watchside.app/c/<code>`; the code is the only payload, and
+what a campaign *means* — its source, its associated creator — resolves
+server-side from `acquisition_campaigns`, so a visitor cannot assert one.
+
+First touch is immutable and is what every report joins on; last touch is kept
+separately. The pre-auth touch is held in the extension's own storage for a
+**7-day window** (PROVISIONAL) and discarded after that, so a stale click cannot
+attribute an unrelated sign-in.
+
+**Coverage limit, stated plainly:** link clicks, Store views and installs are
+unobservable without cross-site tracking, which Watchside does not do. A touch
+becomes a fact only when it binds to an authenticated account.
+
+**Nothing is collected yet.** `watchside_campaign` is read by no released build,
+so campaign measurement begins when a build carrying it ships — which is the
+gate on meaningful marketing spend.
+
+Schema 38. Views: `acquisition_actor_v`, `acquisition_campaign_v`,
+`acquisition_downstream_v`. Tests: `acquisition` (43 db + 47 core), routing (13).
+Minting: `npm run campaign`.
+
 ## Readiness summary
 
 | | Count |
 | --- | --- |
 | READY | 12 |
 | M5 POLISH | 7 |
-| M5 BLOCKER | 1 |
+| M5 BLOCKER | 2 |
 | EXPERIMENTAL | 1 |
 | POST-LAUNCH | 1 |
 | REMOVE / excluded | 1 |

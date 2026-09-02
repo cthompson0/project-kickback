@@ -179,12 +179,25 @@ describe('nothing here can redirect anywhere else', () => {
    * URL can become a destination, so there is no input that turns this into a
    * redirector for somebody else's site.
    */
-  it('builds only a twitch.tv destination, from a literal', () => {
+  it('builds only twitch.tv destinations, all of them from literals', () => {
     const source = readFileSync(join(OUT, '404.html'), 'utf8')
     const script = source.slice(source.indexOf('(function () {'))
+
+    /*
+     * TWO destinations since the campaign route landed, one per arrival kind.
+     * The count is asserted rather than left open: a third would mean a route
+     * was added without anybody revisiting this check, which is exactly when
+     * an open redirect gets in.
+     */
     expect(script).toContain("'https://www.twitch.tv/?kickback_invite='")
-    // The only setAttribute('href') in the script is that one.
-    expect(script.match(/setAttribute\(\s*\n?\s*'href'/g) ?? []).toHaveLength(1)
+    expect(script).toContain("'https://www.twitch.tv/?watchside_campaign='")
+
+    const hrefWrites = script.match(/setAttribute\(\s*\n?\s*'href',[^)]*/g) ?? []
+    expect(hrefWrites).toHaveLength(2)
+    // Every one of them starts from a literal twitch.tv string.
+    for (const write of hrefWrites) {
+      expect(write).toContain("'https://www.twitch.tv/?")
+    }
   })
 
   it('never reads a destination out of the URL', () => {
@@ -400,5 +413,124 @@ describe('the subpath build serves the link a shipped extension already carries'
     const html = readFileSync(join(PAGES_OUT, 'privacy', 'index.html'), 'utf8')
     expect(html).toContain('/watchside/')
     expect(html).not.toContain('href="/privacy"')
+  })
+})
+
+/**
+ * The campaign route, which shares a file with the invite route and must never
+ * share a meaning with it.
+ *
+ * `/i/<code>` says a friend invited you. `/c/<code>` says a campaign brought
+ * you. Both are served by 404.html because a static host has no router, so the
+ * one file has to decide which of two facts it is looking at - and getting that
+ * wrong would not raise an error, it would silently record the wrong kind of
+ * arrival.
+ */
+describe('the campaign route is separate from the referral route', () => {
+  const CAMPAIGN = 'lirik-oct'
+
+  /** The site's own script, run the way a browser would, for a campaign URL. */
+  function resolveCampaign(url: string): { href: string | null; headline: string } {
+    const source = readFileSync(join(OUT, '404.html'), 'utf8')
+    const script = source.slice(source.indexOf('(function () {'), source.lastIndexOf('})()') + 4)
+    const parsed = new URL(url)
+    const captured: Record<string, { href?: string; text?: string }> = {}
+    const element = (id: string) => {
+      captured[id] ??= {}
+      return {
+        set textContent(value: string) {
+          captured[id].text = value
+        },
+        set hidden(_value: boolean) {},
+        setAttribute(name: string, value: string) {
+          if (name === 'href') captured[id].href = value
+        },
+      }
+    }
+    new Function(
+      'window',
+      'document',
+      'URLSearchParams',
+      'decodeURIComponent',
+      'encodeURIComponent',
+      script,
+    )(
+      { location: { pathname: parsed.pathname, search: parsed.search } },
+      { getElementById: element },
+      URLSearchParams,
+      decodeURIComponent,
+      encodeURIComponent,
+    )
+    return { href: captured.continue?.href ?? null, headline: captured.headline?.text ?? '' }
+  }
+
+  it('serves a bare /c/ rather than falling through', () => {
+    expect(existsSync(join(OUT, 'c', 'index.html'))).toBe(true)
+  })
+
+  it('carries a campaign code to Twitch under its own parameter', () => {
+    expect(resolveCampaign(`https://watchside.app/c/${CAMPAIGN}`).href).toBe(
+      `https://www.twitch.tv/?watchside_campaign=${CAMPAIGN}`,
+    )
+  })
+
+  it('accepts a trailing slash and any capitalisation', () => {
+    for (const url of [
+      `https://watchside.app/c/${CAMPAIGN}/`,
+      `https://watchside.app/c/${CAMPAIGN.toUpperCase()}`,
+    ]) {
+      expect(resolveCampaign(url).href).toBe(
+        `https://www.twitch.tv/?watchside_campaign=${CAMPAIGN}`,
+      )
+    }
+  })
+
+  it('never sets the referral parameter on a campaign arrival', () => {
+    // The failure this prevents is silent: a campaign visitor recorded as
+    // having been invited by somebody, which is not true and cannot be undone.
+    expect(resolveCampaign(`https://watchside.app/c/${CAMPAIGN}`).href).not.toContain(
+      'kickback_invite',
+    )
+  })
+
+  it('never sets the campaign parameter on a referral arrival', () => {
+    expect(resolveInvite(`https://watchside.app/i/${CODE}`)).not.toContain('watchside_campaign')
+  })
+
+  it('does not tell a campaign visitor that a friend invited them', () => {
+    // They were not invited by anybody they know, and saying so on the first
+    // screen would be a small lie in the one place it is most visible.
+    const { headline } = resolveCampaign(`https://watchside.app/c/${CAMPAIGN}`)
+    expect(headline.toLowerCase()).not.toContain('friend invited you')
+    expect(headline.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    ['a malformed code', 'https://watchside.app/c/NOT A CODE'],
+    ['a traversal', 'https://watchside.app/c/..%2F..%2Fevil'],
+    ['a smuggled absolute URL', 'https://watchside.app/c/https%3A%2F%2Fevil.example.com'],
+    ['the bare route', 'https://watchside.app/c/'],
+  ])('leaves the page a plain 404 for %s', (_label, url) => {
+    expect(resolveCampaign(url).href).toBeNull()
+  })
+
+  it('ignores a source somebody appended to the URL', () => {
+    /*
+     * The whole reason a campaign link carries a code and nothing else. A
+     * visitor writing `?source=official_twitch_partnership` changes nothing,
+     * because there is no source in the URL for anything to read.
+     */
+    const forged = resolveCampaign(
+      `https://watchside.app/c/${CAMPAIGN}?source=official_twitch_partnership&utm_medium=paid`,
+    )
+    expect(forged.href).toBe(`https://www.twitch.tv/?watchside_campaign=${CAMPAIGN}`)
+    expect(forged.href).not.toContain('source=official')
+    expect(forged.href).not.toContain('utm_')
+  })
+
+  it('still loads nothing from anywhere else', () => {
+    // The campaign route added script; it must not have added a request.
+    const html = readFileSync(join(OUT, '404.html'), 'utf8')
+    expect(html).not.toMatch(/https?:\/\/(?!www\.twitch\.tv|chromewebstore)/)
   })
 })

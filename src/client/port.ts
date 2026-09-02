@@ -1,4 +1,5 @@
 import { INITIAL_STATE } from './types'
+import type { BindOutcome } from '../core/acquisition'
 import type {
   EmoteSection,
   KickbackClient,
@@ -222,6 +223,7 @@ export function createPortClient(): KickbackClient {
       send(lastActivity)
     },
     reportInvite: (code) => send({ type: 'invite', code }),
+    reportCampaign: (code) => send({ type: 'campaign', code }),
     sendReaction: (reaction, channel) => send({ type: 'reaction', reaction, channel }),
     sendRoomMessage: (body, channel) => send({ type: 'roomMessage', body, channel }),
     selectSession: (channel) => send({ type: 'selectSession', channel }),
@@ -282,6 +284,7 @@ export function createPortClient(): KickbackClient {
     suggestFriends: () => rpc<FriendSuggestion[]>('suggestFriends'),
     inviteCode: () => rpc<string>('inviteCode'),
     claimInvite: (code) => rpc<string>('claimInvite', code),
+    bindAcquisition: (code) => rpc<BindOutcome>('bindAcquisition', code),
     referralSummary: () => rpc<{ successful: number; pending: number }>('referralSummary'),
     badges: () => rpc<EarnedBadge[]>('badges'),
     badgeCatalog: () => rpc<BadgeDefinition[]>('badgeCatalog'),

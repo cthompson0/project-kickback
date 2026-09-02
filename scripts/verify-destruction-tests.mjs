@@ -57,6 +57,10 @@ const ROUTING_SUITE = 'tests/extension/publicRouting.test.ts'
 const INVITES = 'src/core/invites.ts'
 const SHELF = 'src/ui/components/BadgeShelf.tsx'
 const COMPREHENSION_SUITE = 'tests/dom/productComprehension.test.tsx'
+const ACQUISITION = 'src/core/acquisition.ts'
+const ACQ_MIGRATION = 'supabase/migrations/0038_acquisition_attribution.sql'
+const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
+const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
 
 const EVENTSUB_SUITE = 'tests/extension/eventsubVerification.test.ts'
 const DB_SUITE = 'tests/db/destructionPaths.test.ts'
@@ -822,6 +826,151 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: 'await area.set({ [key]: stripProviderCredentials(value) })',
     to: 'await area.set({ [key]: value })',
     expect: 'strips both when a real sign-in carries both',
+  },
+  // ---------------------------------------------------------- M5C acquisition
+  //
+  // The attribution semantics that are worth a mutation are the ones whose
+  // failure is INVISIBLE: the row still exists, the number still renders, and
+  // only the meaning is wrong. Cosmetic campaign copy is not mutated.
+  {
+    // First touch becomes overwriteable, so the last link clicked wins. Every
+    // report then agrees that whichever campaign was posted most recently
+    // performs best, which is the classic way this analysis goes wrong.
+    name: 'acquisition: let a later touch overwrite where somebody came from',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: `  if new.first_campaign_code is distinct from old.first_campaign_code
+     or new.first_touch_at is distinct from old.first_touch_at then`,
+    to: '  if false then',
+    expect: 'refuses an UPDATE that would rewrite the origin',
+  },
+  {
+    // The client-side rule that decides which pre-auth touch survives. Without
+    // it the newest touch wins before the server ever sees one, so the server's
+    // immutable column faithfully records the wrong campaign.
+    name: 'acquisition: prefer the newest pre-auth touch over the first',
+    file: ACQUISITION,
+    suite: ACQ_SUITE,
+    from: '  if (!isWithinAttributionWindow(held.capturedAt, now)) return arriving\n  return held',
+    to: '  return arriving',
+    expect: 'keeps the first one when a second arrives inside the window',
+  },
+  {
+    // An expired touch binds anyway. A code left in storage for two months
+    // would attribute a completely unrelated later sign-in to a campaign that
+    // had nothing to do with it.
+    name: 'acquisition: bind a touch that has aged out of the window',
+    file: ACQUISITION,
+    suite: ACQ_SUITE,
+    from: '  return isWithinAttributionWindow(held.capturedAt, now)\n}',
+    to: '  return true\n}',
+    expect: 'refuses an expired touch',
+  },
+  {
+    // The boundary moves. Chosen because a window that quietly widened would
+    // never fail anything else - it would simply attribute more, and look like
+    // the campaigns got better.
+    name: 'acquisition: widen the attribution window to thirty days',
+    file: ACQUISITION,
+    suite: ACQ_SUITE,
+    from: 'export const ATTRIBUTION_WINDOW_MS = 7 * 24 * 60 * 60 * 1000',
+    to: 'export const ATTRIBUTION_WINDOW_MS = 30 * 24 * 60 * 60 * 1000',
+    expect: 'is seven days, deliberately and not by accident',
+  },
+  {
+    // Storage stops being treated as untrusted input, so a hand-edited or
+    // older-build value becomes an attribution.
+    name: 'acquisition: trust whatever code is sitting in storage',
+    file: ACQUISITION,
+    suite: ACQ_SUITE,
+    from: '  if (!isCampaignCode(held.code)) return false',
+    to: '',
+    expect: 'refuses a malformed code that reached storage somehow',
+  },
+  {
+    // An unresolvable campaign starts writing a row. This is how arbitrary
+    // client-supplied text ends up in a table that is later read as if the
+    // server had agreed to it.
+    name: 'acquisition: accept a campaign the registry has never heard of',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: "  if v_source is null then\n    return 'unknown';\n  end if;",
+    to: "  if v_source is null then\n    v_source := 'other';\n  end if;",
+    expect: 'refuses a campaign that does not exist, and writes nothing at all',
+  },
+  {
+    // A retired campaign keeps accepting new attribution, so disabling a bad
+    // link does nothing at all.
+    name: 'acquisition: keep binding to a campaign that was retired',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: "  if not v_active then\n    return 'inactive';\n  end if;",
+    to: '  if false then\n    return \'inactive\';\n  end if;',
+    expect: 'refuses an inactive campaign without destroying its history',
+  },
+  {
+    // A campaign's source becomes editable. Historical `acquisition_attributed`
+    // events carry source, so editing one row would silently rewrite what every
+    // past event meant - and nothing would look wrong.
+    name: 'acquisition: let a campaign’s source be edited after the fact',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: '  if new.source is distinct from old.source then',
+    to: '  if false then',
+    expect: 'will not let a campaign’s source change under its history',
+  },
+  {
+    // Internal actors stop being excluded. The owner and the test accounts
+    // click their own campaign links constantly; a campaign that looks like it
+    // acquired four people when three were us is worse than no number.
+    name: 'acquisition: count internal actors in campaign metrics',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: '  join public.analytics_actors aa on aa.user_id = a.actor_id\n  where not aa.is_internal',
+    to: '  join public.analytics_actors aa on aa.user_id = a.actor_id\n  where true',
+    expect: 'excludes internal actors, who click their own links constantly',
+  },
+  {
+    // Small-cohort suppression disappears, so a two-person campaign reports a
+    // 50% rate that is really one individual's behaviour with a percent sign.
+    name: 'acquisition: report rates for a cohort of two',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: '  case when x.acquired_actors >= 3\n       then round(x.connected_actors::numeric / x.acquired_actors, 3) end',
+    to: '  round(x.connected_actors::numeric / x.acquired_actors, 3)',
+    expect: 'suppresses rates below the threshold, as NULL rather than zero',
+  },
+  {
+    // The invitee gets stamped with the inviter's campaign. This is the
+    // recursive-attribution mistake: Bob did not come from Alice's streamer
+    // campaign, he came from Alice.
+    name: 'acquisition: attribute an invitee to the inviter’s campaign',
+    file: ACQ_MIGRATION,
+    suite: ACQ_DB_SUITE,
+    from: 'left join public.acquisition_attribution b on b.actor_id = r.invitee_id',
+    to: 'left join public.acquisition_attribution b on b.actor_id = a.actor_id',
+    expect: 'links a campaign to the people its acquired user brought',
+  },
+  {
+    // The campaign route starts writing the referral parameter, so a campaign
+    // visitor is recorded as having been invited by somebody. Silent, and not
+    // undoable.
+    name: 'acquisition: send a campaign arrival as a friend referral',
+    file: SITE_404,
+    suite: ROUTING_SUITE,
+    from: "'https://www.twitch.tv/?watchside_campaign=' + encodeURIComponent(campaign),",
+    to: "'https://www.twitch.tv/?kickback_invite=' + encodeURIComponent(campaign),",
+    expect: 'never sets the referral parameter on a campaign arrival',
+  },
+  {
+    // The campaign route stops requiring its own prefix and takes any trailing
+    // segment, attributing people to campaigns off channel names.
+    name: 'acquisition: read a campaign code from any trailing path segment',
+    file: ACQUISITION,
+    suite: ACQ_SUITE,
+    from: "  const match = /\\/c\\/([^/?#]+)\\/?$/.exec(withoutQuery)",
+    to: "  const match = /\\/([^/?#]+)\\/?$/.exec(withoutQuery)",
+    expect: 'refuses a trailing segment that is not under /c/',
   },
 ]
 

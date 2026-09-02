@@ -420,6 +420,22 @@ export interface AnalyticsEventMap {
   referral_succeeded: Record<string, never>
   badge_awarded: { badge_key: string }
   badge_displayed: { badge_key: string }
+
+  /*
+   * ACQUISITION.
+   *
+   * How somebody came to Watchside, which is a different question from who
+   * invited them. Emitted by the SERVER inside bind_acquisition, never by a
+   * client - the client offers a code and learns an outcome; it is in no
+   * position to assert what that code meant.
+   *
+   * `source` is a closed vocabulary and is safe to carry here because a
+   * campaign's source is immutable once minted (0038). `touch` distinguishes
+   * the arrival that defined the account's origin from every later click. The
+   * campaign CODE is deliberately absent: it lives on the durable row, and an
+   * event stream is not where campaign identity should be joined from.
+   */
+  acquisition_attributed: { source: AcquisitionSource; touch: 'first' | 'repeat' }
 }
 
 export type AnalyticsEventName = keyof AnalyticsEventMap
@@ -499,6 +515,26 @@ export type DestinationCountBucket = 'none' | 'one' | 'two' | 'three'
  * buckets answers and a long tail of exact numbers does not.
  */
 export type MutualBucket = 'one' | 'two_to_three' | 'four_plus'
+
+/**
+ * The channel a campaign belongs to. Closed, and it mirrors the check
+ * constraint in 0038 rather than restating an idea of it.
+ *
+ * A free-text source becomes 'tiktok', 'TikTok' and 'tik-tok' within a month,
+ * and every report then quietly undercounts. Widening the list is a migration
+ * and a line here, together.
+ */
+export type AcquisitionSource =
+  | 'tiktok'
+  | 'x'
+  | 'youtube'
+  | 'twitch'
+  | 'creator'
+  | 'discord'
+  | 'reddit'
+  | 'press'
+  | 'direct'
+  | 'other'
 
 /** How an invite link left the panel. */
 export type InviteShareMethod = 'copy' | 'share_sheet'
@@ -617,6 +653,7 @@ export const EVENT_PROPERTIES: Record<AnalyticsEventName, readonly string[]> = {
   invite_link_shared: ['method'],
   invite_claimed: ['outcome'],
   referral_succeeded: [],
+  acquisition_attributed: ['source', 'touch'],
   badge_awarded: ['badge_key'],
   badge_displayed: ['badge_key'],
 }
@@ -758,6 +795,12 @@ export const EVENT_DATA_CATEGORY: Record<AnalyticsEventName, MozillaDataCategory
   invite_link_shared: 'websiteActivity',
   invite_claimed: 'websiteActivity',
   referral_succeeded: 'websiteActivity',
+  /*
+   * How an account arrived. Website activity rather than technical data: it
+   * describes an interaction with Watchside, and it carries no device or
+   * environment signal at all.
+   */
+  acquisition_attributed: 'websiteActivity',
   badge_awarded: 'websiteActivity',
   badge_displayed: 'websiteActivity',
 

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js'
+import type { BindOutcome } from '../core/acquisition'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AuthBackend, BackendResult, SessionLike } from './auth'
 import type { FriendsBackend } from './friends'
@@ -997,6 +998,30 @@ export async function myInviteCode(
  * thing rather than an error: `already` means this account was referred once
  * before, which is the rule, not a failure.
  */
+/**
+ * Bind a campaign touch to the signed-in account.
+ *
+ * Sends the CODE and nothing else. There is no parameter for a source, a
+ * creator or an actor - the server resolves all of it from the registry, which
+ * is what makes the answer authoritative rather than a client's claim about
+ * itself. See 0038.
+ */
+export async function bindAcquisition(
+  supabase: SupabaseClient,
+  code: string,
+): Promise<{ value: BindOutcome | null; error?: string }> {
+  try {
+    const { data, error } = await supabase.rpc('bind_acquisition', { p_code: code })
+    if (error) return { value: null, error: describe(error) }
+    const outcome = typeof data === 'string' ? data : String(data ?? '')
+    // Never invent an outcome: anything the server did not say is 'unknown'.
+    const known: BindOutcome[] = ['first', 'repeat', 'unknown', 'inactive']
+    return { value: known.includes(outcome as BindOutcome) ? (outcome as BindOutcome) : 'unknown' }
+  } catch (error) {
+    return { value: null, error: describe(error) }
+  }
+}
+
 export async function claimInvite(
   supabase: SupabaseClient,
   code: string,

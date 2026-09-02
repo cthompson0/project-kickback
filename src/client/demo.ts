@@ -317,9 +317,12 @@ export function createDemoClient(): KickbackClient {
   // The growth loop is a live-backend feature; the demo and the lab render the
   // panel without one, so these resolve empty rather than pretending.
   reportInvite: () => {},
+  // No backend here, so a campaign touch has nowhere to bind.
+  reportCampaign: () => {},
   suggestFriends: async () => [],
   inviteCode: async () => '0123456789ABCDEFGHJKMN',
   claimInvite: async () => 'unknown',
+  bindAcquisition: async () => 'unknown' as const,
   referralSummary: async () => ({ successful: 0, pending: 0 }),
   badges: async () => [],
   badgeCatalog: async () => [],

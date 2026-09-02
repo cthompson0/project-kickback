@@ -101,6 +101,7 @@ import {
   createSupabasePresenceBackend,
   listFriendDestinations,
   listDisplayedBadges,
+  bindAcquisition,
   claimInvite,
   badgeCatalog,
   myBadges,
@@ -111,6 +112,12 @@ import {
   setPresenceVisibility,
 } from './supabaseBackend'
 import { createExtensionStorage } from './storage'
+import {
+  normalizeCampaignCode,
+  nextPendingTouch,
+  touchIsBindable,
+  type PendingCampaignTouch,
+} from '../core/acquisition'
 import { PORT_NAME } from '../client/messages'
 import type { ClientMessage, RpcMethod, WorkerMessage } from '../client/messages'
 import type { KickbackState } from '../client/types'
@@ -889,6 +896,138 @@ function claimInviteAfterSignIn(): void {
   void claimPendingInvite(code)
 }
 
+// --------------------------------------------------------------- acquisition
+
+/**
+ * The campaign touch this browser saw, before there was an account to bind it
+ * to.
+ *
+ * PERSISTED, WHERE THE INVITE CODE IS NOT, and the difference is deliberate.
+ * An invite arrives on Twitch moments before a sign-in that the link itself was
+ * pushing towards, so worker memory covers the gap. A campaign touch has to
+ * survive a completely different journey: see a streamer mention Watchside,
+ * install, then sign in whenever you next happen to open Twitch. Holding that
+ * in memory would mean a service worker suspension - which happens in minutes -
+ * silently dropped the acquisition, and every campaign would under-report by
+ * however often Chrome felt like recycling the worker.
+ *
+ * WHAT IS STORED IS ONE OPAQUE CAMPAIGN SLUG AND A TIMESTAMP. Not a URL, not a
+ * referrer, not an identifier for the person - the extension's own storage,
+ * about its own install, holding a string that names a campaign and says
+ * nothing about who is reading it. It is deleted the moment it binds or
+ * expires.
+ */
+const CAMPAIGN_TOUCH_KEY = 'watchside:campaignTouch'
+
+let pendingCampaign: PendingCampaignTouch | null = null
+
+/** Read the held touch back, discarding anything malformed or expired. */
+async function loadCampaignTouch(): Promise<void> {
+  try {
+    const stored = await ext.storage.get(CAMPAIGN_TOUCH_KEY)
+    const value = stored?.[CAMPAIGN_TOUCH_KEY]
+    if (!value || typeof value !== 'object') return
+
+    const { code, capturedAt } = value as Record<string, unknown>
+    if (typeof code !== 'string' || typeof capturedAt !== 'number') return
+
+    const touch = { code, capturedAt }
+    // Expiry is checked on the way IN as well as on the way out, so a touch
+    // that aged out while the browser was closed never reaches the rest of the
+    // worker in the first place.
+    if (!touchIsBindable(touch, Date.now())) {
+      void ext.storage.remove(CAMPAIGN_TOUCH_KEY)
+      return
+    }
+    pendingCampaign = touch
+  } catch {
+    // A touch we cannot read is a touch we do not have. Never fatal.
+  }
+}
+
+/**
+ * A campaign code seen on Twitch.
+ *
+ * FIRST TOUCH WINS while both are still pre-auth: a held, unexpired touch is
+ * not replaced by a newer one. Somebody acquired by a streamer who later clicks
+ * a TikTok link was acquired by the streamer, and overwriting would make every
+ * report agree that whichever link was posted most recently works best.
+ */
+async function noteCampaignTouch(raw: string): Promise<void> {
+  const code = normalizeCampaignCode(raw)
+  if (!code) return
+
+  const now = Date.now()
+  const next = nextPendingTouch(pendingCampaign, { code, capturedAt: now }, now)
+  if (
+    pendingCampaign &&
+    next.code === pendingCampaign.code &&
+    next.capturedAt === pendingCampaign.capturedAt
+  ) {
+    // The held touch stands. Nothing to write, and nothing to bind that is not
+    // already waiting.
+    if (authState.status === 'signed_in') void bindPendingCampaign()
+    return
+  }
+
+  pendingCampaign = next
+  try {
+    await ext.storage.set({ [CAMPAIGN_TOUCH_KEY]: next })
+  } catch {
+    // Memory still holds it for this worker's life; that is a smaller loss than
+    // failing the visit over a storage error.
+  }
+  if (authState.status === 'signed_in') void bindPendingCampaign()
+}
+
+/**
+ * Offer the held touch to the server, if it is still eligible.
+ *
+ * The window is enforced HERE rather than in SQL, because the server cannot
+ * know when a link was clicked - only when a bind arrived. An age passed to it
+ * would be a client assertion wearing a server check's clothes. Every outcome
+ * is ordinary, and none of them retries: a touch that reached the server has
+ * been decided on, whatever it decided.
+ */
+async function bindPendingCampaign(): Promise<void> {
+  if (authState.status !== 'signed_in') return
+  const touch = pendingCampaign
+  if (!touchIsBindable(touch, Date.now())) {
+    if (touch) await forgetCampaignTouch()
+    return
+  }
+
+  const result = await bindAcquisition(supabase, touch.code)
+  if (result.error) {
+    // Kept for a later attempt - a network failure is not an answer, and the
+    // window is what stops that becoming forever.
+    logError('acquisition.bind', result.error)
+    return
+  }
+
+  /*
+   * Bound, or refused for a reason a retry cannot change. Either way the touch
+   * has done its job and is deleted: 'first' and 'repeat' are recorded
+   * server-side, 'unknown' and 'inactive' never will be.
+   *
+   * The analytics event is emitted by the server inside bind_acquisition, so
+   * nothing is tracked here - a client asserting what a campaign meant is
+   * exactly the thing the design refuses.
+   */
+  await forgetCampaignTouch()
+}
+
+async function forgetCampaignTouch(): Promise<void> {
+  pendingCampaign = null
+  try {
+    await ext.storage.remove(CAMPAIGN_TOUCH_KEY)
+  } catch {
+    // Storage that will not forget is not worth failing a sign-in over; the
+    // window expires it regardless.
+  }
+}
+
+
 /**
  * The badge the user chose to show, and how many referrals have landed.
  *
@@ -1376,6 +1515,8 @@ async function loadChannelNames(): Promise<void> {
 }
 
 void loadChannelNames()
+// A campaign touch outlives the worker on purpose; read it back at startup.
+void loadCampaignTouch()
 
 function pushActivity(): void {
   // The emote catalog follows the channel even when signed out - it costs
@@ -1638,6 +1779,7 @@ auth.subscribe((next) => {
      * costs one no-op call.
      */
     claimInviteAfterSignIn()
+    void bindPendingCampaign()
     void refreshBadges()
   } else {
     socialSync.stop()
@@ -1992,6 +2134,22 @@ const RPC_HANDLERS: Record<RpcMethod, (args: unknown[]) => Promise<unknown>> = {
     return result.value
   },
 
+  /*
+   * Bind a campaign touch on demand.
+   *
+   * The worker binds automatically at sign-in; this exists so the same path is
+   * reachable deterministically from a test and from the Test Lab without
+   * simulating a whole authentication.
+   */
+  bindAcquisition: async ([code]) => {
+    const result = await bindAcquisition(supabase, String(code ?? ''))
+    if (result.error) {
+      logError('acquisition.bind', result.error)
+      return 'unknown'
+    }
+    return result.value ?? 'unknown'
+  },
+
   claimInvite: async ([code]) => {
     const outcome = await claimPendingInvite(String(code ?? ''))
     return outcome
@@ -2129,6 +2287,17 @@ ext.runtime.onConnect((port) => {
          * Possession grants nothing - see src/core/invites.ts.
          */
         if (typeof raw.code === 'string') void claimPendingInvite(raw.code)
+        break
+      }
+      case 'campaign': {
+        /*
+         * A campaign code seen in a Twitch URL, from a /c/<code> landing page.
+         *
+         * Separate from the invite in every direction: different parameter,
+         * different message, different storage, different table. A campaign
+         * names a campaign; the server decides what that campaign is.
+         */
+        if (typeof raw.code === 'string') void noteCampaignTouch(raw.code)
         break
       }
       case 'reaction':

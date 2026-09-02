@@ -518,9 +518,12 @@ export function createTestLabClient(deps: TestLabDeps): TestLabHandle {
     // The growth loop needs a live backend; the lab has none, so these resolve
     // empty rather than pretending to a social graph the lab does not model.
     reportInvite: () => {},
+    // No backend here, so a campaign touch has nowhere to bind.
+    reportCampaign: () => {},
     suggestFriends: async () => [],
     inviteCode: async () => '0123456789ABCDEFGHJKMN',
     claimInvite: async () => 'unknown',
+    bindAcquisition: async () => 'unknown' as const,
     referralSummary: async () => ({ successful: 0, pending: 0 }),
     badges: async () => [],
     // The lab awards nothing, so it lists nothing to earn either. Returning the

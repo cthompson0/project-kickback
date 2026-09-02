@@ -9,6 +9,7 @@ import { watchChannel, watchTitle } from '../platforms/twitch/navigation'
 import { getCurrentChannel } from '../platforms/twitch/channels'
 import { channelNameFromTitle } from '../core/channelNames'
 import { codeFromUrl } from '../core/invites'
+import { campaignFromUrl } from '../core/acquisition'
 import panelStyles from '../ui/kickback.css?inline'
 
 /**
@@ -93,6 +94,7 @@ async function mount(): Promise<void> {
 
   reportActivity(client)
   reportInvite(client)
+  reportCampaign(client)
   keepAttached(host)
   hideDuringFullscreen(host)
 }
@@ -110,6 +112,23 @@ async function mount(): Promise<void> {
 function reportInvite(client: KickbackClient): void {
   const code = codeFromUrl(window.location.href)
   if (code) client.reportInvite(code)
+}
+
+/**
+ * The campaign that brought them, if a campaign link did.
+ *
+ * The same hop as the invite and for the same reason - a content script on
+ * watchside.app would need a host permission for one string - but a SEPARATE
+ * parameter, because a campaign and a friend's invite are different facts and a
+ * visitor can arrive carrying either. Reading both means neither can be
+ * mistaken for the other.
+ *
+ * A campaign code grants nothing server-side: it names a campaign, and the
+ * server decides what that campaign is.
+ */
+function reportCampaign(client: KickbackClient): void {
+  const code = campaignFromUrl(window.location.href)
+  if (code) client.reportCampaign(code)
 }
 
 /**

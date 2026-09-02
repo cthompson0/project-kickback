@@ -49,6 +49,7 @@ export type RpcMethod =
   | 'suggestFriends'
   | 'inviteCode'
   | 'claimInvite'
+  | 'bindAcquisition'
   | 'referralSummary'
   | 'badges'
   | 'badgeCatalog'
@@ -168,6 +169,15 @@ export type ClientMessage =
    * to attribute it to, which may be after a sign-in that has not happened yet.
    */
   | { type: 'invite'; code: string }
+
+  /**
+   * A campaign code seen in a Twitch URL.
+   *
+   * Same one-way shape as the invite and a separate message for the same reason
+   * the parameter is separate: a campaign touch and a friend's invite are
+   * different facts, and one arriving must never look like the other.
+   */
+  | { type: 'campaign'; code: string }
   | { type: 'rpc'; callId: number; method: RpcMethod; args: unknown[] }
 
 /** Worker -> tab. */

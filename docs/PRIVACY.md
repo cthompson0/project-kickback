@@ -182,6 +182,45 @@ built so that it *cannot* carry personal content:
 - Events are labelled with the build they came from, so beta data can be
   deleted separately from anything else.
 
+### How you found Watchside
+
+**If you arrive through a campaign link, Watchside records which campaign it
+was.** A campaign link looks like `watchside.app/c/lirik-oct` — the last part
+is a short code naming a campaign, which might be a post on TikTok or X, or a
+mention by a particular streamer.
+
+Here is exactly what happens and what is kept:
+
+- The link carries **one short code and nothing else**. It does not contain
+  anything about you, and it is the same link for everybody who sees it.
+- The code is held **on your own device** until you sign in to Watchside. If you
+  never sign in, it is never sent anywhere, and **it is discarded after seven
+  days** whether you sign in or not.
+- When you do sign in, Watchside stores that code against your account, along
+  with when it happened. Watchside works out what the campaign *means* — which
+  channel it was, which streamer it was associated with — on its own server,
+  from a list it keeps. **None of that comes from the link**, so a link cannot
+  claim to be something it is not.
+- The **first** campaign you arrived through is kept as how you found Watchside,
+  and is not overwritten if you later click a different Watchside link. The most
+  recent one is kept separately.
+
+**What this is not.** It is not a cookie, not a tracking pixel, and not a
+third-party analytics or advertising product — Watchside uses none of those,
+anywhere. It cannot tell where else you have been, and it does not follow you
+across sites. It records that *a campaign* brought *an account*, and nothing
+about the browsing that happened in between.
+
+**Why it exists.** Before spending real effort or money telling people about
+Watchside, we want to know which of those efforts actually bring people who go
+on to use it. Without this, the honest answer would be that we have no idea.
+
+**A friend's invite is a different thing.** `watchside.app/i/…` links record
+which Watchside user invited you, which is covered elsewhere in this policy. The
+two are stored separately and neither replaces the other.
+
+Deleting your Watchside account deletes this along with everything else.
+
 ### Viewing time
 
 **Watchside records how long you watch a live Twitch channel.** When you are
@@ -264,6 +303,11 @@ friends.** We can see who sent it, so that we can follow up.
 
 - **No advertising, ever**, and no use or transfer of your data for
   personalised, retargeted or interest-based advertising.
+- **No third-party analytics or tracking of any kind.** No Google Analytics, no
+  Meta pixel, no TikTok pixel, no advertising SDK, no fingerprinting, and no
+  cross-site tracking. The watchside.app website sets no cookies and makes no
+  requests to anyone else at all. Campaign links (see "How you found Watchside")
+  carry a code Watchside itself issued, and nothing about you.
 - **No selling or sharing** of personal data with third parties.
 - **No reading of web pages.** Watchside runs on `twitch.tv` only, and only to
   place its own panel and read which channel the page is showing. It does not

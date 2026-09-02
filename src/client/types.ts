@@ -6,6 +6,7 @@
  * mode it is the Phase 0 mock. Neither the UI nor `core/` knows Supabase exists.
  */
 
+import type { BindOutcome } from '../core/acquisition'
 import type { Presence, User } from '../core/types'
 import type { LiveState } from '../core/twitchMetadata'
 import type { ChannelMetadata } from '../core/twitchMetadata'
@@ -395,6 +396,8 @@ export interface KickbackClient {
   reportActivity(channel: string | null, visible: boolean, channelName?: string | null): void
   /** An invite code seen in this tab's URL. One-way; may precede sign-in. */
   reportInvite(code: string): void
+  /** A campaign code seen in a Twitch URL. Held until there is an account. */
+  reportCampaign(code: string): void
 
   /**
    * React on the channel the viewer is watching. Fire-and-forget.
@@ -474,6 +477,8 @@ export interface KickbackClient {
   inviteCode(): Promise<string>
   /** Claim a code somebody pasted. Returns the server's outcome. */
   claimInvite(code: string): Promise<string>
+  /** Bind a campaign touch to this account. The server resolves what it means. */
+  bindAcquisition(code: string): Promise<BindOutcome>
   referralSummary(): Promise<{ successful: number; pending: number }>
   badges(): Promise<EarnedBadge[]>
   /** Every badge that exists, so the panel can show what is still to earn. */

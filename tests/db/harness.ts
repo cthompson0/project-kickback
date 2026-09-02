@@ -189,6 +189,10 @@ export async function createTestDb(): Promise<TestDb> {
         -- table that survived resets would make one test's message id look like
         -- a replay to the next.
         truncate public.eventsub_messages;
+        -- Same case: campaign definitions are deliberately NOT user data, so
+        -- the cascade above leaves them. A registry that survived resets would
+        -- carry one test's deactivated campaign into the next.
+        truncate public.acquisition_campaigns cascade;
       `)
       userCounter = 0
     },
