@@ -59,6 +59,10 @@ const SHELF = 'src/ui/components/BadgeShelf.tsx'
 const COMPREHENSION_SUITE = 'tests/dom/productComprehension.test.tsx'
 const ACQUISITION = 'src/core/acquisition.ts'
 const ACQ_MIGRATION = 'supabase/migrations/0038_acquisition_attribution.sql'
+const MANIFEST_TRANSFORM = 'scripts/manifest.mjs'
+const CHROME_MANIFEST = 'public/manifest.json'
+const BACKEND_SUITE = 'tests/extension/backendOrigin.test.ts'
+const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
 const PANEL_UI = 'src/ui/KickbackPanel.tsx'
@@ -1130,6 +1134,49 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: '    track(request): void {',
     to: '    async track(request) {',
     expect: 'keeps track() synchronous and void-returning',
+  },
+  {
+    // The branded backend becomes invisible to the packager again. Setting
+    // VITE_SUPABASE_URL to api.watchside.app would find zero origins and fail
+    // the Firefox build - safe, but only after somebody works out why.
+    name: 'permissions: narrow the backend pattern so a branded host is invisible',
+    file: MANIFEST_TRANSFORM,
+    suite: BACKEND_SUITE,
+    from: "const BACKEND_HOSTS = ['[a-z0-9-]+[.]supabase[.]co', 'api[.]watchside[.]app']",
+    to: "const BACKEND_HOSTS = ['[a-z0-9-]+[.]supabase[.]co']",
+    expect: 'recognises the branded host, which is the whole point',
+  },
+  {
+    // The pattern goes greedy and starts matching 7tv.io and twitch.tv, so the
+    // Gecko manifest could grant a host permission for whatever the bundle
+    // happened to mention first.
+    name: 'permissions: widen the backend pattern until any host matches',
+    file: MANIFEST_TRANSFORM,
+    suite: BACKEND_SUITE,
+    from: "const BACKEND_HOSTS = ['[a-z0-9-]+[.]supabase[.]co', 'api[.]watchside[.]app']",
+    to: "const BACKEND_HOSTS = ['[a-z0-9-.]+']",
+    expect: 'is narrow enough to ignore every other host the bundle names',
+  },
+  {
+    // The image CDN comes back into host_permissions. Nothing fetches it, so
+    // nothing breaks - it just costs a line in the install dialog a stranger
+    // reads before deciding whether to trust Watchside.
+    name: 'permissions: re-add a host permission nothing fetches',
+    file: CHROME_MANIFEST,
+    suite: HOSTS_SUITE,
+    from: '    "https://7tv.io/*"',
+    to: '    "https://7tv.io/*",\n    "https://cdn.7tv.app/*"',
+    expect: 'declares exactly the ones it means to',
+  },
+  {
+    // The Chromium grant check stops checking, so a Chrome build pointed at the
+    // branded backend ships a manifest that does not grant it.
+    name: 'permissions: let the Chrome manifest stop covering its own backend',
+    file: MANIFEST_TRANSFORM,
+    suite: BACKEND_SUITE,
+    from: '  const host = new URL(origin).hostname',
+    to: '  const host = new URL(origin).hostname; return true',
+    expect: 'does NOT grant the branded host, which is why the packager now checks',
   },
 ]
 

@@ -132,8 +132,6 @@ const HOST_JUSTIFICATIONS = {
   'https://7tv.io/*':
     'Public emote metadata for the channel being watched, so chat can render the emotes ' +
     'viewers already see on Twitch. Read-only, unauthenticated, no user data sent.',
-  'https://cdn.7tv.app/*':
-    'Where those emote images are served from.',
 }
 
 step('Permissions')

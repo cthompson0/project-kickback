@@ -34,3 +34,17 @@ export declare function manifestFor(
   source: Record<string, unknown>,
   options?: { supabaseOrigin?: string | null },
 ): Record<string, unknown>
+
+/**
+ * Every distinct backend origin a built bundle names.
+ *
+ * Callers assert the result has exactly one element, so the Gecko host
+ * permission can only ever name the backend the code actually talks to.
+ */
+export declare function backendOriginsIn(source: string): string[]
+
+/**
+ * Whether a set of host permissions actually grants an origin. The Chromium
+ * manifest declares its backend grant statically, so nothing else checks it.
+ */
+export declare function grantsOrigin(patterns: string[], origin: string): boolean

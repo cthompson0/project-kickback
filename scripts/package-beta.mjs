@@ -42,6 +42,7 @@ import { listZip, writeZip } from './zip.mjs'
 import { verifyGroupSchema } from './verify-group-schema.mjs'
 import { EXPECTED_EXTENSION_ID, extensionIdFromKey } from './extension-identity.mjs'
 import { RUNTIME_FILES, createScanner, run, step, walk } from './package-shared.mjs'
+import { backendOriginsIn, grantsOrigin } from './manifest.mjs'
 import { verifyAnalyticsSchema } from './verify-analytics.mjs'
 
 const DIST = 'dist'
@@ -154,6 +155,28 @@ async function main() {
     if (id !== EXPECTED_EXTENSION_ID) {
       fail(`extension id ${id} does not match the OAuth allow-list (${EXPECTED_EXTENSION_ID})`)
     }
+  }
+
+  /*
+   * The manifest must grant the backend the build actually talks to.
+   *
+   * The Firefox packager has always derived this grant from the bundle. Chrome
+   * declares it statically as `https://*.supabase.co/*`, so for as long as the
+   * backend was a Supabase subdomain nothing had to check - the wildcard
+   * covered it by shape. A branded backend is not covered by that wildcard,
+   * and the failure would be silent here and loud at a user.
+   */
+  const built = readFileSync(join(DIST, 'kickback-background.js'), 'utf8')
+  const backends = backendOriginsIn(built)
+  if (backends.length !== 1) {
+    fail(`expected exactly one backend origin in the build, found ${backends.length}`)
+  } else if (!grantsOrigin(manifest.host_permissions ?? [], backends[0])) {
+    fail(
+      `host_permissions does not grant the backend the build talks to (${backends[0]}): ` +
+        JSON.stringify(manifest.host_permissions),
+    )
+  } else {
+    console.log(`  backend        : ${backends[0]}`)
   }
 
   for (const file of RUNTIME_FILES) {

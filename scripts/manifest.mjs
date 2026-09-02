@@ -97,6 +97,82 @@ const BACKGROUND_SCRIPT = 'kickback-background.js'
 export const SUPABASE_WILDCARD = 'https://*.supabase.co/*'
 
 /**
+ * The hosts that can legitimately be Watchside's backend.
+ *
+ * WHY THIS IS A LIST AND NOT A CONSTANT
+ *
+ * The Gecko manifest grants exactly the origin the built bundle talks to, and
+ * that origin is discovered by reading the minified bundle rather than trusting
+ * the environment - so a manifest granting a project the code does not use
+ * fails the build instead of failing at a user's sign-in.
+ *
+ * Discovering it needs a pattern, and the pattern has to be narrow. "Any https
+ * origin" would match 7tv.io and twitch.tv; "*.supabase.co" cannot see a
+ * branded backend at all, and would have failed the build the first time
+ * VITE_SUPABASE_URL named one.
+ *
+ * So the two shapes are enumerated. Both are ours, adding a third is a
+ * deliberate edit here, and the "exactly one" rule at every call site still
+ * catches a bundle that somehow talks to two backends.
+ *
+ * `[.]` is a literal dot. It is a character class rather than an escape
+ * because this file is edited through shells often enough that a lost
+ * backslash is a real failure mode, and a lost one here would silently widen
+ * the pattern.
+ */
+const BACKEND_HOSTS = ['[a-z0-9-]+[.]supabase[.]co', 'api[.]watchside[.]app']
+
+/**
+ * Every distinct backend origin a built bundle names.
+ *
+ * Callers assert the result has exactly one element. Returning the list rather
+ * than the origin is what lets them say how many they found when it does not.
+ *
+ * @param {string} source the built background bundle, as text
+ * @returns {string[]} unique origins, in first-seen order
+ */
+export function backendOriginsIn(source) {
+  const pattern = new RegExp(`https://(?:${BACKEND_HOSTS.join("|")})`, "g")
+  return [...new Set([...source.matchAll(pattern)].map((m) => m[0]))]
+}
+
+/**
+ * Whether a set of host permissions actually grants an origin.
+ *
+ * WHY THE CHROMIUM MANIFEST NEEDS THIS AND THE GECKO ONE DOES NOT
+ *
+ * The Gecko manifest DERIVES its backend grant from the origin the built
+ * bundle names, so the two cannot disagree. The Chromium manifest instead
+ * carries a static `https://*.supabase.co/*`, which covers every Supabase
+ * project and therefore covers ours by accident of shape rather than by
+ * anything checking.
+ *
+ * That held for as long as the backend was a Supabase subdomain. A branded
+ * backend - `api.watchside.app` - is NOT matched by that wildcard, so a Chrome
+ * build pointed at one would ship a manifest granting a host it never talks
+ * to and omitting the only host it does. Whether that actually breaks depends
+ * on a third party's CORS headers, which is not a thing to find out from a
+ * user.
+ *
+ * Deliberately no regex: this decides what the extension may reach, and a
+ * pattern that silently over-matches is worse than no check at all.
+ *
+ * @param {string[]} patterns match patterns from host_permissions
+ * @param {string} origin an origin such as https://api.watchside.app
+ * @returns {boolean}
+ */
+export function grantsOrigin(patterns, origin) {
+  const host = new URL(origin).hostname
+  return patterns.some((pattern) => {
+    if (!pattern.startsWith('https://') || !pattern.endsWith('/*')) return false
+    const declared = pattern.slice('https://'.length, -'/*'.length)
+    if (declared === host) return true
+    // `*.supabase.co` covers `xyz.supabase.co`, and nothing else.
+    return declared.startsWith('*.') && host.endsWith(declared.slice(1))
+  })
+}
+
+/**
  * Derive the manifest for a target engine.
  *
  * Pure: takes the parsed source, returns a new object, mutates nothing.

@@ -446,7 +446,6 @@ describe('the manifest transform', () => {
     const HOSTS = [
       'https://*.supabase.co/*',
       'https://7tv.io/*',
-      'https://cdn.7tv.app/*',
     ]
 
     it('pins the Chromium permissions', () => {

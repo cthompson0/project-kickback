@@ -181,7 +181,6 @@ describe('manifest', () => {
     expect(manifest.host_permissions).toEqual([
       'https://*.supabase.co/*',
       'https://7tv.io/*',
-      'https://cdn.7tv.app/*',
     ])
   })
 })

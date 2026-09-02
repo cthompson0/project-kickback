@@ -65,7 +65,6 @@ describe('the hosts Watchside asks permission for', () => {
     expect(CHROME_MANIFEST.host_permissions).toEqual([
       'https://*.supabase.co/*',
       'https://7tv.io/*',
-      'https://cdn.7tv.app/*',
     ])
   })
 
@@ -83,15 +82,26 @@ describe('the hosts Watchside asks permission for', () => {
     ])
   })
 
-  it('fetches every host it holds a permission for, except the image CDN', () => {
+  it('fetches every host it holds a permission for', () => {
     expect(isFetched('7tv.io'), '7tv.io is permitted but never fetched').toBe(true)
+  })
 
+  it('does not hold a permission for the 7TV image CDN, and must not regain one', () => {
     /*
-     * cdn.7tv.app is the odd one out, and this asserts it: nothing fetches it.
-     * `core/emotes.ts` builds a URL, and an <img> in the content script's shadow
-     * DOM loads it. See the control case below.
+     * REMOVED before the v0.8 Firefox submission. `core/emotes.ts` builds a
+     * `https://cdn.7tv.app/emote/...webp` URL and an <img> in the content
+     * script's shadow DOM loads it - and image loads are governed by the page's
+     * CSP, not by extension host permissions. The control case below is the
+     * evidence.
+     *
+     * Both halves matter. If something ever starts FETCHING this host, the
+     * first assertion fails and whoever wrote that fetch is told to declare
+     * the permission rather than watch requests fail at a user's browser.
      */
-    expect(isFetched('cdn.7tv.app'), 'cdn.7tv.app has become a fetch target').toBe(false)
+    expect(isFetched('cdn.7tv.app'), 'cdn.7tv.app is fetched but no longer permitted').toBe(
+      false,
+    )
+    expect(JSON.stringify(CHROME_MANIFEST.host_permissions)).not.toContain('cdn.7tv.app')
   })
 })
 
@@ -117,6 +127,12 @@ describe('the control case: image hosts need no permission', () => {
 })
 
 describe('what the Firefox install dialog will say', () => {
+  /** What the Gecko packager substitutes for the wildcard today. */
+  const PROJECT_BACKEND = 'https://ezikxbbcwcxhkboeekkk.supabase.co/*'
+  /** And what it will substitute once the custom domain is activated. */
+  const BRANDED_BACKEND = 'https://api.watchside.app/*'
+  const MATCHES = CHROME_MANIFEST.content_scripts[0].matches
+
   /** The same arithmetic Firefox does: host permissions plus content matches. */
   function domainsFor(hostPermissions: string[], matches: string[]): string[] {
     const hosts = new Set<string>()
@@ -126,37 +142,47 @@ describe('what the Firefox install dialog will say', () => {
     return [...hosts].sort()
   }
 
-  it('counts five domains today, and says which', () => {
+  it('names four domains, and says which', () => {
     /*
-     * Written down because the owner meets this dialog before anything else
-     * Watchside says, and because "5 domains" is not obviously derivable from
-     * a manifest with three host_permissions in it.
+     * Written down because a stranger meets this dialog before anything else
+     * Watchside says, and because the count is not derivable from a manifest
+     * with two host_permissions in it - Firefox counts content-script matches
+     * as host access too.
+     *
+     * It said FIVE until v0.8. `cdn.7tv.app` was removed once the control case
+     * below had spent a full review cycle in production proving it unnecessary.
      */
     const domains = domainsFor(
-      // The Firefox packager narrows the wildcard to the real project host.
-      ['https://ezikxbbcwcxhkboeekkk.supabase.co/*', 'https://7tv.io/*', 'https://cdn.7tv.app/*'],
+      // The Firefox packager narrows the wildcard to the real backend origin.
+      [PROJECT_BACKEND, 'https://7tv.io/*'],
       CHROME_MANIFEST.content_scripts[0].matches,
     )
     expect(domains).toEqual([
       '7tv.io',
-      'cdn.7tv.app',
       'ezikxbbcwcxhkboeekkk.supabase.co',
       'twitch.tv',
       'www.twitch.tv',
     ])
   })
 
-  it('would count four without the image CDN, with the backend host still named', () => {
+  it('still names a raw project host, which is what the branded backend changes', () => {
     /*
-     * The honest limit of the cheap fix: dropping cdn.7tv.app removes an entry
-     * nothing needs, and leaves the entry the owner was actually worried about.
-     * Recorded so nobody mistakes the cleanup for a solution to that.
+     * THE HONEST LIMIT OF THE CLEANUP, kept in the suite so nobody mistakes
+     * four-instead-of-five for a fix to the thing the owner actually raised.
+     *
+     * Removing the image CDN dropped an entry nothing needed. The entry that
+     * reads like a random string is the backend, and only pointing the build at
+     * `api.watchside.app` changes it. That is one env var - VITE_SUPABASE_URL -
+     * because the packager derives this grant from whatever origin the bundle
+     * talks to. This asserts both halves: where we are, and what moves.
      */
-    const domains = domainsFor(
-      ['https://ezikxbbcwcxhkboeekkk.supabase.co/*', 'https://7tv.io/*'],
-      CHROME_MANIFEST.content_scripts[0].matches,
-    )
-    expect(domains).toHaveLength(4)
-    expect(domains).toContain('ezikxbbcwcxhkboeekkk.supabase.co')
+    const today = domainsFor([PROJECT_BACKEND, 'https://7tv.io/*'], MATCHES)
+    expect(today).toContain('ezikxbbcwcxhkboeekkk.supabase.co')
+
+    const branded = domainsFor([BRANDED_BACKEND, 'https://7tv.io/*'], MATCHES)
+    expect(branded).toEqual(['7tv.io', 'api.watchside.app', 'twitch.tv', 'www.twitch.tv'])
+
+    // The count does not improve. The legibility does, and that was the point.
+    expect(branded).toHaveLength(today.length)
   })
 })

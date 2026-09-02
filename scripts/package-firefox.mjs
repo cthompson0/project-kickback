@@ -48,7 +48,13 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { listZip, writeZip } from './zip.mjs'
 import { RUNTIME_FILES, createScanner, run, step, walk } from './package-shared.mjs'
-import { GECKO_DATA_COLLECTION, GECKO_ID, GECKO_MIN_VERSION, manifestFor } from './manifest.mjs'
+import {
+  GECKO_DATA_COLLECTION,
+  GECKO_ID,
+  GECKO_MIN_VERSION,
+  backendOriginsIn,
+  manifestFor,
+} from './manifest.mjs'
 
 const DIST = 'dist-firefox'
 const RELEASES = 'releases'
@@ -132,11 +138,10 @@ const { scanContents, checkPaths } = createScanner(fail)
  */
 function supabaseOriginOf(bundle) {
   const source = readFileSync(bundle, 'utf8')
-  const found = [...source.matchAll(/https:\/\/[a-z0-9-]+\.supabase\.co/g)].map((m) => m[0])
-  const unique = [...new Set(found)]
+  const unique = backendOriginsIn(source)
   if (unique.length !== 1) {
     fail(
-      `expected exactly one Supabase origin in ${bundle}, found ${unique.length}` +
+      `expected exactly one backend origin in ${bundle}, found ${unique.length}` +
         (unique.length ? `: ${unique.join(', ')}` : ''),
     )
   }

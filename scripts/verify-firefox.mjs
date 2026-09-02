@@ -25,6 +25,7 @@ import {
   GECKO_ID,
   GECKO_MIN_VERSION,
   SUPABASE_WILDCARD,
+  backendOriginsIn,
   manifestFor,
 } from './manifest.mjs'
 import { EXPECTED_EXTENSION_ID } from './extension-identity.mjs'
@@ -98,10 +99,8 @@ function main() {
   // the origin the BUNDLE names, so a manifest granting a project the code does
   // not talk to fails here rather than at a user's sign-in.
   const built = readFileSync(join(PACKAGE, 'kickback-background.js'), 'utf8')
-  const origins = [
-    ...new Set([...built.matchAll(/https:\/\/[a-z0-9-]+\.supabase\.co/g)].map((m) => m[0])),
-  ]
-  if (origins.length !== 1) fail(`expected one Supabase origin in the bundle, found ${origins.length}`)
+  const origins = backendOriginsIn(built)
+  if (origins.length !== 1) fail(`expected one backend origin in the bundle, found ${origins.length}`)
   const derived = manifestFor('gecko', source, { supabaseOrigin: origins[0] })
   if (JSON.stringify(manifest) !== JSON.stringify(derived)) {
     fail('the packaged manifest is not what manifestFor("gecko") produces from public/manifest.json')

@@ -608,7 +608,6 @@ describe('the Twitch scope set is unchanged by any of this', () => {
     expect(manifest.host_permissions ?? []).toEqual([
       'https://*.supabase.co/*',
       'https://7tv.io/*',
-      'https://cdn.7tv.app/*',
     ])
     expect(manifest.host_permissions ?? []).not.toContain('https://api.twitch.tv/*')
   })
