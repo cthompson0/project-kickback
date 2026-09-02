@@ -116,6 +116,50 @@ describe('the landing page implementation package', () => {
     expect(HTML).toContain('ngfopkeokddfnncdhfkhnffilbdhkkip')
   })
 
+  /**
+   * BOTH STORES, AND NEITHER HIDEABLE.
+   *
+   * This page offered Chrome alone while Firefox was approved, public, and the
+   * only build a person could actually install. Every invite link in
+   * circulation pointed here, and the invite is the one way a stranger with no
+   * Watchside friends gets a first connection - so the dead end sat on the
+   * single path that had to work.
+   */
+  it('offers both stores', () => {
+    expect(HTML).toContain('https://chromewebstore.google.com/detail/')
+    expect(HTML).toContain('https://addons.mozilla.org/firefox/addon/watchside/')
+    expect(HTML).toContain('Add to Chrome')
+    expect(HTML).toContain('Add to Firefox')
+  })
+
+  it('renders both install links before any detection runs', () => {
+    /*
+     * The guard that keeps detection decorative. Both anchors exist in the
+     * markup with ids the script only ever assigns hrefs to - so a wrong guess,
+     * a spoofed agent or an unanticipated browser still leaves two working
+     * choices. A page that picked one button and rendered only that would pass
+     * the test above and still strand people.
+     */
+    const body = HTML.slice(HTML.indexOf('<body'))
+    expect(body).toContain('id="install-chrome"')
+    expect(body).toContain('id="install-firefox"')
+    // Nothing may remove or hide an install button.
+    expect(HTML).not.toMatch(/install-(chrome|firefox)'\)\.(remove|style)/)
+  })
+
+  it('does not claim a phone can install it', () => {
+    // Watchside is desktop-only - the Gecko build omits gecko_android - so a
+    // mobile visitor is told that rather than sent to a store that will not
+    // serve them.
+    expect(HTML).toContain('desktop browser extension')
+    expect(HTML).toContain('runs in Chrome and Firefox')
+  })
+
+  it('no longer describes Watchside as Chrome-only', () => {
+    expect(HTML).not.toContain('Watchside is a Chrome extension')
+    expect(HTML).not.toContain('from the Chrome Web Store.')
+  })
+
   it('says a friend invited them', () => {
     expect(HTML).toContain('A friend invited you to Watchside')
   })

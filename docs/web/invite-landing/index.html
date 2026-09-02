@@ -106,6 +106,42 @@
         color: var(--text);
       }
 
+      /*
+       * A hint beside whichever button matches the visitor's browser.
+       *
+       * Emphasis only. Both buttons are always rendered and always usable - see
+       * the script. This exists so the common case is obvious, not so the other
+       * case is hidden.
+       */
+      .hint {
+        display: none;
+        margin: 6px 0 0;
+        font-size: 11px;
+        color: var(--accent);
+      }
+      .hint.show {
+        display: block;
+      }
+
+      /*
+       * Shown only when the visitor cannot install at all - a phone, a tablet,
+       * a browser neither store serves. Telling them to "install" would be a
+       * lie they discover one tap later.
+       */
+      .unsupported {
+        display: none;
+        margin: 18px 0 0;
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        font-size: 12px;
+        color: var(--dim);
+        text-align: left;
+      }
+      .unsupported.show {
+        display: block;
+      }
+
       .steps {
         margin: 22px 0 0;
         padding: 0;
@@ -167,19 +203,38 @@
       <h1 id="headline">Watchside</h1>
       <p id="blurb">See where your friends are watching on Twitch, and join them.</p>
 
-      <a class="button primary" id="install" href="#" rel="noopener">Install Watchside</a>
+      <!--
+        BOTH STORES, ALWAYS RENDERED.
+
+        This page offered Chrome alone until v0.9. Firefox was approved and
+        public while every invite link in circulation pointed here - so an
+        invited Firefox user was told to install something they could not, on
+        the one browser Watchside was actually available for. The invite is the
+        only way a stranger with no Watchside friends can get their first
+        connection, which made it the worst possible place for a dead end.
+
+        Neither button is ever hidden. Detection below only adds a hint.
+      -->
+      <a class="button primary" id="install-chrome" href="#" rel="noopener">Add to Chrome</a>
+      <p class="hint" id="hint-chrome">Looks like your browser</p>
+
+      <a class="button secondary" id="install-firefox" href="#" rel="noopener">Add to Firefox</a>
+      <p class="hint" id="hint-firefox">Looks like your browser</p>
+
       <a class="button secondary" id="continue" href="https://www.twitch.tv/" rel="noopener">
-        Continue with Twitch
+        Already installed — continue to Twitch
       </a>
 
+      <p class="unsupported" id="unsupported"></p>
+
       <ol class="steps" id="steps">
-        <li>1 — Install Watchside from the Chrome Web Store.</li>
-        <li>2 — Come back and press Continue with Twitch.</li>
+        <li>1 — Add Watchside to Chrome or Firefox.</li>
+        <li>2 — Come back and press Continue to Twitch.</li>
         <li>3 — Sign in from the Watchside panel on Twitch.</li>
       </ol>
 
       <p class="footer">
-        Watchside is a Chrome extension by Anoteros Labs.
+        Watchside is a browser extension by Anoteros Labs.
         <a href="../privacy/">Privacy</a>
       </p>
     </main>
@@ -197,10 +252,57 @@
        * The code is not a credential: possession grants nothing server-side.
        */
       (function () {
-        var STORE_URL = 'https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip'
+        var CHROME_URL = 'https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip'
+        var FIREFOX_URL = 'https://addons.mozilla.org/firefox/addon/watchside/'
         var CODE_PATTERN = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{22}$/
 
-        document.getElementById('install').setAttribute('href', STORE_URL)
+        document.getElementById('install-chrome').setAttribute('href', CHROME_URL)
+        document.getElementById('install-firefox').setAttribute('href', FIREFOX_URL)
+
+        /*
+         * DETECTION IS DECORATION.
+         *
+         * Both install buttons are already in the DOM with working hrefs before
+         * this runs, so a wrong guess, a spoofed agent or a browser nobody
+         * anticipated costs the visitor nothing - they see two clear choices,
+         * which is what the requirement asks for. Nothing here can hide a
+         * button; it can only add a hint or a warning.
+         *
+         * No storage, no network, no analytics. The user agent is read and
+         * discarded.
+         */
+        var ua = navigator.userAgent || ''
+        var isFirefox = /Firefox\//.test(ua) && !/Seamonkey\//.test(ua)
+        // Edge, Opera, Brave and friends all serve the Chrome Web Store, so the
+        // test is deliberately for the engine rather than for Google Chrome.
+        var isChromium = /Chrome\/|Chromium\/|CriOS\//.test(ua) && !isFirefox
+        // Phones and tablets cannot install either extension. Watchside is
+        // desktop-only - the Gecko build deliberately omits gecko_android.
+        var isMobile = /Android|iPhone|iPad|iPod|Mobile/i.test(ua)
+
+        /*
+         * Two different truths, and neither is "you can install this".
+         *
+         * A phone cannot run either extension at all. Desktop Safari is a
+         * computer, so telling it to "open this on a computer" would be absurd
+         * - it needs a different browser, not different hardware. Saying the
+         * right one of those is the whole point of the note.
+         */
+        var note = document.getElementById('unsupported')
+        if (isMobile) {
+          note.textContent =
+            'Watchside is a desktop browser extension. Open this link on a computer ' +
+            'using Chrome or Firefox to install it.'
+          note.className = 'unsupported show'
+        } else if (isFirefox) {
+          document.getElementById('hint-firefox').className = 'hint show'
+        } else if (isChromium) {
+          document.getElementById('hint-chrome').className = 'hint show'
+        } else {
+          note.textContent =
+            'Watchside runs in Chrome and Firefox. Open this link in one of them to install it.'
+          note.className = 'unsupported show'
+        }
 
         var raw = new URLSearchParams(window.location.search).get('c') || ''
         var code = raw.trim().toUpperCase()
