@@ -69,6 +69,8 @@ const COVERAGE_MIGRATION_40 = 'supabase/migrations/0040_acquisition_coverage.sql
 const ACQ_COVERAGE_SUITE = 'tests/db/acquisitionCoverage.test.ts'
 const SEARCH_MIGRATION = 'supabase/migrations/0041_search_rate_budget.sql'
 const SEARCH_SUITE = 'tests/db/searchRateBudget.test.ts'
+const ACTIVATION_MIGRATION = 'supabase/migrations/0042_activation_denominator.sql'
+const ACTIVATION_SUITE = 'tests/db/activationDenominator.test.ts'
 const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
@@ -1299,6 +1301,41 @@ grant select on public.m3d_relationship_v to authenticated;`,
     from: '  if char_length(v_raw) < 2 then',
     to: "  perform public.consume_rate_budget('user_search', 60, interval '10 minutes');\n  if char_length(v_raw) < 2 then",
     expect: 'does not charge for a query too short to run',
+  },
+  {
+    /*
+     * The funnel starts counting from people who already have friends, so
+     * every rate describes the survivors of the cold start rather than
+     * everybody who met it. That is the exact failure this view exists to
+     * prevent, and it produces flattering numbers rather than an error.
+     */
+    name: 'activation: measure only the users who escaped the cold start',
+    file: ACTIVATION_MIGRATION,
+    suite: ACTIVATION_SUITE,
+    from: "where a.first_authenticated_at is not null;",
+    to: "where a.first_authenticated_at is not null and g.first_friendship_at is not null;",
+    expect: 'keeps a churned user in the denominator forever',
+  },
+  {
+    // The cold-start state is inferred from events instead of the friend
+    // graph, so anybody who closed the browser before flushing disappears -
+    // which is precisely the population being measured.
+    name: 'activation: infer the zero-friend state from telemetry',
+    file: ACTIVATION_MIGRATION,
+    suite: ACTIVATION_SUITE,
+    from: "  (g.first_friendship_at is null)                          as still_without_friends,",
+    to: "  (a.first_friend_presence_at is null)                     as still_without_friends,",
+    expect: 'reads the friend graph, not telemetry',
+  },
+  {
+    // Small-cohort suppression removed, so three strangers become a
+    // percentage and a two-person cohort reports a cold-start rate.
+    name: 'activation: report a rate for a cohort of two',
+    file: ACTIVATION_MIGRATION,
+    suite: ACTIVATION_SUITE,
+    from: "  case when count(*) >= 3",
+    to: "  case when count(*) >= 0",
+    expect: 'suppresses rates below three actors, as NULL rather than zero',
   },
 ]
 

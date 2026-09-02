@@ -190,13 +190,14 @@ describe('the generated bundle', () => {
      * scope-loss deletion; 0035 for the small-cohort suppression; 0036 for the
      * coverage numerator; 0037 for the growth-loop outcome events; 0039 for the
      * operational views; 0040 for acquisition coverage; 0041 for the search
-     * rate budget.
+     * rate budget; 0042 for the activation denominator.
+
      *
      * THIS IS THE ONE PLACE THAT PINS THE MARKER. Per-migration suites must not
      * assert it - a test in 0040's file claiming "40" breaks the moment 0041
      * lands, which is noise rather than coverage.
      */
-    expect(version).toBe(41)
+    expect(version).toBe(42)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.
