@@ -79,15 +79,16 @@ GitHub's side is already configured: the repository exists, Pages is enabled fro
 API with the credential already in this environment; none of it needs the GitHub
 UI.
 
-## The one thing left: DNS
+## DNS — done
 
-The domain resolves to `207.207.210.107` and `207.207.210.229` — Porkbun's
-parking addresses. Nothing in this environment holds a Porkbun credential, so
-this is the owner's, and it is the only remaining step.
+The owner made the Porkbun change and it is verified: all four `A` records, all
+four `AAAA` records and the `www` `CNAME` are correct at public resolvers
+(`1.1.1.1`, `8.8.8.8`) and at Porkbun's authoritative nameserver. No parking
+address survives, so nothing round-robins. `www` 301s to the apex.
 
-**Delete the two parking `A` records first.** Left in place, DNS round-robins
-between the parking page and GitHub, and the site works about half the time —
-which reads as intermittent rather than unconfigured, and is harder to diagnose.
+GitHub answers for the name — `curl -sI http://watchside.app/` returns
+`200` with `Server: GitHub.com` — and every route serves bytes identical to the
+built tree.
 
 | Type | Host | Value |
 | --- | --- | --- |
@@ -101,15 +102,26 @@ which reads as intermittent rather than unconfigured, and is harder to diagnose.
 | `AAAA` | `@` | `2606:50c0:8003::153` |
 | `CNAME` | `www` | `anoteros-labs.github.io` |
 
-All eight addresses were read from GitHub's own `/meta` endpoint, not recalled.
-The `CNAME` target is the **organisation's** Pages host rather than the
-repository — that is how GitHub routes a project site's custom domain.
+## HTTPS — the last step, and it is GitHub's
 
-## HTTPS
+**Not yet issued.** The Pages API reported no certificate after 34 minutes of
+polling, and the TLS handshake fails. Nothing blocking could be found: DNS is
+correct, GitHub is serving the domain, and there is no `CAA` record on
+`watchside.app` or on the `.app` TLD. GitHub documents up to an hour.
 
-Nothing to buy and nothing to configure. GitHub issues the certificate once DNS
-resolves; asking before that returns *"The certificate does not exist yet"*,
-which is what it currently says. Enforcement is then one API call.
+**Do not change DNS to hurry it.** Editing records now restarts the check that
+has to finish.
+
+**`.app` is HSTS-preloaded**, so browsers refuse plain HTTP for it. The HTTP
+`200`s above are real and measurable with `curl`, but until the certificate
+exists the domain is unreachable in a browser. DNS being live is not the same as
+the site being usable.
+
+When the certificate exists, enforcement needs no UI:
+
+```
+PUT /repos/Anoteros-Labs/watchside-app/pages   {"https_enforced": true}
+```
 
 ## Domain verification — optional
 

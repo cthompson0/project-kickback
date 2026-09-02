@@ -81,7 +81,7 @@ Everything Watchside currently exposes to somebody who is not running it:
 | `anoteros-labs.github.io/watchside/invite/` | **live** ¹ | unchanged; still the extension's link base |
 | `anoteros-labs.github.io/watchside/support/` | **live, but thin** ¹ | **LIVE — replaced, see §37** |
 | `anoteros-labs.github.io/watchside/` | 404 | **LIVE — new, see §37** |
-| `watchside.app` | registered, nothing served | **served by GitHub; awaiting DNS — see §38** |
+| `watchside.app` | registered, nothing served | **DNS live, GitHub serving; awaiting certificate — see §39** |
 | support email | `anoteros.dev@gmail.com` | unchanged, now published on a page |
 
 ¹ **Corrected after M5B GO.** Both rows originally read "not published", taken
@@ -147,9 +147,10 @@ live today. It deliberately omits `CNAME`, `404.html` and `/i/` — see §14.
 
 ## 6. DNS status
 
-**NOT CONFIGURED. NOT LIVE.** *(Still true. §38 has the exact records, read from
-GitHub's `/meta` endpoint, and confirms the provider is Porkbun with no
-automatable credential anywhere in the environment.)*
+**CONFIGURED AND PROPAGATED** — *superseded by §39.* The owner made the Porkbun
+change; all four `A`, all four `AAAA` and the `www` `CNAME` are correct at public
+and authoritative resolvers, with no parking record surviving. The text below
+described the state before that and is kept for the record.
 
 `watchside.app` is registered and does not resolve to any Pages host. No DNS
 record has been created, and none can be created from this repository.
@@ -185,8 +186,10 @@ after the `CNAME`.
 
 ## 8. HTTPS status
 
-**NOT ACTIVE.** *(§38: GitHub's own answer when asked to enforce it was "The
-certificate does not exist yet". Blocked only on DNS.)*
+**PROVISIONING** — *superseded by §39.* DNS is live and GitHub is serving the
+domain; the certificate has not been issued yet after 34 minutes, with no `CAA`
+record or other blocker found. No owner action: enforcement is one API call once
+it exists.
 
 GitHub Pages provisions a certificate itself once DNS resolves; nothing is
 bought, and no configuration exists in this repository. The **Enforce HTTPS**
@@ -788,9 +791,7 @@ and its script is byte-identical to the tested repository copy. Nothing to do.
 **3 — ~~Decide the hosting shape~~. Done.** `Anoteros-Labs/watchside-app` exists,
 serves `watchside.app`, and leaves the org site's `cname` `null`. See §38.
 
-**4 — DNS. THE ONLY REMAINING ACTION.** Delete the two Porkbun parking `A`
-records, then add the nine records in §38. Nothing in this environment can reach
-Porkbun.
+**4 — ~~DNS~~. Done by the owner and verified.** See §39.
 
 **5 — ~~Domain verification~~. Optional**, and not required for the site to work.
 §38 has the exact screen if wanted.
@@ -1346,3 +1347,122 @@ no `addons.mozilla.org` link anywhere. Asserted by `publicRouting.test.ts`.
 **The domain is not live**, and nothing here says otherwise. The extension still
 generates the Pages invite link on purpose; M5E flips `INVITE_LANDING_BASE` and
 the two Support links once the public HTTPS URLs answer.
+
+---
+
+## 39. DNS is live; HTTPS is provisioning
+
+Appended after §38, once the owner had made the Porkbun change.
+
+### DNS — propagated and correct
+
+| Record | Expected | Public resolvers | Authoritative |
+| --- | --- | --- | --- |
+| `A @` | the four GitHub Pages addresses | all four | all four |
+| `AAAA @` | the four GitHub Pages addresses | all four | — |
+| `CNAME www` | `anoteros-labs.github.io` | correct | — |
+| parking `A` | gone | gone | gone |
+
+Checked against Cloudflare (`1.1.1.1`), Google (`8.8.8.8`) and Porkbun's own
+authoritative nameserver. No parking address survives anywhere, so the
+round-robin failure §38 warned about did not happen.
+
+`www.watchside.app` resolves through the `CNAME` and **301s to the apex**, which
+is what the `CNAME` file in the repository asks for.
+
+### GitHub is serving the domain
+
+```
+$ curl -sI http://watchside.app/
+HTTP/1.1 200 OK
+Server: GitHub.com
+```
+
+Not merely resolving — GitHub is answering for the name. Every canonical route
+was verified against the real domain, and the served bytes are **identical to the
+built tree**:
+
+| Route | Result |
+| --- | --- |
+| `/` | 200, identical to `dist-site/index.html` |
+| `/privacy` | 301 → `/privacy/` → 200, identical |
+| `/support` | 301 → `/support/` → 200, identical |
+| `/i/<code>` | 404 status, identical to `dist-site/404.html` — the design (§38) |
+
+The invite script was executed against the bytes the domain actually served, over
+ten cases: canonical path, trailing slash, lowercase, legacy `?c=`, both shapes
+at once, malformed, empty, a smuggled absolute URL, a path traversal, and
+unrelated query parameters.
+
+Both shapes reach the **same** `twitch.tv/?kickback_invite=<code>` with the code
+unchanged. Every malformed input stays a plain 404 with no handoff. No input
+produces a destination other than a literal `twitch.tv`. Unrelated query
+parameters are carried nowhere, which keeps the M5C seam open.
+
+### HTTPS — provisioning, and this is the blocker
+
+**No certificate yet.** GitHub's Pages API reports `https_certificate: null`
+after **34 minutes** of polling across three windows, and the TLS handshake
+fails. Enforcement cannot be turned on until the certificate exists — the API
+answers `404 The certificate does not exist yet`.
+
+Nothing is blocking it that can be found:
+
+- DNS is correct at authoritative and public resolvers;
+- **no `CAA` record** exists on `watchside.app` or on the `.app` TLD, so nothing
+  refuses the issuing authority;
+- GitHub is serving the domain, so its own DNS check has passed;
+- the custom domain was re-asserted through the API to re-trigger the check.
+
+GitHub documents this as taking up to an hour, occasionally longer. It is
+waiting, not failing, and **DNS was not touched again** — changing records now
+would restart the very check that has to complete.
+
+### Why "DNS live" is not "usable"
+
+`.app` is an HSTS-preloaded TLD. Browsers refuse plain HTTP for it outright, so
+the `200`s recorded above — real, and measured with `curl` — are **not reachable
+from a browser**. Until the certificate is issued, `watchside.app` is
+unreachable to an actual person.
+
+That is the honest reading, and it is why this section does not claim the domain
+is live. Everything that can be true before a certificate is true; the last step
+is GitHub's and is not being waited on by anything in this repository.
+
+### Compatibility — unaffected
+
+All eight routes still answer 200, unredirected: `/watchside/`,
+`/watchside/support/`, `/watchside/privacy/`, `/watchside/invite/`,
+`/kickback/invite/`, `/kickback/privacy/`, `/kickback/support/`, and the org
+root. The org site's Pages `cname` is still `null`.
+
+### Store copy on the live domain
+
+Served and verified on the domain itself: the root carries the real Chrome
+listing and **zero** `addons.mozilla.org` links anywhere on the site. Firefox is
+described as built and waiting on Mozilla's review with nothing to install —
+accurate for 0.6.0 submitted and awaiting first review.
+
+### State
+
+| | |
+| --- | --- |
+| CODE READY | ✓ |
+| GITHUB CONFIGURED | ✓ |
+| DNS CONFIGURED | ✓ |
+| DNS PROPAGATED | ✓ public and authoritative |
+| HTTPS PROVISIONED | ✗ — GitHub, in progress, ~34 min elapsed |
+| PUBLIC LIVE | ✗ — blocked only on the certificate |
+
+### What happens next, and by whom
+
+**No owner action.** The certificate is GitHub's to issue. When it exists,
+enforcement is a single authenticated API call that needs no UI:
+
+```
+PUT /repos/Anoteros-Labs/watchside-app/pages   {"https_enforced": true}
+```
+
+Re-run the checks in `docs/web/watchside-app/README.md` after that. Only when
+`https://watchside.app/` answers is the domain live — and only then does M5E flip
+`INVITE_LANDING_BASE` and the two Support links.

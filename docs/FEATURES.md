@@ -387,11 +387,16 @@ to `Anoteros-Labs/watchside-app`, a dedicated project Pages site with
 configured through the API. Content is verified correct by addressing a Pages
 edge with a `Host: watchside.app` header.
 
-**DNS is the only thing left**, and it is the owner's: the domain still points at
-Porkbun's parking addresses, and nothing in the environment holds a Porkbun
-credential. HTTPS follows automatically once it resolves. Exact records in
-`docs/web/watchside-app/README.md`. The org site's Pages `cname` is still
-`null`, so every old URL keeps working literally, unredirected.
+**DNS is live and verified** — all nine records correct at public and
+authoritative resolvers, no parking address surviving — and GitHub answers for
+the name with bytes identical to the built tree.
+
+**Waiting on the certificate.** GitHub had not issued one after 34 minutes, with
+no `CAA` record or other blocker found; enforcement is one API call once it
+exists, needing no owner action. Because `.app` is HSTS-preloaded, browsers
+refuse plain HTTP, so **the domain is not usable until then** — it is not live.
+The org site's Pages `cname` is still `null`, so every old URL keeps working
+literally, unredirected.
 
 The same sources also build against the **currently live** Pages subpath
 (`npm run build:site:pages`), and the exact bytes now served are checked in at
