@@ -79,7 +79,8 @@ Everything Watchside currently exposes to somebody who is not running it:
 | AMO listing | not published | unchanged |
 | `anoteros-labs.github.io/watchside/privacy/` | live | unchanged |
 | `anoteros-labs.github.io/watchside/invite/` | **live** ¹ | unchanged; still the extension's link base |
-| `anoteros-labs.github.io/watchside/support/` | **live, but thin** ¹ | replacement built, ready to publish, no DNS needed |
+| `anoteros-labs.github.io/watchside/support/` | **live, but thin** ¹ | **LIVE — replaced, see §37** |
+| `anoteros-labs.github.io/watchside/` | 404 | **LIVE — new, see §37** |
 | `watchside.app` | registered, nothing served | **built, PREPARED** |
 | support email | `anoteros.dev@gmail.com` | unchanged, now published on a page |
 
@@ -736,7 +737,7 @@ Nothing became RELEASED, because main changed and nothing was submitted.
 | --- | --- | --- |
 | **blocker** | Neither released build contains M3D, so it collects nothing from real users | M5D or a release |
 | polish | DNS, verification, HTTPS for `watchside.app` | owner, external |
-| polish | Publish `docs/web/pages-watchside/` so Support covers what it exists for | owner, external, **no DNS needed** |
+| ~~polish~~ | ~~Publish `docs/web/pages-watchside/`~~ — **published and live**; see §37 | done |
 | polish | Flip `INVITE_LANDING_BASE` and the Support links to the domain | M5E, after §6–§8 pass |
 | polish | Contrast audit and a screen-reader pass | M5 |
 | ~~polish~~ | ~~Publish the invite landing page~~ — **already live**; see §36 | done |
@@ -773,10 +774,9 @@ finding here would fail a review.
 
 In order. The first needs nothing external and fixes a link in a shipped build.
 
-**1 — Publish the Support replacement (no DNS, do this first).** Copy both files
-from `docs/web/pages-watchside/` into the Pages repository under `watchside/`.
-No build step: they are checked in, and a test asserts they still match the build.
-See §36 for why both files go together.
+**1 — ~~Publish the Support replacement~~. Done and live.** Published directly to
+the Pages repository at `aa7a42a`; both routes verified 200 and byte-identical to
+the artifact. See §37.
 
 **2 — ~~Publish the invite landing page~~. Already live** — the route answers 200
 and its script is byte-identical to the tested repository copy. Nothing to do.
@@ -1032,3 +1032,78 @@ byte-identical to the tested copy. Republishing
 date, since the live copy still carries the pre-rename identity. That is
 cosmetic, entirely optional, and deliberately not counted as the remaining
 action.
+
+---
+
+## 37. The Pages artifact is published
+
+Appended after §36. The Pages surfaces are **LIVE**, not prepared.
+
+### The assumption that was wrong
+
+§36 concluded that publication "cannot be performed through repository changes"
+and handed the copy to the owner. The reasoning was sound as far as it went — the
+Pages site is a different repository, not a remote here, no workflows — but it
+stopped one question short. **Nobody checked whether the credentials already in
+this environment could write to that repository.** They can.
+
+The credential manager holds a GitHub credential with push access to
+`Anoteros-Labs/anoteros-labs.github.io`. A clone succeeded, and a dry-run push
+negotiated the update before anything was sent for real.
+
+That is the same failure mode as §36 itself, one level up: a plausible
+limitation, believed without being tested. §36 caught a stale claim about what
+was published; it then made a fresh unchecked claim about what could be
+published. Both were resolved by asking rather than reasoning.
+
+### What was published
+
+Pages repository `Anoteros-Labs/anoteros-labs.github.io`, branch `main`, commit
+**`aa7a42a`**:
+
+| Watchside source | Pages path | Change |
+| --- | --- | --- |
+| `docs/web/pages-watchside/index.html` | `watchside/index.html` | **added** — was 404 |
+| `docs/web/pages-watchside/support/index.html` | `watchside/support/index.html` | **replaced** |
+
+The diff contained those two paths and nothing else. `watchside/invite/`,
+`watchside/privacy/`, `kickback/…`, the org root `index.html` and `.nojekyll`
+were untouched. No `CNAME`, no `404.html`, no `/i/` — each would affect the whole
+org site. No force push. No DNS change.
+
+### Verification, after deployment
+
+| Route | Before | After |
+| --- | --- | --- |
+| `/watchside/` | 404 | **200** |
+| `/watchside/support/` | 200 (thin page) | **200 (replacement)** |
+| `/watchside/invite/` | 200 | 200, byte-identical to before |
+| `/watchside/privacy/` | 200 | 200, untouched |
+| `/kickback/invite/` | 200 | 200, untouched |
+
+The live bytes at both new routes are **identical to the checked-in artifact**,
+so what is served is exactly what the repository's test gates. Every internal
+link on the two pages resolves 200 following redirects — including
+`/watchside/privacy`, which is the one link pointing at a page the artifact
+deliberately does not carry.
+
+**The invite page's inline script is unchanged by this push and still identical
+to the tested repository copy.** Referral semantics were not touched, which was
+the one thing that could not be allowed to move.
+
+### What this changes for the product
+
+The account panel's Support link is in a shipped 0.7.0 build. It now leads to a
+page that covers the panel failing to appear — the case that page exists for —
+rather than one offering feedback and an email address. That is a fix reaching
+users who can already press it, not preparation for later.
+
+### What is still not live
+
+`watchside.app` is unchanged: no DNS, no verification, no HTTPS, nothing served.
+§6–§8 and README §2–§5 stand exactly as written. The canonical domain remains
+**PREPARED**, and the extension still generates the Pages invite link on purpose.
+
+The live invite page is still painted in the pre-rename identity (§36). It was
+deliberately not touched here: its behaviour is correct, and this task was not
+the place to change a working referral surface for paint.

@@ -279,10 +279,10 @@ Discovery: account panel → Feedback. Four categories and a free-text box;
 diagnostics (version, environment, browser, friend count, channel, realtime
 health) are attached automatically.
 
-**Fixed in M5B; corrected after GO.** A support route was already live but
-covered only feedback and an email address. The replacement is checked in at
-`docs/web/pages-watchside/`, publishable today without DNS. It works whether or
-not the extension does, covering the panel not appearing, sign-in trouble, stale builds,
+**Fixed in M5B; published after GO.** A support route was already live but
+covered only feedback and an email address. The replacement is **live** at
+`anoteros-labs.github.io/watchside/support/`, published from
+`docs/web/pages-watchside/`. It works whether or not the extension does, covering the panel not appearing, sign-in trouble, stale builds,
 notifications and account deletion. The account panel links to it beside
 Feedback — Feedback stays the better route while Watchside works, because it
 attaches context automatically.
@@ -385,9 +385,9 @@ Mozilla's review rather than implying it is available.
 `docs/web/watchside-app/README.md`. Old Pages URLs keep working untouched.
 
 The same sources also build against the **currently live** Pages subpath
-(`npm run build:site:pages`), and the exact publishable bytes are checked in at
+(`npm run build:site:pages`), and the exact bytes now served are checked in at
 `docs/web/pages-watchside/` with a test asserting they match that build — so the
-Support link in a shipped build gets a real page without waiting for a domain. That tree never carries a `CNAME`,
+Support link in a shipped build reaches a real page without waiting for a domain. That tree never carries a `CNAME`,
 a `404.html` or an `/i/` route — asserted, because a `CNAME` there would rebind
 the whole org site.
 

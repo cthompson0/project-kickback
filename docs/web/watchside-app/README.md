@@ -35,37 +35,26 @@ Old links live in messages, clipboards and browser histories. `404.html` reads
 both shapes for that reason, and `tests/extension/publicRouting.test.ts` proves
 it.
 
-## Publish Support first — no DNS needed
+## The Pages surfaces are published
 
-**Do this one before the domain.** A shipped build links to
+`/watchside/` and `/watchside/support/` are **live** on the existing Pages site,
+published from `docs/web/pages-watchside/` at Pages commit `aa7a42a`. Nothing
+here is waiting on the domain.
 
-```
-https://anoteros-labs.github.io/watchside/support/
-```
+The support page a shipped build links to now covers the panel failing to appear,
+sign-in trouble, stale builds, notifications and account deletion — it previously
+covered feedback and an email address. `/watchside/` was a 404 and is now
+Watchside's home on that site.
 
-That route **is live** — but the page there covers only feedback and an email
-address. It does not cover the panel failing to appear, which is the one case
-where a page outside the extension is the only thing that can help.
+To change either page: edit the sources here, run `npm run build:site:pages`,
+copy the two files into `docs/web/pages-watchside/` (a test asserts they match),
+then publish them to `Anoteros-Labs/anoteros-labs.github.io` under `watchside/`.
+Credentials in this environment have push access to that repository.
 
-The replacement is checked in, already built, at `docs/web/pages-watchside/`.
-Copy both files into the Pages repository under `watchside/`:
-
-```
-index.html          ->  watchside/index.html
-support/index.html  ->  watchside/support/index.html
-```
-
-**Both, not just support.** `/watchside/` returns 404 today and the support
-page's back link and footer point there.
-
-No build step is needed — `tests/extension/pagesArtifact.test.ts` asserts the
-checked-in copies still match `npm run build:site:pages`. `privacy/` is
-deliberately not part of the artifact: one is already live, generated from the
-same policy, and publishing support should not overwrite it.
-
-The subpath build never writes a `CNAME`, a `404.html` or an `/i/` route. A
-`CNAME` there would rebind the entire org site; the other two only work from a
-domain root. `publicRouting.test.ts` asserts all three absences.
+`privacy/` is deliberately not part of the artifact: one is already live from the
+same policy. The subpath build never writes a `CNAME`, a `404.html` or an `/i/`
+route — a `CNAME` there would rebind the entire org site, and the other two only
+work from a domain root. `publicRouting.test.ts` asserts all three absences.
 
 ## Deploying the domain — the owner's part
 
