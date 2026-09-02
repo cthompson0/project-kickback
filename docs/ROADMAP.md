@@ -338,6 +338,36 @@ M3C.1 accepted
       from AMO; the v0.7 checklist tests an UNSIGNED v0.7 package locally.
 ```
 
+### v0.9 - LAUNCH ACTIVATION: the five P0 items, complete
+
+The cold-start audit found the social machinery substantially built and the
+FIRST EDGE unreliable. v0.9 repaired it. Scope was frozen to five items and
+stayed frozen.
+
+| | What | State |
+|---|---|---|
+| **P0-1** | Invite page offers Firefox as well as Chrome | **SHIPPED AND LIVE** - website only, no release |
+| **P0-2** | Pending invite persisted across worker eviction | **DONE** - in v0.9 |
+| **P0-3** | Canonical `watchside.app/i/` invite minting | **DONE** - in v0.9 |
+| **P0-4** | Rate budget on `search_users` | **DONE** - migration 0041, **not yet applied to production** |
+| **P0-5** | Zero-friend activation denominator | **DONE** - migration 0042, **not yet applied to production** |
+
+**P0-1 was the urgent one and needed no release.** Every invite in circulation
+pointed at a page offering Chrome alone, while Firefox was the only build a
+person could actually install - a dead end on the single path a stranger with
+no Watchside friends has to a first connection. Fixed and deployed
+independently; all three invite surfaces (canonical, legacy, and the
+pre-rename path) now serve both browsers.
+
+**Mutual Friend Suggestions were not touched.** They shipped in v0.8, they
+correctly return nothing for a zero-friend user, and that is network
+formation working rather than a defect.
+
+**"People you know already use Watchside" was not built.** Twitch exposes no
+viewer-to-viewer social graph, and shared creator follows are not acquaintance.
+
+---
+
 ### The M7 launch gates - current standing
 
 **G5 is SATISFIED by explicit owner decision, 2026-09-02.**
