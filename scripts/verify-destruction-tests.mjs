@@ -636,14 +636,34 @@ grant select on public.m3d_relationship_v to authenticated;`,
     expect: 'refuses an absolute URL smuggled into the code',
   },
   {
-    // Firefox presented as available, sending people to a listing that does
-    // not exist because Mozilla has never published it.
-    name: 'site: advertise Firefox as available',
+    /*
+     * INVERTED WHEN FIREFOX WENT LIVE.
+     *
+     * This used to mutate the page into ADVERTISING Firefox, because Mozilla
+     * had never published Watchside and the link would have gone nowhere. AMO
+     * has since reviewed and listed it, so the failure worth guarding is the
+     * opposite one: the Firefox CTA quietly disappearing again and sending half
+     * the visitors away with nothing to install.
+     */
+    name: 'site: drop the Firefox install link',
     file: SITE_ROOT,
     suite: ROUTING_SUITE,
-    from: '        Watchside is in a small private beta. A Firefox version is built and',
-    to: '        <a href="https://addons.mozilla.org/">Add to Firefox</a>. Also built and',
-    expect: 'does not offer Firefox, which is not',
+    from: "              href=\"https://addons.mozilla.org/firefox/addon/watchside/\"",
+    to: '              href="/support"',
+    expect: 'offers both stores in both places',
+  },
+  {
+    /*
+     * Release-process prose creeping back onto the page. It goes stale the
+     * moment a reviewer clicks approve, and the page carried "waiting on
+     * Mozilla" for weeks after it stopped being true.
+     */
+    name: 'site: narrate the review queue to visitors',
+    file: SITE_ROOT,
+    suite: ROUTING_SUITE,
+    from: '          <p class="meta">',
+    to: '          <p class="meta">Firefox is waiting on Mozilla review.',
+    expect: 'does not narrate its own release process',
   },
   {
     // A pasted canonical link stops being recognised, so the one shape the

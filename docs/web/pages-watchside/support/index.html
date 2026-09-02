@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Support — Watchside</title>
     <meta name="description" content="Help with Watchside, including when the extension will not open." />
+    <meta name="theme-color" content="#0b0b0e" />
+    <!--
+      The mark, inline. An external icon file would be the one request these
+      pages otherwise never make, and it is 400 bytes.
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='28' fill='%230B0B0E'/%3E%3Cpath d='M40 102 H92 a20 20 0 0 0 20-20 V42 a20 20 0 0 0-20-20 H36 a20 20 0 0 0-20 20 v40 a20 20 0 0 0 20 20 h2 v14 z' fill='none' stroke='%23A855F7' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M42 66 L50 86 L64 72 L78 86 L86 66' fill='none' stroke='%23A855F7' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='52' cy='49' r='6' fill='%23A855F7'/%3E%3Ccircle cx='80' cy='49' r='6' fill='%23A855F7'/%3E%3C/svg%3E"
+    />
     <!--
       No analytics, no tracking, no external scripts, no external fonts, no
       cookies. Everything each page needs is in that page. The domain existing
@@ -19,6 +28,21 @@
         --dim: #9c9ca8;
         --line: #26262f;
         --accent: #a855f7;
+        /* The deeper end of the brand purple, for gradients and hovers. */
+        --accent-deep: #9333ea;
+        --accent-soft: rgba(168, 85, 247, 0.12);
+      }
+
+      /* Nobody should be ambushed by motion they did not ask for. */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
       }
 
       * { box-sizing: border-box; }
@@ -91,6 +115,19 @@
       }
       .cta:hover { filter: brightness(1.08); }
 
+      /* The second choice beside a primary one: same shape, less weight. */
+      .cta-alt {
+        margin-left: 10px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        color: var(--text);
+      }
+      .cta-alt:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+      @media (max-width: 480px) {
+        .cta, .cta-alt { display: block; margin-left: 0; text-align: center; }
+      }
+
       .card {
         padding: 18px 20px;
         border: 1px solid var(--line);
@@ -113,6 +150,7 @@
         h1 { font-size: 1.6rem; }
       }
     </style>
+
   </head>
   <body>
     <main>

@@ -57,17 +57,31 @@ const OUT = process.argv[2] ?? join('dist-site')
  * here keeps one set of sources instead of two that drift.
  */
 const BASE = process.argv[3] ?? '/'
+/*
+ * `src` is rewritten as well as `href` because the landing page now ships
+ * images. Without it the subpath build would emit `/img/presence.webp`, which
+ * is a 404 under /watchside/ - and a broken hero is not the kind of thing a
+ * passing build would have told us about.
+ */
 const rebase = (html) =>
-  BASE === '/' ? html : html.replace(/(href=")\/(?!\/)/g, `$1${BASE}`)
+  BASE === '/' ? html : html.replace(/((?:href|src)=")\/(?!\/)/g, `$1${BASE}`)
 
 /** The one place a page's chrome is defined. */
 const SHELL = readFileSync(join(SOURCE, 'shell.html'), 'utf8')
 
-function page({ file, title, description, out }) {
+/**
+ * One page, from the shared shell.
+ *
+ * `head` is an optional block of page-specific CSS. The landing page needs a
+ * good deal of it and privacy, support and 404 need none, so putting it in the
+ * shell would make every document page carry layout rules for a page it is not.
+ */
+function page({ file, title, description, out, head = '' }) {
   const body = readFileSync(join(PAGES, file), 'utf8')
   const html = rebase(
     SHELL.replace('{{TITLE}}', title)
       .replace('{{DESCRIPTION}}', description)
+      .replace('{{HEAD}}', head)
       .replace('{{BODY}}', body.replace(/\n$/, '')),
   )
 
@@ -83,6 +97,7 @@ mkdirSync(OUT, { recursive: true })
 const written = [
   page({
     file: 'index.html',
+    head: readFileSync(join(SOURCE, 'landing.css'), 'utf8'),
     title: 'Watchside — see where your friends are watching Twitch',
     description:
       'Watchside is a browser extension that shows which Twitch streams your friends are on, so you can jump in and watch together.',

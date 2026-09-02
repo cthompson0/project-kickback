@@ -1,56 +1,349 @@
-      <div class="mark">
-        <svg width="28" height="28" viewBox="0 0 32 32" role="img" aria-label="Watchside">
-          <circle cx="16" cy="16" r="15" fill="none" stroke="#a855f7" stroke-width="2" />
-          <circle cx="16" cy="16" r="5" fill="#a855f7" />
-        </svg>
-        <span class="wordmark">watchside</span>
+      <a class="skip" href="#get">Skip to install</a>
+
+      <div class="wrap">
+        <nav class="nav">
+          <a class="brand" href="/" aria-label="Watchside home">
+            <svg width="30" height="30" viewBox="0 0 128 128" aria-hidden="true" focusable="false">
+              <rect width="128" height="128" rx="28" fill="#0B0B0E" />
+              <path
+                d="M40 102 H92 a20 20 0 0 0 20-20 V42 a20 20 0 0 0-20-20 H36 a20 20 0 0 0-20 20 v40 a20 20 0 0 0 20 20 h2 v14 z"
+                fill="none"
+                stroke="#A855F7"
+                stroke-width="11"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M42 66 L50 86 L64 72 L78 86 L86 66"
+                fill="none"
+                stroke="#A855F7"
+                stroke-width="12"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="52" cy="49" r="6" fill="#A855F7" />
+              <circle cx="80" cy="49" r="6" fill="#A855F7" />
+            </svg>
+            <span>watchside</span>
+          </a>
+          <div class="nav-links">
+            <a href="/privacy">Privacy</a>
+            <a href="/support">Support</a>
+          </div>
+        </nav>
       </div>
 
-      <h1>See where your friends are watching Twitch.</h1>
-      <p class="lede">
-        Watchside is a browser extension that shows you which streams your
-        friends are on, so you can jump in and watch together.
-      </p>
+      <!-- ============================================================ hero -->
 
-      <div class="card">
-        <h2 style="margin-top: 0">How it works</h2>
-        <ul>
-          <li>Add a few friends who also use Watchside.</li>
-          <li>
-            When one of them starts watching someone on Twitch, they appear in
-            your Watchside panel.
-          </li>
-          <li>Press JOIN and you land on that stream, alongside them.</li>
-        </ul>
-        <p class="dim">
-          Watchside sits beside Twitch in a small panel. It does not replace
-          Twitch chat and it does not change how you watch.
-        </p>
-      </div>
+      <section class="hero" id="get">
+        <div class="wrap">
+          <h1>See where your friends are <em>watching Twitch</em>.</h1>
+          <p class="lede">
+            Watchside puts a small panel beside Twitch showing which streams your
+            friends are on. When someone is somewhere good, press JOIN and you
+            are there with them.
+          </p>
 
-      <h2>Get Watchside</h2>
-      <p>
-        <a class="cta" id="install" href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
-          >Add to Chrome</a
-        >
-      </p>
-      <p class="dim">
-        Watchside is in a small private beta. A Firefox version is built and
-        working, and is waiting on Mozilla's review before it can be listed —
-        there is nothing to install there yet.
-      </p>
+          <div class="actions">
+            <a
+              class="btn btn-primary"
+              id="install"
+              href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.9 4.02L3.34 5.5A10 10 0 0 1 12 2Zm10 10a10 10 0 0 1-9.5 9.99l3.7-6.4A5 5 0 0 0 17 12a5 5 0 0 0-.28-1.65h4.06c.15.53.22 1.09.22 1.65ZM2 12c0-1.36.27-2.66.76-3.84l4.05 7.02a5 5 0 0 0 4.3 2.8L9.2 21.7A10 10 0 0 1 2 12Zm10 3a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"
+                />
+              </svg>
+              Add to Chrome
+            </a>
+            <a
+              class="btn btn-secondary"
+              href="https://addons.mozilla.org/firefox/addon/watchside/"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 2.2a7.8 7.8 0 0 1 5.9 2.7 6.6 6.6 0 0 0-3-.7 6.4 6.4 0 0 0-6.4 5.2 4.2 4.2 0 0 1-.3-1.5 4.3 4.3 0 0 1 1.1-2.9A7.7 7.7 0 0 1 12 4.2Zm-7.8 7.9a7.8 7.8 0 0 1 .6-3.1 6 6 0 0 0 1.6 4.6 6.5 6.5 0 0 0 5.3 2.1 6.3 6.3 0 0 0 4.5-2.2 4.4 4.4 0 0 1-3.6 4.9 7.8 7.8 0 0 1-8.4-6.3Z"
+                />
+              </svg>
+              Add to Firefox
+            </a>
+          </div>
 
-      <h2>Your data</h2>
-      <p>
-        Watchside shows your friends where you are watching, and nothing else.
-        It never reads Twitch chat, never touches other sites, and never sells
-        or shares anything. The
-        <a href="/privacy">privacy policy</a> says exactly what is kept, for how
-        long, and how to delete it.
-      </p>
+          <p class="meta">
+            <span>Free</span><span>Chrome &amp; Firefox</span><span
+              >Signs in with your Twitch account</span
+            >
+          </p>
+        </div>
+
+        <div class="wrap">
+          <figure class="shot hero-shot">
+            <img
+              src="/img/presence.webp"
+              width="1280"
+              height="800"
+              alt="Twitch's browse page with the Watchside panel docked on the right. It lists friends grouped by the channel they are watching — three friends on esl_sc2, one on summit1g, one on zchum — each with a JOIN button."
+              fetchpriority="high"
+              decoding="async"
+            />
+            <figcaption>
+              Watchside beside Twitch. Friends are grouped by what they are
+              watching, and each group has a way in.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ======================================================= core loop -->
+
+      <section class="band centered">
+        <div class="wrap">
+          <span class="eyebrow">How it works</span>
+          <h2>Presence, then a door.</h2>
+          <p class="sub">
+            Watchside does one thing: it tells you where people are, and gets you
+            there in one press.
+          </p>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-n" aria-hidden="true">1</div>
+              <h3>See where your friends are</h3>
+              <p>
+                Add a few people who also use Watchside. When they start watching
+                someone, they show up in your panel with the channel they are on.
+              </p>
+            </div>
+            <div class="step">
+              <div class="step-n" aria-hidden="true">2</div>
+              <h3>Notice when people gather</h3>
+              <p>
+                Friends watching the same stream are grouped together, so three
+                people landing on one channel is something you can actually see.
+              </p>
+            </div>
+            <div class="step">
+              <div class="step-n" aria-hidden="true">3</div>
+              <h3>Jump in with them</h3>
+              <p>
+                Press JOIN and Watchside takes you to that stream. No lobby, no
+                invite to accept, no waiting for anyone to reply.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================== social gravity -->
+
+      <section class="band">
+        <div class="wrap">
+          <div class="centered">
+            <span class="eyebrow">Why it matters</span>
+            <p class="thesis">Twitch is better when you know where your people are.</p>
+            <p class="sub" style="margin-bottom: 56px">
+              Watching alone and watching together are different experiences, and
+              the only thing standing between them is usually not knowing.
+            </p>
+          </div>
+
+          <div class="split">
+            <div class="split-text">
+              <h3>Someone is already here</h3>
+              <p>
+                When a friend is on the stream you are on, Watchside says so.
+                What was a solo tab quietly becomes a shared one — and the
+                friends who are elsewhere are one press away.
+              </p>
+            </div>
+            <figure class="shot">
+              <img
+                src="/img/join.webp"
+                width="1100"
+                height="688"
+                alt="Watching summit1g on Twitch. The Watchside panel shows Sarah is here on this channel, with other friends listed below on esl_sc2 and zchum, each with a JOIN button."
+                loading="lazy"
+                decoding="async"
+              />
+            </figure>
+          </div>
+
+          <div class="split flip">
+            <div class="split-text">
+              <h3>Watch it together</h3>
+              <p>
+                Everyone who joined shares a small side conversation and quick
+                reactions, next to the stream rather than on top of it. Twitch
+                chat carries on exactly as it was.
+              </p>
+            </div>
+            <figure class="shot">
+              <img
+                src="/img/together.webp"
+                width="1100"
+                height="688"
+                alt="Watching ESL_SC2 with four friends. The Watchside panel shows a watching-together conversation and emoji reactions alongside the stream."
+                loading="lazy"
+                decoding="async"
+              />
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================= privacy -->
+
+      <section class="band centered">
+        <div class="wrap">
+          <span class="eyebrow">Your data</span>
+          <h2>It knows where you are watching. That is all.</h2>
+          <p class="sub">
+            Watchside is built to show your friends one thing about you, and it
+            is the thing you already chose to do in public.
+          </p>
+
+          <ul class="privacy">
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>Runs on Twitch only.</strong> It never reads Twitch chat,
+                scrapes the page, or touches any other site.</span
+              >
+            </li>
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>No ads, no trackers, no selling.</strong> No advertising
+                SDK, no third-party analytics, no fingerprinting. This website
+                sets no cookies.</span
+              >
+            </li>
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>Your password stays with Twitch.</strong> Sign-in goes
+                through Twitch's own page. Watchside never sees it.</span
+              >
+            </li>
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>You can go invisible, or leave.</strong> Turn presence
+                off whenever you like, and delete your account and its data at
+                any time.</span
+              >
+            </li>
+          </ul>
+
+          <p class="dim">
+            The <a href="/privacy">privacy policy</a> says exactly what is kept,
+            for how long, and how to delete it.
+          </p>
+        </div>
+      </section>
+
+      <!-- ======================================================= final CTA -->
+
+      <section class="band">
+        <div class="wrap">
+          <div class="finale">
+            <h2>Go find your people.</h2>
+            <p class="sub" style="margin: 0 auto 32px">
+              Add Watchside, add a couple of friends, and Twitch stops being a
+              thing you do alone.
+            </p>
+            <div class="actions">
+              <a
+                class="btn btn-primary"
+                href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+                >Add to Chrome</a
+              >
+              <a
+                class="btn btn-secondary"
+                href="https://addons.mozilla.org/firefox/addon/watchside/"
+                >Add to Firefox</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================== footer -->
 
       <footer>
-        <a href="/privacy">Privacy</a>
-        <a href="/support">Support</a>
-        <span>Watchside is not affiliated with Twitch Interactive, Inc.</span>
+        <div class="wrap foot">
+          <nav aria-label="Footer">
+            <a href="/privacy">Privacy</a>
+            <a href="/support">Support</a>
+            <a href="mailto:anoteros.dev@gmail.com">Contact</a>
+          </nav>
+          <small>Watchside is not affiliated with Twitch Interactive, Inc.</small>
+        </div>
       </footer>

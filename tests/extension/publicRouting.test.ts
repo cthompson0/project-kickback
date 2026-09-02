@@ -75,10 +75,22 @@ beforeAll(() => {
 }, 60_000)
 
 describe('the canonical routes exist', () => {
-  it('serves a root page', () => {
+  it('serves a root page that makes the promise', () => {
     expect(existsSync(join(OUT, 'index.html'))).toBe(true)
     const html = readFileSync(join(OUT, 'index.html'), 'utf8')
-    expect(html).toContain('See where your friends are watching Twitch')
+
+    /*
+     * Checked as rendered TEXT rather than as a raw substring.
+     *
+     * The headline sets `watching Twitch` in the brand purple, so in the source
+     * the sentence is split across an <em> and no single string in the file
+     * contains it. What matters is what a visitor reads, which is what this
+     * now asserts - and it keeps working the next time the headline is styled
+     * differently.
+     */
+    const heading = /<h1[^>]*>([\s\S]*?)<\/h1>/.exec(html)?.[1] ?? ''
+    const text = heading.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+    expect(text).toBe('See where your friends are watching Twitch.')
   })
 
   it('serves privacy and support', () => {
@@ -270,23 +282,64 @@ describe('the public page tells the truth about availability', () => {
   const root = () => readFileSync(join(OUT, 'index.html'), 'utf8')
 
   /**
-   * Chrome 0.6 is genuinely live, so a real install link is honest. Firefox has
-   * never been published - 0.6 is still awaiting Mozilla's FIRST review - and
-   * presenting it as available would send people to a listing that does not
-   * exist.
+   * BOTH STORES ARE LIVE NOW, and this test used to assert the opposite.
+   *
+   * It was correct when it was written: Firefox had never been published, so
+   * offering it would have sent people to a listing that did not exist, and the
+   * test pinned that. Mozilla has since reviewed and published Watchside - the
+   * AMO listing serves an approved build at
+   * `addons.mozilla.org/firefox/addon/watchside/` - so the assertion had become
+   * a guard holding a true statement out of the page.
+   *
+   * The locale-less AMO path is deliberate: AMO redirects it to the visitor's
+   * own locale, and hard-coding `/en-US/` would send everyone to English.
    */
-  it('offers Chrome, which is actually published', () => {
+  it('offers Chrome, which is published', () => {
     expect(root()).toContain('Add to Chrome')
     expect(root()).toContain('chromewebstore.google.com')
   })
 
-  it('does not offer Firefox, which is not', () => {
+  it('offers Firefox, which is published too', () => {
     const html = root()
-    expect(html).not.toContain('addons.mozilla.org')
-    expect(html).not.toContain('Add to Firefox')
-    expect(html).not.toContain('Get the add-on')
-    // It says where Firefox actually stands instead of pretending it is absent.
-    expect(html).toContain('waiting on Mozilla')
+    expect(html).toContain('Add to Firefox')
+    expect(html).toContain('addons.mozilla.org/firefox/addon/watchside/')
+  })
+
+  /**
+   * Both CTAs, counted rather than merely present.
+   *
+   * `toContain` was satisfied by either one alone, so removing the Firefox
+   * button from the hero - the version most visitors ever see - left the suite
+   * green because the closing CTA still had one. The page offers each store
+   * twice on purpose: once at the top, once at the end.
+   */
+  it('offers both stores in both places', () => {
+    const html = root()
+    const count = (needle: string) => html.split(needle).length - 1
+    expect(count('addons.mozilla.org/firefox/addon/watchside/'), 'Firefox CTAs').toBe(2)
+    expect(count('chromewebstore.google.com/detail/'), 'Chrome CTAs').toBe(2)
+  })
+
+  /**
+   * Review state is not the visitor's business.
+   *
+   * Both stores always have an approved version installable while the next one
+   * is in review, so a CTA pointed at the listing is always right - and prose
+   * about what is pending goes stale the moment a reviewer clicks approve. The
+   * page said "waiting on Mozilla" for weeks after it stopped being true.
+   */
+  it('does not narrate its own release process', () => {
+    const html = root().toLowerCase()
+    for (const stale of [
+      'waiting on mozilla',
+      'awaiting review',
+      'in review',
+      'coming soon',
+      'private beta',
+      'not yet available',
+    ]) {
+      expect(html, stale).not.toContain(stale)
+    }
   })
 
   /** Claims we have no evidence for, in a product built to measure them. */
@@ -537,8 +590,31 @@ describe('the campaign route is separate from the referral route', () => {
   })
 
   it('still loads nothing from anywhere else', () => {
-    // The campaign route added script; it must not have added a request.
+    /*
+     * The campaign route added script; it must not have added a request.
+     *
+     * `www.w3.org/2000/svg` is allowed because it is an XML namespace, not an
+     * address. It appears in the inline favicon, where a standalone SVG will not
+     * parse without it, and no browser has ever fetched an xmlns. Everything
+     * else on this list is a link a person can click, not something the page
+     * loads by itself.
+     */
     const html = readFileSync(join(OUT, '404.html'), 'utf8')
-    expect(html).not.toMatch(/https?:\/\/(?!www\.twitch\.tv|chromewebstore)/)
+    expect(html).not.toMatch(
+      /https?:\/\/(?!www\.twitch\.tv|chromewebstore|addons\.mozilla\.org|www\.w3\.org\/2000\/svg)/,
+    )
+  })
+
+  /**
+   * An invite that lands a Firefox user on a Chrome-only page is a dead end.
+   *
+   * This is where invite links resolve, so it is the first thing a friend of a
+   * user sees. It offered Chrome alone for as long as that was the only store
+   * Watchside was in; both are live now, and both belong here.
+   */
+  it('offers both browsers, because this is where invites land', () => {
+    const html = readFileSync(join(OUT, '404.html'), 'utf8')
+    expect(html).toContain('chromewebstore.google.com')
+    expect(html).toContain('addons.mozilla.org/firefox/addon/watchside/')
   })
 })

@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Watchside — see where your friends are watching Twitch</title>
     <meta name="description" content="Watchside is a browser extension that shows which Twitch streams your friends are on, so you can jump in and watch together." />
+    <meta name="theme-color" content="#0b0b0e" />
+    <!--
+      The mark, inline. An external icon file would be the one request these
+      pages otherwise never make, and it is 400 bytes.
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='28' fill='%230B0B0E'/%3E%3Cpath d='M40 102 H92 a20 20 0 0 0 20-20 V42 a20 20 0 0 0-20-20 H36 a20 20 0 0 0-20 20 v40 a20 20 0 0 0 20 20 h2 v14 z' fill='none' stroke='%23A855F7' stroke-width='11' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='M42 66 L50 86 L64 72 L78 86 L86 66' fill='none' stroke='%23A855F7' stroke-width='12' stroke-linecap='round' stroke-linejoin='round'/%3E%3Ccircle cx='52' cy='49' r='6' fill='%23A855F7'/%3E%3Ccircle cx='80' cy='49' r='6' fill='%23A855F7'/%3E%3C/svg%3E"
+    />
     <!--
       No analytics, no tracking, no external scripts, no external fonts, no
       cookies. Everything each page needs is in that page. The domain existing
@@ -19,6 +28,21 @@
         --dim: #9c9ca8;
         --line: #26262f;
         --accent: #a855f7;
+        /* The deeper end of the brand purple, for gradients and hovers. */
+        --accent-deep: #9333ea;
+        --accent-soft: rgba(168, 85, 247, 0.12);
+      }
+
+      /* Nobody should be ambushed by motion they did not ask for. */
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+          scroll-behavior: auto !important;
+        }
       }
 
       * { box-sizing: border-box; }
@@ -91,6 +115,19 @@
       }
       .cta:hover { filter: brightness(1.08); }
 
+      /* The second choice beside a primary one: same shape, less weight. */
+      .cta-alt {
+        margin-left: 10px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        color: var(--text);
+      }
+      .cta-alt:hover { border-color: var(--accent); background: var(--accent-soft); }
+
+      @media (max-width: 480px) {
+        .cta, .cta-alt { display: block; margin-left: 0; text-align: center; }
+      }
+
       .card {
         padding: 18px 20px;
         border: 1px solid var(--line);
@@ -113,64 +150,905 @@
         h1 { font-size: 1.6rem; }
       }
     </style>
+<!--
+  The landing page's own styles.
+
+  Injected into <head> after the shell's, so plain element rules here override
+  the shell's document-page defaults without needing !important or a body class.
+  Privacy, Support and 404 never load any of this.
+
+  No external fonts, no framework, no JavaScript. The page is one HTML file, one
+  inline stylesheet and three WebP screenshots.
+-->
+<style>
+  /*
+   * The shell is built for reading: a 46rem column with generous padding. The
+   * landing page is built for looking, so it takes the full width back and each
+   * section sets its own measure.
+   */
+  body {
+    padding: 0;
+    overflow-x: hidden;
+  }
+
+  main {
+    max-width: none;
+    margin: 0;
+  }
+
+  .wrap {
+    max-width: 64rem;
+    margin: 0 auto;
+    padding: 0 24px;
+  }
+
+  /*
+   * Off-screen until focused, then a real button in the corner. Keyboard users
+   * arriving on a page whose point is a download should not have to tab through
+   * the whole thing to reach it.
+   */
+  .skip {
+    position: absolute;
+    left: -9999px;
+    z-index: 10;
+    padding: 12px 18px;
+    border-radius: 10px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 650;
+    text-decoration: none;
+  }
+  .skip:focus {
+    left: 16px;
+    top: 16px;
+  }
+
+  section {
+    position: relative;
+  }
+
+  /* ------------------------------------------------------------------ type */
+
+  h1,
+  h2,
+  h3 {
+    line-height: 1.15;
+    text-wrap: balance;
+  }
+
+  .eyebrow {
+    display: block;
+    margin-bottom: 14px;
+    color: var(--accent);
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  /* ------------------------------------------------------------------- nav */
+
+  .nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 22px 0 0;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text);
+    text-decoration: none;
+  }
+  .brand svg {
+    display: block;
+    flex: none;
+  }
+  .brand span {
+    font-size: 1.05rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+  }
+
+  .nav-links {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    font-size: 0.92rem;
+  }
+  .nav-links a {
+    color: var(--dim);
+    text-decoration: none;
+    transition: color 0.15s ease;
+  }
+  .nav-links a:hover {
+    color: var(--text);
+  }
+
+  /* ----------------------------------------------------------------- hero */
+
+  .hero {
+    padding: 76px 0 0;
+    text-align: center;
+  }
+
+  /*
+   * The one piece of decoration on the page: a soft purple bloom behind the
+   * headline, so the hero reads as Watchside's rather than as a dark page with
+   * text on it. A radial-gradient costs nothing and never animates.
+   */
+  .hero::before {
+    content: "";
+    position: absolute;
+    inset: -140px 0 auto;
+    height: 620px;
+    background: radial-gradient(
+      58% 52% at 50% 32%,
+      rgba(168, 85, 247, 0.2) 0%,
+      rgba(168, 85, 247, 0.06) 42%,
+      transparent 72%
+    );
+    pointer-events: none;
+    z-index: -1;
+  }
+
+  .hero h1 {
+    margin: 0 auto 20px;
+    /* Two lines on a desktop, three on a phone. At 15ch it broke to three
+       everywhere, which made the biggest thing on the page look cramped. */
+    max-width: 19ch;
+    font-size: clamp(2.4rem, 6.4vw, 4rem);
+    letter-spacing: -0.035em;
+    font-weight: 800;
+  }
+
+  /* The product's own accent, used once, on the words that carry the idea. */
+  .hero h1 em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--accent) 10%, #c88bff 90%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hero .lede {
+    max-width: 54ch;
+    margin: 0 auto 32px;
+    color: var(--dim);
+    font-size: clamp(1.05rem, 2.2vw, 1.2rem);
+    line-height: 1.6;
+  }
+
+  /* ------------------------------------------------------------------ CTAs */
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 24px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    font-size: 1rem;
+    font-weight: 650;
+    text-decoration: none;
+    white-space: nowrap;
+    transition:
+      transform 0.15s ease,
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+  .btn svg {
+    flex: none;
+  }
+
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+    color: #fff;
+    box-shadow: 0 6px 24px rgba(168, 85, 247, 0.28);
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 30px rgba(168, 85, 247, 0.38);
+  }
+
+  .btn-secondary {
+    background: var(--surface);
+    border-color: var(--line);
+    color: var(--text);
+  }
+  .btn-secondary:hover {
+    transform: translateY(-1px);
+    border-color: var(--accent);
+    background: var(--accent-soft);
+  }
+
+  .btn:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .meta {
+    margin: 20px 0 0;
+    color: var(--dim);
+    font-size: 0.88rem;
+  }
+  .meta span + span::before {
+    content: "·";
+    margin: 0 9px;
+    opacity: 0.5;
+  }
+
+  /* --------------------------------------------------------------- shots */
+
+  /*
+   * The screenshot frame. A thin light edge on top and a purple-tinted shadow
+   * underneath is enough to lift the image off the page; anything more starts
+   * competing with the product inside it.
+   */
+  .shot {
+    margin: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    overflow: hidden;
+    box-shadow:
+      0 1px 0 rgba(255, 255, 255, 0.05) inset,
+      0 24px 70px -28px rgba(0, 0, 0, 0.9),
+      0 0 60px -30px rgba(168, 85, 247, 0.5);
+  }
+  .shot img {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+  .shot figcaption {
+    padding: 12px 16px;
+    border-top: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 0.84rem;
+  }
+
+  .hero-shot {
+    margin-top: 56px;
+  }
+
+  /* ------------------------------------------------------------- sections */
+
+  .band {
+    padding: 96px 0;
+  }
+  .band + .band {
+    padding-top: 0;
+  }
+
+  .band h2 {
+    margin: 0 0 14px;
+    font-size: clamp(1.7rem, 3.6vw, 2.3rem);
+    letter-spacing: -0.03em;
+    font-weight: 800;
+  }
+
+  .band .sub {
+    max-width: 52ch;
+    margin: 0 0 40px;
+    color: var(--dim);
+    font-size: 1.05rem;
+  }
+
+  .centered {
+    text-align: center;
+  }
+  .centered .sub {
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* ----------------------------------------------------------- core loop */
+
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+    text-align: left;
+  }
+
+  .step {
+    padding: 26px 24px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: var(--surface);
+    transition: border-color 0.15s ease;
+  }
+  .step:hover {
+    border-color: #3a3a48;
+  }
+
+  .step-n {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px;
+    height: 30px;
+    margin-bottom: 16px;
+    border-radius: 9px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 0.85rem;
+    font-weight: 700;
+  }
+
+  .step h3 {
+    margin: 0 0 8px;
+    font-size: 1.08rem;
+    letter-spacing: -0.01em;
+  }
+  .step p {
+    margin: 0;
+    color: var(--dim);
+    font-size: 0.95rem;
+    line-height: 1.6;
+  }
+
+  /* ------------------------------------------------------------ split rows */
+
+  .split {
+    display: grid;
+    grid-template-columns: 0.85fr 1.15fr;
+    align-items: center;
+    gap: 48px;
+  }
+  .split + .split {
+    margin-top: 80px;
+  }
+
+  /*
+   * The flipped row swaps the COLUMN WIDTHS as well as the order.
+   *
+   * Without the second line the text moved to the right but the wide column
+   * stayed there, so the image dropped into the narrow one - and the two
+   * screenshots in this section rendered at visibly different sizes, which read
+   * as a mistake rather than as rhythm.
+   */
+  .split.flip {
+    grid-template-columns: 1.15fr 0.85fr;
+  }
+  .split.flip .split-text {
+    order: 2;
+  }
+
+  .split h3 {
+    margin: 0 0 12px;
+    font-size: clamp(1.3rem, 2.6vw, 1.6rem);
+    letter-spacing: -0.02em;
+    font-weight: 700;
+  }
+  .split p {
+    margin: 0;
+    color: var(--dim);
+    line-height: 1.65;
+  }
+
+  /* --------------------------------------------------------------- thesis */
+
+  .thesis {
+    max-width: 24ch;
+    margin: 0 auto 18px;
+    font-size: clamp(1.9rem, 4.6vw, 2.9rem);
+    line-height: 1.2;
+    letter-spacing: -0.035em;
+    font-weight: 800;
+  }
+
+  /* -------------------------------------------------------------- privacy */
+
+  .privacy {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    margin: 0 0 28px;
+    padding: 0;
+    list-style: none;
+    text-align: left;
+  }
+  .privacy li {
+    display: flex;
+    gap: 12px;
+    margin: 0;
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: var(--surface);
+    color: var(--dim);
+    font-size: 0.95rem;
+    line-height: 1.55;
+  }
+  .privacy strong {
+    color: var(--text);
+    font-weight: 650;
+  }
+  .privacy .tick {
+    flex: none;
+    margin-top: 2px;
+    color: var(--accent);
+  }
+
+  /* ------------------------------------------------------------ final CTA */
+
+  .finale {
+    padding: 72px 32px;
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    background:
+      radial-gradient(70% 120% at 50% 0%, rgba(168, 85, 247, 0.16) 0%, transparent 70%),
+      var(--surface);
+    text-align: center;
+  }
+  .finale h2 {
+    margin-bottom: 12px;
+  }
+
+  /* --------------------------------------------------------------- footer */
+
+  footer {
+    margin-top: 0;
+    padding: 32px 0 56px;
+    border-top: 1px solid var(--line);
+    color: var(--dim);
+    font-size: 0.88rem;
+  }
+  .foot {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .foot nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+  footer a {
+    margin: 0;
+    color: var(--dim);
+    text-decoration: none;
+  }
+  footer a:hover {
+    color: var(--text);
+  }
+  .foot small {
+    /*
+     * #6f6f7d was 3.97:1 against the page background - under WCAG AA's 4.5:1
+     * for text this size. #8a8a99 is 5.78:1 and still reads as the quietest
+     * thing on the page, which was the only reason it was grey.
+     */
+    color: #8a8a99;
+    font-size: 0.82rem;
+  }
+
+  /* ---------------------------------------------------------- responsive */
+
+  @media (max-width: 900px) {
+    .steps {
+      grid-template-columns: 1fr;
+    }
+    .split,
+    .split.flip {
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+    /* Text first on narrow screens, whichever side it sat on wide ones. */
+    .split.flip .split-text {
+      order: 0;
+    }
+    .privacy {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 640px) {
+    .wrap {
+      padding: 0 18px;
+    }
+    .hero {
+      padding-top: 52px;
+    }
+    .hero-shot {
+      margin-top: 40px;
+    }
+    .band {
+      padding: 68px 0;
+    }
+    .nav-links {
+      gap: 16px;
+    }
+    /* Full-width buttons stack more cleanly than two half-width ones. */
+    .actions {
+      flex-direction: column;
+      align-items: stretch;
+    }
+    .btn {
+      justify-content: center;
+    }
+    .finale {
+      padding: 52px 22px;
+      border-radius: 16px;
+    }
+    .foot {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+  }
+
+  @media (max-width: 380px) {
+    .nav-links {
+      display: none;
+    }
+  }
+</style>
+
   </head>
   <body>
     <main>
-      <div class="mark">
-        <svg width="28" height="28" viewBox="0 0 32 32" role="img" aria-label="Watchside">
-          <circle cx="16" cy="16" r="15" fill="none" stroke="#a855f7" stroke-width="2" />
-          <circle cx="16" cy="16" r="5" fill="#a855f7" />
-        </svg>
-        <span class="wordmark">watchside</span>
+      <a class="skip" href="#get">Skip to install</a>
+
+      <div class="wrap">
+        <nav class="nav">
+          <a class="brand" href="/watchside/" aria-label="Watchside home">
+            <svg width="30" height="30" viewBox="0 0 128 128" aria-hidden="true" focusable="false">
+              <rect width="128" height="128" rx="28" fill="#0B0B0E" />
+              <path
+                d="M40 102 H92 a20 20 0 0 0 20-20 V42 a20 20 0 0 0-20-20 H36 a20 20 0 0 0-20 20 v40 a20 20 0 0 0 20 20 h2 v14 z"
+                fill="none"
+                stroke="#A855F7"
+                stroke-width="11"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <path
+                d="M42 66 L50 86 L64 72 L78 86 L86 66"
+                fill="none"
+                stroke="#A855F7"
+                stroke-width="12"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="52" cy="49" r="6" fill="#A855F7" />
+              <circle cx="80" cy="49" r="6" fill="#A855F7" />
+            </svg>
+            <span>watchside</span>
+          </a>
+          <div class="nav-links">
+            <a href="/watchside/privacy">Privacy</a>
+            <a href="/watchside/support">Support</a>
+          </div>
+        </nav>
       </div>
 
-      <h1>See where your friends are watching Twitch.</h1>
-      <p class="lede">
-        Watchside is a browser extension that shows you which streams your
-        friends are on, so you can jump in and watch together.
-      </p>
+      <!-- ============================================================ hero -->
 
-      <div class="card">
-        <h2 style="margin-top: 0">How it works</h2>
-        <ul>
-          <li>Add a few friends who also use Watchside.</li>
-          <li>
-            When one of them starts watching someone on Twitch, they appear in
-            your Watchside panel.
-          </li>
-          <li>Press JOIN and you land on that stream, alongside them.</li>
-        </ul>
-        <p class="dim">
-          Watchside sits beside Twitch in a small panel. It does not replace
-          Twitch chat and it does not change how you watch.
-        </p>
-      </div>
+      <section class="hero" id="get">
+        <div class="wrap">
+          <h1>See where your friends are <em>watching Twitch</em>.</h1>
+          <p class="lede">
+            Watchside puts a small panel beside Twitch showing which streams your
+            friends are on. When someone is somewhere good, press JOIN and you
+            are there with them.
+          </p>
 
-      <h2>Get Watchside</h2>
-      <p>
-        <a class="cta" id="install" href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
-          >Add to Chrome</a
-        >
-      </p>
-      <p class="dim">
-        Watchside is in a small private beta. A Firefox version is built and
-        working, and is waiting on Mozilla's review before it can be listed —
-        there is nothing to install there yet.
-      </p>
+          <div class="actions">
+            <a
+              class="btn btn-primary"
+              id="install"
+              href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M12 2a10 10 0 0 1 8.66 5H12a5 5 0 0 0-4.9 4.02L3.34 5.5A10 10 0 0 1 12 2Zm10 10a10 10 0 0 1-9.5 9.99l3.7-6.4A5 5 0 0 0 17 12a5 5 0 0 0-.28-1.65h4.06c.15.53.22 1.09.22 1.65ZM2 12c0-1.36.27-2.66.76-3.84l4.05 7.02a5 5 0 0 0 4.3 2.8L9.2 21.7A10 10 0 0 1 2 12Zm10 3a3 3 0 1 1 0-6 3 3 0 0 1 0 6Z"
+                />
+              </svg>
+              Add to Chrome
+            </a>
+            <a
+              class="btn btn-secondary"
+              href="https://addons.mozilla.org/firefox/addon/watchside/"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path
+                  fill="currentColor"
+                  d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm0 2.2a7.8 7.8 0 0 1 5.9 2.7 6.6 6.6 0 0 0-3-.7 6.4 6.4 0 0 0-6.4 5.2 4.2 4.2 0 0 1-.3-1.5 4.3 4.3 0 0 1 1.1-2.9A7.7 7.7 0 0 1 12 4.2Zm-7.8 7.9a7.8 7.8 0 0 1 .6-3.1 6 6 0 0 0 1.6 4.6 6.5 6.5 0 0 0 5.3 2.1 6.3 6.3 0 0 0 4.5-2.2 4.4 4.4 0 0 1-3.6 4.9 7.8 7.8 0 0 1-8.4-6.3Z"
+                />
+              </svg>
+              Add to Firefox
+            </a>
+          </div>
 
-      <h2>Your data</h2>
-      <p>
-        Watchside shows your friends where you are watching, and nothing else.
-        It never reads Twitch chat, never touches other sites, and never sells
-        or shares anything. The
-        <a href="/watchside/privacy">privacy policy</a> says exactly what is kept, for how
-        long, and how to delete it.
-      </p>
+          <p class="meta">
+            <span>Free</span><span>Chrome &amp; Firefox</span><span
+              >Signs in with your Twitch account</span
+            >
+          </p>
+        </div>
+
+        <div class="wrap">
+          <figure class="shot hero-shot">
+            <img
+              src="/watchside/img/presence.webp"
+              width="1280"
+              height="800"
+              alt="Twitch's browse page with the Watchside panel docked on the right. It lists friends grouped by the channel they are watching — three friends on esl_sc2, one on summit1g, one on zchum — each with a JOIN button."
+              fetchpriority="high"
+              decoding="async"
+            />
+            <figcaption>
+              Watchside beside Twitch. Friends are grouped by what they are
+              watching, and each group has a way in.
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ======================================================= core loop -->
+
+      <section class="band centered">
+        <div class="wrap">
+          <span class="eyebrow">How it works</span>
+          <h2>Presence, then a door.</h2>
+          <p class="sub">
+            Watchside does one thing: it tells you where people are, and gets you
+            there in one press.
+          </p>
+
+          <div class="steps">
+            <div class="step">
+              <div class="step-n" aria-hidden="true">1</div>
+              <h3>See where your friends are</h3>
+              <p>
+                Add a few people who also use Watchside. When they start watching
+                someone, they show up in your panel with the channel they are on.
+              </p>
+            </div>
+            <div class="step">
+              <div class="step-n" aria-hidden="true">2</div>
+              <h3>Notice when people gather</h3>
+              <p>
+                Friends watching the same stream are grouped together, so three
+                people landing on one channel is something you can actually see.
+              </p>
+            </div>
+            <div class="step">
+              <div class="step-n" aria-hidden="true">3</div>
+              <h3>Jump in with them</h3>
+              <p>
+                Press JOIN and Watchside takes you to that stream. No lobby, no
+                invite to accept, no waiting for anyone to reply.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================== social gravity -->
+
+      <section class="band">
+        <div class="wrap">
+          <div class="centered">
+            <span class="eyebrow">Why it matters</span>
+            <p class="thesis">Twitch is better when you know where your people are.</p>
+            <p class="sub" style="margin-bottom: 56px">
+              Watching alone and watching together are different experiences, and
+              the only thing standing between them is usually not knowing.
+            </p>
+          </div>
+
+          <div class="split">
+            <div class="split-text">
+              <h3>Someone is already here</h3>
+              <p>
+                When a friend is on the stream you are on, Watchside says so.
+                What was a solo tab quietly becomes a shared one — and the
+                friends who are elsewhere are one press away.
+              </p>
+            </div>
+            <figure class="shot">
+              <img
+                src="/watchside/img/join.webp"
+                width="1100"
+                height="688"
+                alt="Watching summit1g on Twitch. The Watchside panel shows Sarah is here on this channel, with other friends listed below on esl_sc2 and zchum, each with a JOIN button."
+                loading="lazy"
+                decoding="async"
+              />
+            </figure>
+          </div>
+
+          <div class="split flip">
+            <div class="split-text">
+              <h3>Watch it together</h3>
+              <p>
+                Everyone who joined shares a small side conversation and quick
+                reactions, next to the stream rather than on top of it. Twitch
+                chat carries on exactly as it was.
+              </p>
+            </div>
+            <figure class="shot">
+              <img
+                src="/watchside/img/together.webp"
+                width="1100"
+                height="688"
+                alt="Watching ESL_SC2 with four friends. The Watchside panel shows a watching-together conversation and emoji reactions alongside the stream."
+                loading="lazy"
+                decoding="async"
+              />
+            </figure>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================= privacy -->
+
+      <section class="band centered">
+        <div class="wrap">
+          <span class="eyebrow">Your data</span>
+          <h2>It knows where you are watching. That is all.</h2>
+          <p class="sub">
+            Watchside is built to show your friends one thing about you, and it
+            is the thing you already chose to do in public.
+          </p>
+
+          <ul class="privacy">
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>Runs on Twitch only.</strong> It never reads Twitch chat,
+                scrapes the page, or touches any other site.</span
+              >
+            </li>
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>No ads, no trackers, no selling.</strong> No advertising
+                SDK, no third-party analytics, no fingerprinting. This website
+                sets no cookies.</span
+              >
+            </li>
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>Your password stays with Twitch.</strong> Sign-in goes
+                through Twitch's own page. Watchside never sees it.</span
+              >
+            </li>
+            <li>
+              <svg
+                class="tick"
+                width="17"
+                height="17"
+                viewBox="0 0 24 24"
+                aria-hidden="true"
+                focusable="false"
+              >
+                <path
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2.5"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  d="m5 13 4 4L19 7"
+                />
+              </svg>
+              <span
+                ><strong>You can go invisible, or leave.</strong> Turn presence
+                off whenever you like, and delete your account and its data at
+                any time.</span
+              >
+            </li>
+          </ul>
+
+          <p class="dim">
+            The <a href="/watchside/privacy">privacy policy</a> says exactly what is kept,
+            for how long, and how to delete it.
+          </p>
+        </div>
+      </section>
+
+      <!-- ======================================================= final CTA -->
+
+      <section class="band">
+        <div class="wrap">
+          <div class="finale">
+            <h2>Go find your people.</h2>
+            <p class="sub" style="margin: 0 auto 32px">
+              Add Watchside, add a couple of friends, and Twitch stops being a
+              thing you do alone.
+            </p>
+            <div class="actions">
+              <a
+                class="btn btn-primary"
+                href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+                >Add to Chrome</a
+              >
+              <a
+                class="btn btn-secondary"
+                href="https://addons.mozilla.org/firefox/addon/watchside/"
+                >Add to Firefox</a
+              >
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ========================================================== footer -->
 
       <footer>
-        <a href="/watchside/privacy">Privacy</a>
-        <a href="/watchside/support">Support</a>
-        <span>Watchside is not affiliated with Twitch Interactive, Inc.</span>
+        <div class="wrap foot">
+          <nav aria-label="Footer">
+            <a href="/watchside/privacy">Privacy</a>
+            <a href="/watchside/support">Support</a>
+            <a href="mailto:anoteros.dev@gmail.com">Contact</a>
+          </nav>
+          <small>Watchside is not affiliated with Twitch Interactive, Inc.</small>
+        </div>
       </footer>
     </main>
   </body>

@@ -53,6 +53,7 @@ export default defineConfig([
       'scripts/verify-chat-wrapping.mjs',
       'scripts/verify-test-lab.mjs',
       'scripts/store-screenshots.mjs',
+      'scripts/site-images.mjs',
     ],
     languageOptions: {
       globals: { ...globals.node, ...globals.browser },

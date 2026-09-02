@@ -1,7 +1,26 @@
       <div class="mark">
-        <svg width="28" height="28" viewBox="0 0 32 32" role="img" aria-label="Watchside">
-          <circle cx="16" cy="16" r="15" fill="none" stroke="#a855f7" stroke-width="2" />
-          <circle cx="16" cy="16" r="5" fill="#a855f7" />
+        <!-- The real Watchside mark, the same geometry as
+             assets/brand/watchside-mark.svg. -->
+        <svg width="28" height="28" viewBox="0 0 128 128" role="img" aria-label="Watchside">
+          <rect width="128" height="128" rx="28" fill="#0B0B0E" />
+          <path
+            d="M40 102 H92 a20 20 0 0 0 20-20 V42 a20 20 0 0 0-20-20 H36 a20 20 0 0 0-20 20 v40 a20 20 0 0 0 20 20 h2 v14 z"
+            fill="none"
+            stroke="#A855F7"
+            stroke-width="11"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M42 66 L50 86 L64 72 L78 86 L86 66"
+            fill="none"
+            stroke="#A855F7"
+            stroke-width="12"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <circle cx="52" cy="49" r="6" fill="#A855F7" />
+          <circle cx="80" cy="49" r="6" fill="#A855F7" />
         </svg>
         <span class="wordmark">watchside</span>
       </div>
@@ -12,9 +31,19 @@
         you where your friends are watching on Twitch.
       </p>
 
+      <!--
+        Both browsers, because this page is where invite links land.
+
+        It offered Chrome alone for as long as that was the only store
+        Watchside was published in. Firefox users following a friend's invite
+        reached a page that told them to install something they could not.
+      -->
       <p>
         <a class="cta" id="install" href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
           >Add to Chrome</a
+        >
+        <a class="cta cta-alt" href="https://addons.mozilla.org/firefox/addon/watchside/"
+          >Add to Firefox</a
         >
       </p>
       <p class="dim" id="next" hidden>
