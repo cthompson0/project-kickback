@@ -476,12 +476,19 @@ mechanism that keeps this decision true, not an obstacle to it.
 | **G4** `following_at_join` | **SATISFIED by delivery** - M3D |
 | **G5** `subscribed_at_join` | **SATISFIED by recorded decision** - above |
 | **G6** deletion path before any Twitch-derived write | **SATISFIED** |
-| **G7** Twitch DSA legal read | **CONDITIONALLY SATISFIED 2026-09-02; remediation DEPLOYED 2026-09-03.** The agreement was read in full from primary source for the first time. Schedule 2 (Extensions) does **not** apply. One real violation found - cached Twitch Content outlived Schedule 1 SC's 24-hour limit because the sweep 0017 designed was never called. `twitch-metadata` is now deployed at **v5** and byte-verified against the committed source, so the sweep runs on the write path. **Closure pending one owner-run read-only query** confirming no cached row is older than 24h - the SQL is in the report addendum. Three owner risk acceptances recorded (presence, identity-after-revocation, overlay). |
+| **G7** Twitch DSA legal read | **A - SATISFIED, closed 2026-09-03.** The agreement was read in full from primary source for the first time; Schedule 2 (Extensions) does **not** apply to an independently distributed browser extension. One real violation found: cached Twitch Content outlived Schedule 1 SC's 24-hour limit because the sweep 0017 designed was never called. Remediated in two stages - `twitch-metadata` v5 deployed 2026-09-03 (`97e82cc`) to call it, then migration **0044** (`e74cca9`, schema **44**) scheduled it hourly at :07 with a 12-hour threshold, because the write-path call still depended on user traffic. Applied to production and **observed running**: seven consecutive successful `cron.job_run_details` executions, cache holding nothing older than 24h. Worst case ~13h against a 24h cap. Three owner risk acceptances recorded (presence, identity-after-revocation, overlay) - **not** counsel approval. **No longer blocks the release path.** |
 | **G8** D8 AMO `financialAndPaymentInfo` clarification | **RETIRED / NON-BLOCKING for M7** while M3E-a is deferred. D8 asks how to *declare* data Watchside has now chosen not to collect; there is nothing to declare. It returns if and only if `subscribed_at_join` is revisited |
 | **G9** privacy policy updated for every shipped measurement | **SATISFIED** - accuracy pass, `5d3b65b` |
 
-**M7 is therefore blocked by G1 (data, not work) and G7 (counsel)** - plus the
-cold-start question below, which is a product judgement rather than a gate.
+**M7 is therefore blocked by G1 (data, not work)** - plus the cold-start
+question below, which is a product judgement rather than a gate.
+
+> **G7 no longer blocks anything.** It closed **A - SATISFIED** on 2026-09-03
+> against primary-source contract text, with the retention remediation applied
+> and observed running in production. The "counsel" framing in the original gate
+> list was never satisfied literally - no attorney reviewed it - and the three
+> residual interpretive questions are recorded as **owner risk acceptances**
+> instead. See `docs/reports/g7-twitch-legal-release-gate-2026-09-02.md` §A14.
 
 ### v0.7.0 - RELEASE CANDIDATE / PACKAGED / NOT SUBMITTED
 

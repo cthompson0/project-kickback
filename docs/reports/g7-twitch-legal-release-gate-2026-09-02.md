@@ -1,5 +1,23 @@
 # G7 — Twitch legal / developer policy release gate
 
+> ## CURRENT STATUS: **A — G7 SATISFIED**
+>
+> **Closed 2026-09-03.** G7 no longer blocks the release path.
+>
+> This document is kept as the full record, in order: the audit and its
+> original **B — CONDITIONALLY SATISFIED** verdict (§1–§21), the Edge Function
+> remediation (Addendum 1), the traffic-independent retention guarantee
+> (Addendum 2), and the production evidence that closed it (**Addendum 3 —
+> §A14**). **The B determination below is historical and deliberately not
+> rewritten.** It was correct when made, and the progression from it is the
+> point.
+>
+> **This is a developer-policy and release-gate determination. It is not legal
+> advice and no attorney has reviewed it.** The three residual items in §A6
+> remain owner risk acceptances, not approvals.
+
+---
+
 **Date:** 2026-09-02
 **Scope:** audit only. No runtime code, scopes, permissions, schema, privacy
 copy, website copy or store copy was changed. Nothing was deployed, pushed or
@@ -8,7 +26,7 @@ submitted.
 
 ---
 
-## 1. Executive verdict
+## 1. Executive verdict *(as determined at audit, 2026-09-02 — superseded by §A14)*
 
 # B — G7 CONDITIONALLY SATISFIED
 
@@ -547,17 +565,20 @@ that no deployment is authorised.
 
 ---
 
-## 20. Final decision
+## 20. Final decision *(as determined at audit, 2026-09-02 — superseded by §A14)*
 
 # B — G7 CONDITIONALLY SATISFIED
 
-**Remediation checklist — finite and complete:**
+**Remediation checklist — finite and complete.** All items are now closed; see
+Addenda 1–3 for how each was discharged:
 
-- [ ] **R1** — deploy `twitch-metadata` (§19). Release-blocking.
-- [ ] Record owner acceptance of §18(a) friend-visible presence.
-- [ ] Record owner acceptance or counsel referral of §18(b) identity retention
-      on revocation.
-- [ ] Record owner acceptance of §18(c) overlay-as-modification.
+- [x] **R1** — deploy `twitch-metadata` (§19). Release-blocking.
+      *Done 2026-09-03T07:38:00Z (§A3), and completed by the traffic-independent
+      schedule in §A8–A14, because the deploy alone was not sufficient.*
+- [x] Record owner acceptance of §18(a) friend-visible presence. *§A6.*
+- [x] Record owner acceptance or counsel referral of §18(b) identity retention
+      on revocation. *§A6 — accepted, not referred.*
+- [x] Record owner acceptance of §18(c) overlay-as-modification. *§A6.*
 
 The three acceptances are bookkeeping — a decision on the record, not work.
 
@@ -575,6 +596,11 @@ The three acceptances are bookkeeping — a decision on the record, not work.
 **G7 may be closed the moment R1 is deployed and the three acceptances are
 recorded.** No other Twitch-policy work stands between Watchside and a v0.9
 submission.
+
+> **What actually happened.** R1 was deployed, and closure was then *withheld*
+> because the deploy left retention dependent on traffic — a gap this section did
+> not anticipate and Addendum 2 identified. G7 closed on 2026-09-03 only after a
+> scheduled sweep was applied and observed running in production. **§A14.**
 
 ---
 
@@ -613,16 +639,24 @@ been rewritten or removed.
 | --- | --- |
 | **Verdict at audit (2026-09-02)** | **B — CONDITIONALLY SATISFIED** |
 | **R1 deployment** | ✅ **DONE** — 2026-09-03T07:38:00Z |
-| **R1 production data verification** | ⏳ **OUTSTANDING — requires one owner-run read-only query (§A5)** |
+| **R1 production data verification** | ✅ **DONE** — owner-verified, §A14 |
 | **Owner acceptances 1–3** | ✅ **RECORDED — §A6** |
-| **Status now** | **B — remediation deployed; closure pending exactly one owner query** |
+| **Traffic-independent guarantee** | ✅ **APPLIED AND OBSERVED RUNNING — §A14** |
+| **Status now** | **A — G7 SATISFIED** (closed 2026-09-03, §A14) |
 
-**G7 has deliberately not been moved to A.** The deployment blocker is closed and
-proven closed. What is not yet proven is the *production data state* — that no
-cached row is older than 24 hours — and the credentials in this environment
-cannot read that table (§A5). This report's whole method was to verify rather
-than assume; declaring A on an unverified data state would abandon that standard
-at the last step. §A5 contains the single query that closes it.
+*Written at the time of Addendum 1, and left in place because the reasoning is
+the record:* **G7 has deliberately not been moved to A.** The deployment blocker
+is closed and proven closed. What is not yet proven is the *production data
+state* — that no cached row is older than 24 hours — and the credentials in this
+environment cannot read that table (§A5). This report's whole method was to
+verify rather than assume; declaring A on an unverified data state would abandon
+that standard at the last step. §A5 contains the single query that closes it.
+
+**That hold was right, and it did more than it was meant to.** Waiting for
+evidence rather than declaring closure is what exposed the deeper problem in
+Addendum 2: the deploy had made the sweep *run*, but had not made retention
+*independent of traffic*. Had G7 been closed on the deploy alone, the gap would
+have shipped.
 
 ## A2. Pre-deploy verification
 
@@ -992,22 +1026,147 @@ select 'twitch_credentials',                     count(*) from public.twitch_cre
 
 Only the first row should change.
 
-## A13. G7 status
+## A13. G7 status *(at the time of Addendum 2 — see §A14 for closure)*
 
 **Still B.** Not moved to A, and deliberately so — steps 1–9 above have not been
 run, the migration is not applied, and the job does not exist yet.
 
-G7 becomes **A — SATISFIED** when:
+G7 becomes **A — SATISFIED** when — **every box below was subsequently ticked;
+see §A14 for the evidence:**
 
-- [ ] pg_cron confirmed available (A12 step 1);
-- [ ] 0044 applied; `analytics_schema_version()` returns 44;
-- [ ] `cron.job` shows the job, active, with the expected schedule and command;
-- [ ] `cron.job_run_details` shows a succeeded run;
-- [ ] the cache query shows `beyond_cap = 0`;
-- [ ] the three owner acceptances in §A6 stand.
+- [x] pg_cron confirmed available (A12 step 1) — **version 1.6.4**;
+- [x] 0044 applied; `analytics_schema_version()` returns 44;
+- [x] `cron.job` shows the job, active, with the expected schedule and command;
+- [x] `cron.job_run_details` shows a succeeded run — **seven of them**;
+- [x] the cache query shows `beyond_cap = 0`;
+- [x] the three owner acceptances in §A6 stand.
 
 **Does `97e82cc` need superseding?** **No.** It recorded a deployment that
 happened and verification evidence that was accurate. Nothing in it is now
 false: it already named this exact gap as residual risk #1 and said a scheduled
 sweep would close it. This addendum is the follow-through, and amends the
 status forward rather than correcting anything backward.
+
+---
+---
+
+# ADDENDUM 3 — closure
+
+**Date:** 2026-09-03
+**Verdict:** **A — G7 SATISFIED.** G7 no longer blocks the release path.
+
+## A14. The progression, and the evidence that closed it
+
+### The finding
+
+The audit found one concrete blocker (§1, §19): `twitch_metadata_cache` stores
+copies of Twitch Content — display names, avatar URLs, live state, categories,
+titles, viewer counts — and Schedule 1 §C of the Developer Services Agreement
+permits that only if you "cache such information for only a twenty-four hour
+time period". The sweep written for exactly that purpose in migration 0017 was
+never called by anything, so rows had accumulated for the life of the project.
+
+### Stage 1 — the Edge Function, and why it was not enough
+
+`twitch-metadata` **v5** was deployed **2026-09-03T07:38:00Z** (§A3, commit
+`97e82cc`), adding the reviewed opportunistic call to
+`public.sweep_twitch_metadata_cache(...)`. The deployed bytes were verified
+identical to the committed source, and `verify_jwt` was preserved.
+
+That was a real remediation and it was **not sufficient**, for a reason the
+original audit had not drawn out: the call sits on the metadata **write** path,
+so cleanup only happened when a signed-in user caused a cache miss. Retention
+therefore tracked traffic. A quiet night, a gap between beta cohorts, an
+upstream outage or simply a small user base would each let rows sit past the
+cap — and Schedule 1 §C governs how long content is **stored**, not what is
+shown, so the two-minute serving TTL does not answer it.
+
+**Closure was withheld at that point** (§A1), and that hold is what surfaced the
+gap. Declaring G7 satisfied on the deploy alone would have shipped it.
+
+### Stage 2 — the traffic-independent guarantee
+
+Migration **`0044_twitch_metadata_retention_schedule.sql`** (commit `e74cca9`)
+schedules the function 0017 already wrote:
+
+| | |
+| --- | --- |
+| Mechanism | **pg_cron** — the first scheduled mechanism in the project |
+| Schedule | **hourly at minute :07** (`'7 * * * *'`) |
+| Command | `select public.sweep_twitch_metadata_cache(interval '12 hours')` |
+| Threshold | **12 hours** |
+| Worst-case retention | **≈13 hours** (12h threshold + ≤1h granularity) against a **24-hour** cap |
+| Schema version | **44** |
+| Serving TTL | **unchanged at ~2 minutes** — so the shorter storage threshold adds no Twitch API traffic and no user-visible change |
+
+The threshold is deliberately not set at the cap: putting it there would make
+compliance depend on the scheduler firing exactly on time, which is the
+margin-free reasoning that produced the original finding.
+
+### Stage 3 — production evidence (owner-performed)
+
+| Check | Result |
+| --- | --- |
+| pg_cron available | ✅ **version 1.6.4** |
+| Migration state before | aligned through 0043, only 0044 pending |
+| `db push --dry-run` | clean — showed **only 0044** |
+| `db push` | executed successfully; 0044 applied remotely |
+| Schema marker | ✅ **44** |
+| `cron.job` | ✅ contains the intended **active hourly** retention job |
+| Cache contents | ✅ **no rows older than 24 hours** |
+
+**Runtime evidence from `cron.job_run_details` — seven consecutive successful
+executions**, one per hour, exactly on the scheduled minute:
+
+| runid | time (UTC) | status |
+| --- | --- | --- |
+| 1 | 2026-09-03 10:07 | succeeded |
+| 2 | 2026-09-03 11:07 | succeeded |
+| 3 | 2026-09-03 12:07 | succeeded |
+| 4 | 2026-09-03 13:07 | succeeded |
+| 5 | 2026-09-03 14:07 | succeeded |
+| 6 | 2026-09-03 15:07 | succeeded |
+| 7 | 2026-09-03 16:07 | succeeded |
+
+Every observed execution ran exactly
+`select public.sweep_twitch_metadata_cache(interval '12 hours')`.
+
+**Repository consistency, checked at closure.** The committed migration matches
+what production is running: `'7 * * * *'` against runs observed at :07,
+the identical `interval '12 hours'` command, and
+`analytics_schema_version()` returning 44 against the owner-verified marker.
+44 migration files; the marker pinned in one place (`tests/db/bundle.test.ts`).
+
+**This is the distinction that matters:** the mechanism is not merely *present*
+in `cron.job`, it is **observed executing successfully and independently of
+application traffic**. That is what the audit asked for and what the write-path
+sweep alone could not demonstrate.
+
+## A15. What closure does and does not mean
+
+**Closed:** the concrete retention blocker. The ≤24-hour cap on stored Twitch
+Content is now guaranteed by a scheduled mechanism that runs whether or not
+anybody uses Watchside, with roughly an 11-hour margin.
+
+**Unchanged and still standing:** the three residual items in §A6 —
+friend-visible presence (§18a), Twitch identity retained after revocation
+(§18b), and the browser overlay (§18c). These are **owner risk acceptances**
+recorded on the record. They do not expire, and closing G7 does not resolve
+them; it records that the owner accepted them knowingly.
+
+**Not legal advice.** This is a developer-policy and release-gate
+determination made from primary-source contract text. **No attorney has
+reviewed it**, and nothing in this report should be represented as counsel
+approval.
+
+**Also unchanged:** the audit's substantive findings (§6–§17) — scopes,
+presence, Social Gravity, JOIN, M3D, DOM injection, advertising, branding,
+retention and API hygiene all audited clean, and Schedule 2 (Twitch Extensions)
+does not apply to Watchside.
+
+## A16. Final verdict
+
+# A — G7 SATISFIED
+
+**No Twitch legal or developer-policy work stands between Watchside and a v0.9
+store submission.**
