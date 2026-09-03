@@ -269,18 +269,50 @@ export function socialGravity<T>(
   })
 
   /*
-   * Sink the ended streams, and change nothing else.
+   * Sink the ended streams BELOW THE OTHER DESTINATIONS, and nothing further.
    *
-   * A stable partition rather than a sort: everything keeps clusterMembers'
-   * ordering within its group, so friend count still decides and the
-   * alphabetical tie-break still holds. Only the live/not-live boundary moves,
-   * and only for destinations - `here`, `around` and `offline` sections stay
-   * exactly where they were.
+   * THE BETA REPORT THIS EXISTS FOR
+   *
+   * A friend was online, with Twitch left open on a channel that had stopped
+   * streaming. Watchside drew her underneath the Offline section, and she read
+   * as offline.
+   *
+   * She was never CLASSIFIED as offline - her cluster is a `destination`
+   * throughout, and `effectiveStatus` never consults metadata. What was wrong
+   * was where the section landed. The previous partition put ended
+   * destinations at the very end of the list, which is past `around` and past
+   * `offline`, so the last thing on screen was a live person sitting below the
+   * heading for people who are gone. Position is what a reader actually sees,
+   * so that is a presence bug even though presence was computed correctly.
+   *
+   * Friend presence and stream liveness are independent dimensions. Metadata
+   * is allowed to say "this destination leads nowhere right now"; it is not
+   * allowed to say anything about whether the people there are online, and
+   * ordering a live friend below the offline heading says exactly that.
+   *
+   * The doc comment above this function already drew the line - metadata "may
+   * move a destination Twitch says has STOPPED STREAMING below the ones that
+   * have not" - and the code reached further than the sentence licensed.
+   *
+   * A stable sort rather than a partition, so everything else is untouched:
+   * ties keep clusterMembers' ordering, friend count still decides, and the
+   * alphabetical tie-break still holds. `here`, `around` and `offline` stay
+   * exactly where they were, which is now true of the code and not only of the
+   * comment.
    */
-  const ordered = [
-    ...sections.filter((section) => section.kind !== 'destination' || section.live !== 'offline'),
-    ...sections.filter((section) => section.kind === 'destination' && section.live === 'offline'),
-  ]
+  const KIND_RANK: Record<GravityKind, number> = {
+    here: 0,
+    destination: 1,
+    around: 2,
+    offline: 3,
+  }
+  const ordered = [...sections].sort((a, b) => {
+    if (KIND_RANK[a.kind] !== KIND_RANK[b.kind]) return KIND_RANK[a.kind] - KIND_RANK[b.kind]
+    // Only within destinations, and only on the live/not-live boundary.
+    if (a.kind !== 'destination') return 0
+    const ended = (section: { live: LiveState }) => (section.live === 'offline' ? 1 : 0)
+    return ended(a) - ended(b)
+  })
 
   /*
    * Rank AFTER ordering, so rank 1 is the top card on screen.

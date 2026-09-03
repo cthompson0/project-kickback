@@ -3286,7 +3286,23 @@ a.kb-ghost-btn {
  * on where people are - so the card keeps its people, its count and its JOIN,
  * and only stops claiming to be somewhere worth going first.
  */
-.kb-gravity-card-offline {
+/*
+ * An ended stream is quieter. The people on it are not.
+ *
+ * FOUND BY AUDITING THE SAME CONFLATION THE ORDERING BUG CAME FROM
+ *
+ * This used to dim the whole card, which meant a friend who was online -
+ * genuinely present, just with Twitch left open on a channel that had stopped
+ * streaming - had her avatar and her name faded out because the CHANNEL had
+ * ended. That is the stream's state being painted onto the person, which is
+ * the visual half of exactly the bug socialGravity.ts's ordering had.
+ *
+ * So the dimming is scoped to the stream context - the channel, its metadata,
+ * the JOIN that now leads nowhere - and the people row is left at full
+ * strength. Presence and liveness are independent, in the pixels as well as in
+ * the model.
+ */
+.kb-gravity-card-offline > *:not(.kb-gravity-people) {
   opacity: 0.72;
 }
 
