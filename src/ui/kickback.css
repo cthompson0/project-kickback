@@ -3556,6 +3556,31 @@ a.kb-ghost-btn {
   .kb-session-pulse {
     animation: none;
   }
+
+  /*
+   * The motion somebody actually sees, which was the motion still running.
+   *
+   * kb-pop is a translate-and-scale entrance on the panel, the collapsed
+   * launcher and the user card. It fires on every page load and every open, so
+   * it is by some distance the most frequent animation in Watchside - and it
+   * was the one the reduced-motion rules above did not name. kb-pulse is an
+   * infinite ripple on the live dot, which is the only motion that never
+   * stops.
+   *
+   * WHY THIS IS A LIST AND NOT A BLANKET RULE. The obvious version is
+   * `.kb-root *  { animation: none }`, and it would be wrong here: kb-together-
+   * fade runs `forwards` from `opacity: 0`, so it is not decoration - it is how
+   * a transient reaction appears and then leaves. Switching it off would strand
+   * those elements in whatever state they were declared with. Every animation
+   * named below ends where the element would have been anyway, which is what
+   * makes removing it safe.
+   */
+  .kb-panel,
+  .kb-launcher,
+  .kb-usercard,
+  .kb-live-dot {
+    animation: none;
+  }
 }
 
 /*

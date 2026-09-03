@@ -347,3 +347,64 @@ describe('the wordmark is text, and is held to the floor text owes', () => {
     )
   })
 })
+
+describe('reduced motion reaches the motion people actually see', () => {
+  /**
+   * THE GAP THIS EXISTS FOR.
+   *
+   * Watchside honoured prefers-reduced-motion for combo bursts and a session
+   * pulse - and not for kb-pop, the translate-and-scale entrance on the panel,
+   * the collapsed launcher and the user card. That one fires on every page
+   * load and every open, which made the most frequent animation in the product
+   * the one the reduced-motion rules did not name. kb-pulse, an infinite
+   * ripple on the live dot, was missing too.
+   *
+   * The test is written against the RULE rather than a list of selectors,
+   * because a list would go stale the first time somebody adds an animation.
+   */
+  const reducedBlocks = () => {
+    const blocks: string[] = []
+    const needle = '@media (prefers-reduced-motion: reduce) {'
+    let at = CSS.indexOf(needle)
+    while (at !== -1) {
+      // Nested braces: walk to the matching close rather than the first one.
+      let depth = 0
+      let i = at + needle.length - 1
+      for (; i < CSS.length; i += 1) {
+        if (CSS[i] === '{') depth += 1
+        else if (CSS[i] === '}') {
+          depth -= 1
+          if (depth === 0) break
+        }
+      }
+      blocks.push(CSS.slice(at, i + 1))
+      at = CSS.indexOf(needle, i)
+    }
+    return blocks
+  }
+
+  it('answers prefers-reduced-motion at all', () => {
+    expect(reducedBlocks().length).toBeGreaterThan(0)
+  })
+
+  it('turns off the entrance animation the panel plays on every open', () => {
+    const all = reducedBlocks().join('\n')
+    for (const selector of ['.kb-panel', '.kb-launcher', '.kb-live-dot']) {
+      expect(all, `${selector} still animates under reduced motion`).toContain(selector)
+    }
+  })
+
+  it('does not switch off an animation whose end state is load-bearing', () => {
+    /*
+     * The reason this is a list of selectors and not `.kb-root * { animation:
+     * none }`. kb-together-fade runs `forwards` from opacity 0 - it is how a
+     * transient reaction arrives and then leaves, not decoration - so blanket
+     * suppression would strand those elements rather than calm them.
+     */
+    // Comments come out first - the rule this guards against is quoted, by
+    // name, in the comment explaining why it is not used.
+    const all = reducedBlocks().join('\n').replace(/\/\*[\s\S]*?\*\//g, '')
+    expect(all).not.toMatch(/\*\s*\{[^}]*animation:\s*none/)
+    expect(all).not.toContain('kb-together-fade')
+  })
+})
