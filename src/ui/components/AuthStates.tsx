@@ -10,6 +10,8 @@ import type {
 } from '../../client/types'
 import { BadgeShelf } from './BadgeShelf'
 import { BackIcon, WatchsideMark } from './Icons'
+import { TEXT_SIZES } from '../textSize'
+import type { TextSize } from '../textSize'
 
 /**
  * The states the panel can be in before it has any friends to show. Each one is
@@ -552,6 +554,8 @@ export function AccountCard({
   onDeleted,
   measurementReadiness,
   onVisibilityChange,
+  textSize,
+  onTextSizeChange,
   preferences,
   onPreferencesChange,
   onResetLayout,
@@ -569,6 +573,9 @@ export function AccountCard({
   onDeleted: () => void
   measurementReadiness: MeasurementReadiness | null
   onVisibilityChange: (mode: PresenceVisibility) => void
+  /** The chosen text size, and the way to change it. See ui/textSize.ts. */
+  textSize: TextSize
+  onTextSizeChange: (size: TextSize) => void
   preferences: KickbackPreferences
   onPreferencesChange: (patch: Partial<KickbackPreferences>) => void
   /** Back to the default position and size, without clearing storage by hand. */
@@ -655,6 +662,10 @@ export function AccountCard({
               className={`kb-presence-option${
                 identity.presenceVisibility === option.value ? ' kb-presence-option-active' : ''
               }`}
+              // Same reason as Text size below it: -active is a colour, and a
+              // person who is not looking at the colour was told nothing about
+              // which of the three was in force.
+              aria-pressed={identity.presenceVisibility === option.value}
               title={option.hint}
               disabled={busy}
               onClick={() => {
@@ -673,10 +684,56 @@ export function AccountCard({
         </div>
       </div>
 
+      {/*
+        * Text size.
+        *
+        * Deliberately the same control as Presence above rather than a new
+        * one - this is a small set of mutually exclusive choices, which is
+        * exactly what that pattern already is, and a second visual idiom for
+        * the same shape of decision would be the invention.
+        *
+        * It is not routed through onPreferencesChange with the others, and
+        * that is the one real difference. Those live in the service worker and
+        * arrive over the port; this one has to be known during the FIRST
+        * PAINT, or every Twitch page load would draw at the default size and
+        * then visibly reflow to the size the reader actually chose. So it
+        * follows the panel's geometry into localStorage instead. See
+        * textSize.ts.
+        */}
+      <div className="kb-presence-picker">
+        <div className="kb-account-label" id="kb-text-size-label">
+          Text size
+        </div>
+        <div className="kb-presence-options" role="group" aria-labelledby="kb-text-size-label">
+          {TEXT_SIZES.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              className={`kb-presence-option${
+                textSize === option.id ? ' kb-presence-option-active' : ''
+              }`}
+              // The active class is a colour. This is the state itself, for
+              // anyone who is not looking at the colour.
+              aria-pressed={textSize === option.id}
+              onClick={() => onTextSizeChange(option.id)}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+        <div className="kb-presence-hint">
+          Makes Watchside&apos;s text bigger. Twitch is not affected.
+        </div>
+      </div>
+
       <div className="kb-presence-picker">
         <button
           type="button"
           className="kb-toggle-row"
+          // The switch itself is aria-hidden decoration - correctly, it is a
+          // drawing of the state rather than the state. But that left NOTHING
+          // exposing it: the button announced its label and no on/off at all.
+          aria-pressed={preferences.gatheringNotifications}
           onClick={() =>
             onPreferencesChange({ gatheringNotifications: !preferences.gatheringNotifications })
           }

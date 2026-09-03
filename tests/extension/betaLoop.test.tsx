@@ -245,6 +245,8 @@ describe('the account card carries the shelf', () => {
   function renderAccount(client: KickbackClient) {
     return renderToStaticMarkup(
       <AccountCard
+        textSize="default"
+        onTextSizeChange={() => {}}
         client={client}
         identity={IDENTITY}
         onSignOut={() => {}}

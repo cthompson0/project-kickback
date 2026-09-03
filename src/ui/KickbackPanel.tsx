@@ -22,6 +22,8 @@ import { WatchsideMark, MinimizeIcon } from './components/Icons'
 import { usePanelLayout } from './layout/usePanelLayout'
 import { useLayoutHint } from './layout/useLayoutHint'
 import { useStorageSync } from './useStorageSync'
+import { readTextSize, scaleFor, TEXT_SIZE_KEY, parseTextSize, writeTextSize } from './textSize'
+import type { TextSize } from './textSize'
 import {
   AccountCard,
   FeedbackForm,
@@ -203,6 +205,23 @@ export function KickbackPanel({
     setCollapsed(value === '1')
   }, [])
   useStorageSync(COLLAPSED_KEY, applyRemoteCollapsed)
+
+  /*
+   * The text-size preference.
+   *
+   * Read synchronously, for the same reason the collapsed flag above is:
+   * arriving a frame late would mean every page load draws at the default
+   * size and then visibly reflows to the size the user actually chose.
+   */
+  const [textSize, setTextSize] = useState<TextSize>(readTextSize)
+  const applyRemoteTextSize = useCallback((value: string | null) => {
+    setTextSize(parseTextSize(value))
+  }, [])
+  useStorageSync(TEXT_SIZE_KEY, applyRemoteTextSize)
+  const chooseTextSize = useCallback((size: TextSize) => {
+    setTextSize(size)
+    writeTextSize(size)
+  }, [])
 
   const [accountOpen, setAccountOpen] = useState(false)
   /** The feedback form, which is a sub-view of the account panel. */
@@ -606,6 +625,8 @@ export function KickbackPanel({
   }, [friends, view.groupMembers, identity])
 
   const position = {
+    // One number reaches all 108 font-sizes in the sheet; see textSize.ts.
+    '--kb-text-scale': String(scaleFor(textSize)),
     '--kb-x': `${layout.x}px`,
     '--kb-y': `${layout.y}px`,
     '--kb-w': `${layout.width}px`,
@@ -827,6 +848,8 @@ export function KickbackPanel({
             })
           }}
           onResetLayout={reset}
+          textSize={textSize}
+          onTextSizeChange={chooseTextSize}
           mutedUserIds={view.mutedUserIds}
           knownPeople={knownPeople}
           onUnmute={(userId) => client.setUserMuted(userId, false)}

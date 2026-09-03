@@ -89,6 +89,30 @@
    * rounded surfaces at more than one weight, and without names for them the
    * numbers get typed into components by hand.
    */
+  /*
+   * THE TEXT-SIZE PREFERENCE, AND THE ONLY THING IT MOVES.
+   *
+   * Every font-size in this sheet is `calc(Npx * var(--kb-text-scale, 1))`.
+   * That is 108 declarations reached by one number, and it was done
+   * mechanically rather than by hand so no surface can be forgotten and none
+   * can drift.
+   *
+   * TEXT, AND NOTHING ELSE. Not padding, not icon sizes, not hit targets, not
+   * the panel's own geometry. Scaling everything would be `zoom`, and `zoom`
+   * gives you a bigger panel rather than more readable text - the person who
+   * needs 17px type has the same screen they had before, and a panel that
+   * grows to match has helped them with nothing. Controls stay where the
+   * muscle memory left them; only the words get bigger.
+   *
+   * The fallback of 1 is not decoration. This sheet is also loaded by the test
+   * lab, and a stray element outside .kb-root would otherwise compute every
+   * font-size to nothing at all.
+   *
+   * Set on .kb-panel and .kb-launcher by KickbackPanel, not here - .kb-root is
+   * created by the content script outside React, so the panel can only style
+   * what it renders. The default lives here so the sheet stands alone.
+   */
+  --kb-text-scale: 1;
   --kb-radius-sm: 8px;
   --kb-radius: 12px;
   --kb-radius-lg: 18px;
@@ -126,7 +150,7 @@
   /* The layer itself is inert; only the panel and launcher take pointers. */
   pointer-events: none;
   font-family: "Inter", "Roobert", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   line-height: 1.35;
   color: var(--kb-text);
   -webkit-font-smoothing: antialiased;
@@ -184,7 +208,7 @@
   border-radius: 9px;
   background: var(--kb-here);
   color: #06231a;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 800;
   display: flex;
   align-items: center;
@@ -195,6 +219,10 @@
 /* ---------- panel shell ---------- */
 
 .kb-panel {
+  /* The scaled base. Descendants with no size of their own inherit it
+     from here rather than from .kb-root, which resolved before the panel
+     set the scale. */
+  font-size: calc(13px * var(--kb-text-scale, 1));
   position: absolute;
   left: var(--kb-x, 0px);
   top: var(--kb-y, 58px);
@@ -461,7 +489,7 @@
  * second dim copy. The weight is already 800.
  */
 .kb-wordmark {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--kb-accent-bright);
@@ -497,7 +525,7 @@
 }
 
 .kb-now-label {
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -508,7 +536,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 15px;
+  font-size: calc(15px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
 }
@@ -551,7 +579,7 @@
 .kb-now-idle {
   color: var(--kb-dim);
   font-weight: 600;
-  font-size: 14px;
+  font-size: calc(14px * var(--kb-text-scale, 1));
 }
 
 /*
@@ -563,7 +591,7 @@
  */
 .kb-gravity-idle {
   margin: 0 10px 10px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   line-height: 1.45;
   color: var(--kb-dim);
 }
@@ -582,7 +610,7 @@
 }
 
 .kb-here-banner-text {
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-here);
 }
@@ -603,9 +631,36 @@
 
 /* ---------- tabs ---------- */
 
+/*
+ * The tab row, which is the one place larger text ran out of width.
+ *
+ * MEASURED. At the 280px minimum with Extra Large text and a streamer tab
+ * present, the row came to Friends 84 + Groups 59 + 54 of gap + 24 of padding
+ * = 221 of 280, leaving 59 for the streamer tab AND the Add button. The
+ * streamer tab lost: it collapsed to 4px - present, unreadable and impossible
+ * to hit - and Add pushed 4px out through the panel's right edge.
+ *
+ * Three things in order of how much they give up. The gap goes first, because
+ * it is the only thing here that is spare - clamp keeps the full 18px on any
+ * panel wide enough to afford it, so nothing changes at the default size, and
+ * tightens towards 8px only when the alternative is losing a control. The
+ * streamer tab truncates second (see .kb-tab-session). And when even that is
+ * not enough, the row WRAPS and the Add button takes a second line.
+ *
+ * Wrapping rather than raising MIN_WIDTH was the choice, and it was a choice:
+ * 280px was picked deliberately for a cramped laptop, and making every panel
+ * wider to serve the largest text setting would charge the cost to people who
+ * never turned it on. Wrapping costs one row of height, and only in the corner
+ * that actually needs it - measured clean at 280x400 through 560x720 at all
+ * three sizes.
+ *
+ * Note what is NOT done: the gap does not scale with the text. Spacing that
+ * grows with type would spend the width it is trying to save.
+ */
 .kb-tabs {
   display: flex;
-  gap: 18px;
+  flex-wrap: wrap;
+  gap: clamp(8px, 5%, 18px);
   padding: 0 12px;
   border-bottom: 1px solid var(--kb-line);
 }
@@ -613,7 +668,7 @@
 .kb-tab {
   position: relative;
   padding: 8px 1px 9px;
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-faint);
   transition: color 0.12s ease;
@@ -646,8 +701,19 @@
  * and this ellipsises rather than pushing anything off the row. The full name
  * survives in the title attribute and inside the tab itself.
  */
+/*
+ * The streamer tab may truncate. It may not disappear.
+ *
+ * `min-width: 0` alone let it shrink to 4px under Extra Large text in a 280px
+ * panel - a control that is still in the tab order and still has a click
+ * handler, and that nobody can see or hit. A floor turns that failure into the
+ * one this tab was already built for: kb-tab-streamer ellipses, so a squeezed
+ * "LIRIK" becomes "LI…" and stays a target.
+ *
+ * In em, so the floor grows with the text that is squeezing it.
+ */
 .kb-tab-session {
-  min-width: 0;
+  min-width: 2.6em;
   display: inline-flex;
   align-items: center;
 }
@@ -664,7 +730,7 @@
   color: var(--kb-faint);
   font-weight: 600;
   margin-left: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
 }
 
 /* ---------- scroll body ---------- */
@@ -702,7 +768,7 @@
 
 .kb-section-label {
   padding: 8px 6px 4px;
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: 0.09em;
   text-transform: uppercase;
@@ -719,7 +785,7 @@
   padding: 18px 10px;
   text-align: center;
   color: var(--kb-faint);
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
 }
 
 /* ---------- avatars ---------- */
@@ -808,7 +874,7 @@
 }
 
 .kb-row-name {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
   white-space: nowrap;
@@ -820,7 +886,7 @@
   display: flex;
   align-items: baseline;
   gap: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   color: var(--kb-dim);
   white-space: nowrap;
   overflow: hidden;
@@ -845,7 +911,7 @@
 
 .kb-time {
   color: var(--kb-faint);
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
 }
 
 /* ---------- badges & join ---------- */
@@ -854,7 +920,7 @@
   flex: none;
   padding: 3px 7px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: calc(9px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--kb-here);
@@ -866,7 +932,7 @@
   flex: none;
   padding: 4px 10px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.08em;
   color: var(--kb-on-accent);
@@ -923,12 +989,12 @@
   height: 28px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.06);
-  font-size: 15px;
+  font-size: calc(15px * var(--kb-text-scale, 1));
   flex: none;
 }
 
 .kb-group-name {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
   flex: 1;
@@ -939,7 +1005,7 @@
 }
 
 .kb-group-meta {
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   flex: none;
 }
@@ -963,7 +1029,7 @@
 .kb-gathering-text {
   flex: 1;
   min-width: 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-accent);
   white-space: nowrap;
@@ -1009,7 +1075,7 @@
   border-radius: 9px;
   border: 1px dashed var(--kb-line);
   color: var(--kb-faint);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   cursor: not-allowed;
 }
 
@@ -1017,7 +1083,7 @@
   margin-left: auto;
   padding: 2px 6px;
   border-radius: 999px;
-  font-size: 9px;
+  font-size: calc(9px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.08em;
   background: rgba(255, 255, 255, 0.07);
@@ -1028,7 +1094,7 @@
 .kb-footer {
   padding: 7px 11px;
   border-top: 1px solid var(--kb-line);
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   display: flex;
   align-items: center;
@@ -1055,7 +1121,7 @@
   height: 16px;
   line-height: 1;
   border-radius: 4px;
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
 }
 
@@ -1100,7 +1166,7 @@
   padding: 8px 10px;
   border-radius: 9px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   line-height: 1.45;
   color: var(--kb-text);
   background: var(--kb-bg);
@@ -1124,7 +1190,7 @@
   flex: none;
   width: auto;
   padding: 6px 14px;
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
 }
 
 .kb-feedback-send:disabled {
@@ -1141,7 +1207,7 @@
 .kb-demo-badge {
   padding: 2px 5px;
   border-radius: 4px;
-  font-size: 8px;
+  font-size: calc(8px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.1em;
   color: var(--kb-on-accent);
@@ -1179,14 +1245,14 @@
 
 .kb-signin-title {
   margin-top: 8px;
-  font-size: 16px;
+  font-size: calc(16px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
 }
 
 .kb-signin-sub {
   color: var(--kb-dim);
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   margin-bottom: 14px;
 }
 
@@ -1200,7 +1266,7 @@
 .kb-signin-note {
   margin-top: 10px;
   color: var(--kb-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   line-height: 1.4;
 }
 
@@ -1208,7 +1274,7 @@
   width: 100%;
   padding: 9px 12px;
   border-radius: 9px;
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.02em;
   color: var(--kb-on-accent);
@@ -1236,13 +1302,13 @@
 }
 
 .kb-quiet-title {
-  font-size: 13.5px;
+  font-size: calc(13.5px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
 }
 
 .kb-quiet-sub {
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   color: var(--kb-dim);
   line-height: 1.45;
 }
@@ -1251,7 +1317,7 @@
   margin-top: 6px;
   padding: 6px 12px;
   border-radius: 8px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-dim);
   border: 1px solid var(--kb-line);
@@ -1273,7 +1339,7 @@
   margin-top: 6px;
   padding: 6px 12px;
   border-radius: 8px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-live);
   background: transparent;
@@ -1306,7 +1372,7 @@
 
 .kb-permission p {
   margin: 0 0 8px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   line-height: 1.45;
   color: var(--kb-text);
 }
@@ -1325,7 +1391,7 @@
 
 .kb-danger-confirm p {
   margin: 0 0 8px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   line-height: 1.45;
   color: var(--kb-text);
 }
@@ -1338,7 +1404,7 @@
   border: 1px solid var(--kb-line);
   background: var(--kb-bg);
   color: var(--kb-text);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
 }
 
 .kb-danger-actions {
@@ -1349,7 +1415,7 @@
 
 .kb-danger-error {
   margin: 8px 0 0;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   color: var(--kb-live);
 }
 
@@ -1357,7 +1423,7 @@
   margin: 0 12px;
   padding: 7px 9px;
   border-radius: 8px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   color: var(--kb-dim);
   background: var(--kb-bg-raised);
   border: 1px solid var(--kb-line);
@@ -1390,7 +1456,7 @@
 }
 
 .kb-account-title {
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 700;
   letter-spacing: 0.06em;
   text-transform: uppercase;
@@ -1408,7 +1474,7 @@
   margin: -2px -3px -2px 0;
   border-radius: 6px;
   flex: none;
-  font-size: 15px;
+  font-size: calc(15px * var(--kb-text-scale, 1));
   line-height: 1;
   color: var(--kb-faint);
   transition: background 0.12s ease, color 0.12s ease;
@@ -1425,7 +1491,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: 10px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
 }
 
 .kb-account-label {
@@ -1442,7 +1508,7 @@
 .kb-account-version {
   margin-top: 10px;
   text-align: center;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   user-select: text;
 }
@@ -1465,7 +1531,7 @@
   align-self: center;
   padding: 4px 9px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.02em;
   color: var(--kb-dim);
@@ -1491,7 +1557,7 @@
   border-radius: 8px;
   background: var(--kb-accent-deep);
   color: var(--kb-on-accent);
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   vertical-align: middle;
 }
@@ -1533,7 +1599,7 @@
   padding: 8px 10px;
   border-radius: 9px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   color: var(--kb-text);
   background: var(--kb-bg-raised);
   border: 1px solid var(--kb-line);
@@ -1561,7 +1627,7 @@
 /* Neutral label for a relationship that offers no action. */
 .kb-relationship {
   flex: none;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-faint);
 }
@@ -1580,7 +1646,7 @@
   margin-left: 6px;
   flex: none;
   padding: 4px 9px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
 }
 
 .kb-find-btn {
@@ -1595,7 +1661,7 @@
   width: 20px;
   height: 20px;
   border-radius: 5px;
-  font-size: 15px;
+  font-size: calc(15px * var(--kb-text-scale, 1));
   line-height: 1;
   color: var(--kb-faint);
   opacity: 0;
@@ -1623,7 +1689,7 @@
 .kb-confirm-no {
   padding: 4px 8px;
   border-radius: 6px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   font-weight: 700;
 }
 
@@ -1677,7 +1743,7 @@
   flex: 1;
   padding: 5px 4px;
   border-radius: 7px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-dim);
   background: var(--kb-bg-raised);
@@ -1701,7 +1767,7 @@
 }
 
 .kb-presence-hint {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   /*
    * This is the explanatory line under a setting - what the visibility choice
    * actually does, and where the other half of a notification permission lives.
@@ -1760,12 +1826,12 @@
 
 .kb-group-meta-line {
   margin-top: 6px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
 }
 
 .kb-role {
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-accent);
   letter-spacing: 0.04em;
@@ -1854,7 +1920,7 @@
  * width, which is what chat has always done everywhere else.
  */
 .kb-msg-head {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   line-height: 1.45;
   /* Break a URL or an unbroken token only when it cannot fit on a line of its
      own. Ordinary words are never broken mid-word. */
@@ -1913,7 +1979,7 @@
   margin-left: 5px;
   padding: 1px 7px 1px 5px;
   border-radius: 999px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 800;
   color: var(--kb-on-accent);
   background: var(--kb-gradient);
@@ -1939,7 +2005,7 @@
   color: #10121a;
   font: inherit;
   font-weight: 700;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   cursor: pointer;
 }
 
@@ -1975,13 +2041,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-dim);
 }
 
 .kb-combo-active-count {
-  font-size: 14px;
+  font-size: calc(14px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.01em;
   color: var(--kb-accent);
@@ -1999,7 +2065,7 @@
 
 .kb-combo-broken {
   margin: 3px 0 1px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.12em;
   color: #ff8a95;
@@ -2035,7 +2101,7 @@
   padding: 7px 9px;
   border-radius: 8px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   color: var(--kb-text);
   background: var(--kb-bg-raised);
   border: 1px solid var(--kb-line);
@@ -2072,9 +2138,27 @@
 }
 
 .kb-emote-picker {
-  /* Gives way before the composer does. */
+  /*
+   * Gives way before the composer does - but not all the way to nothing.
+   *
+   * MEASURED. At Extra Large in a 400px panel this shrank to 12px around 51px
+   * of content, at every width: a picker you opened deliberately, drawn as a
+   * sliver with no emotes in it. "Gives way" was doing its job past the point
+   * where the thing was still a thing.
+   *
+   * The floor is 7em - enough for the search field and a row of emotes, which
+   * is what the picker has to show to be a picker at all - and in em so it
+   * grows with the text that is squeezing it.
+   *
+   * A `min(7em, 30%)` was tried first, to bound the floor by the panel as well.
+   * It measured worse, not better: the percentage resolves against a parent
+   * whose height the flex layout has not fixed, so it contributed nothing and
+   * dragged the min() down with it, leaving the picker at 40px of 51. The
+   * bound was not needed anyway - chat is the flexible region here and yields
+   * first, so the composer keeps its place, which was the original priority.
+   */
   flex: 0 1 auto;
-  min-height: 0;
+  min-height: 7em;
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -2090,7 +2174,7 @@
   padding: 5px 8px;
   border-radius: 7px;
   font: inherit;
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   color: var(--kb-text);
   background: var(--kb-bg);
   border: 1px solid var(--kb-line);
@@ -2123,7 +2207,7 @@
 
 .kb-emote-section-title {
   margin-bottom: 3px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.11em;
   text-transform: uppercase;
@@ -2144,7 +2228,7 @@
 
 /* Shown when an emote image will not load, so the meaning survives. */
 .kb-emote-fallback {
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   font-weight: 700;
   color: var(--kb-faint);
 }
@@ -2210,7 +2294,7 @@
   justify-content: center;
   height: 28px;
   border-radius: 7px;
-  font-size: 16px;
+  font-size: calc(16px * var(--kb-text-scale, 1));
   line-height: 1;
   transition: background 0.12s ease;
 }
@@ -2265,7 +2349,7 @@
 }
 
 .kb-cluster-title {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2278,7 +2362,7 @@
   padding: 0 5px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   color: var(--kb-dim);
   text-align: center;
@@ -2304,7 +2388,7 @@
 }
 
 .kb-cluster-name {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2359,7 +2443,7 @@
 }
 
 .kb-usercard-name {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   font-weight: 800;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2368,7 +2452,7 @@
 
 .kb-usercard-activity {
   margin: 7px 0;
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   color: var(--kb-dim);
 }
 
@@ -2394,7 +2478,7 @@
 }
 
 .kb-usercard-confirm-text {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   line-height: 1.45;
   color: var(--kb-dim);
 }
@@ -2406,7 +2490,7 @@
  * the server will refuse would be a button that exists to fail.
  */
 .kb-usercard-blocked {
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   color: var(--kb-dim);
 }
 
@@ -2456,7 +2540,7 @@ a.kb-ghost-btn {
   padding: 4px 7px;
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.045);
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
 }
 
 .kb-summary-row-here {
@@ -2482,7 +2566,7 @@ a.kb-ghost-btn {
   padding: 0 4px;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.09);
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 800;
   color: var(--kb-dim);
   text-align: center;
@@ -2505,7 +2589,7 @@ a.kb-ghost-btn {
   flex: none;
   padding: 3px 8px;
   border-radius: 999px;
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.08em;
   background: rgba(255, 255, 255, 0.07);
@@ -2772,7 +2856,7 @@ a.kb-ghost-btn {
 
 /* Two or more people agreeing. The count, not the artwork, is the news. */
 .kb-together-count {
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   color: var(--kb-accent);
   font-variant-numeric: tabular-nums;
@@ -2790,7 +2874,7 @@ a.kb-ghost-btn {
   flex: none;
   margin-left: 4px;
   padding: 2px 7px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.07em;
   color: var(--kb-dim);
@@ -2820,7 +2904,7 @@ a.kb-ghost-btn {
 }
 
 .kb-room-channel {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2832,7 +2916,7 @@ a.kb-ghost-btn {
   align-items: center;
   gap: 6px;
   margin-top: 1px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   overflow: hidden;
   white-space: nowrap;
@@ -2850,7 +2934,7 @@ a.kb-ghost-btn {
  */
 .kb-room-count {
   margin: 8px 2px 6px;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.09em;
   color: var(--kb-dim);
@@ -2917,7 +3001,7 @@ a.kb-ghost-btn {
 
 .kb-room-self {
   padding: 2px 4px;
-  font-size: 11.5px;
+  font-size: calc(11.5px * var(--kb-text-scale, 1));
   color: var(--kb-dim);
 }
 
@@ -2936,7 +3020,7 @@ a.kb-ghost-btn {
   width: 22px;
   height: 22px;
   border-radius: 50%;
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   font-weight: 800;
   color: var(--kb-faint);
   background: var(--kb-bg-raised);
@@ -2953,7 +3037,7 @@ a.kb-ghost-btn {
 .kb-room-via {
   display: block;
   margin-left: 28px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2984,7 +3068,7 @@ a.kb-ghost-btn {
 }
 
 .kb-room-combo .kb-together-count {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
 }
 
 /*
@@ -3035,7 +3119,7 @@ a.kb-ghost-btn {
  */
 .kb-room-note {
   padding: 0 2px 4px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
 }
 
@@ -3072,7 +3156,7 @@ a.kb-ghost-btn {
   align-items: baseline;
   gap: 6px;
   margin-top: 3px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   min-width: 0;
 }
 
@@ -3114,7 +3198,7 @@ a.kb-ghost-btn {
   gap: 4px;
   color: var(--kb-live);
   font-weight: 700;
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   letter-spacing: 0.06em;
 }
 
@@ -3133,7 +3217,7 @@ a.kb-ghost-btn {
 .kb-offline-badge {
   color: var(--kb-faint);
   font-weight: 700;
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
   letter-spacing: 0.06em;
 }
 
@@ -3169,12 +3253,12 @@ a.kb-ghost-btn {
 }
 
 .kb-gravity-combo .kb-together-count {
-  font-size: 10px;
+  font-size: calc(10px * var(--kb-text-scale, 1));
 }
 
 .kb-gravity-viewers {
   color: var(--kb-faint);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   font-variant-numeric: tabular-nums;
 }
 
@@ -3188,7 +3272,7 @@ a.kb-ghost-btn {
  */
 .kb-gravity-title {
   margin-top: 2px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3207,12 +3291,12 @@ a.kb-ghost-btn {
 }
 
 .kb-gravity-flame {
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   line-height: 1;
 }
 
 .kb-gravity-channel {
-  font-size: 12.5px;
+  font-size: calc(12.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   /* A long channel name must not push JOIN off the card at 260px. */
   overflow: hidden;
@@ -3227,7 +3311,7 @@ a.kb-ghost-btn {
   padding: 1px 5px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.09);
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   text-align: center;
   color: var(--kb-text);
@@ -3243,7 +3327,7 @@ a.kb-ghost-btn {
 
 .kb-gravity-with-you {
   padding: 3px 2px 0;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   color: var(--kb-here);
 }
 
@@ -3309,7 +3393,7 @@ a.kb-ghost-btn {
 }
 
 .kb-session-channel {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   font-weight: 700;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3321,7 +3405,7 @@ a.kb-ghost-btn {
   align-items: center;
   gap: 6px;
   margin-top: 2px;
-  font-size: 10.5px;
+  font-size: calc(10.5px * var(--kb-text-scale, 1));
   color: var(--kb-faint);
   overflow: hidden;
   white-space: nowrap;
@@ -3364,7 +3448,7 @@ a.kb-ghost-btn {
 .kb-session-count {
   flex: 1 1 auto;
   min-width: 0;
-  font-size: 9.5px;
+  font-size: calc(9.5px * var(--kb-text-scale, 1));
   font-weight: 800;
   letter-spacing: 0.09em;
   color: var(--kb-dim);
@@ -3426,7 +3510,7 @@ a.kb-ghost-btn {
   border-radius: 7px;
   background: var(--kb-accent-deep);
   color: var(--kb-on-accent);
-  font-size: 9px;
+  font-size: calc(9px * var(--kb-text-scale, 1));
   font-weight: 800;
   font-variant-numeric: tabular-nums;
 }
@@ -3518,13 +3602,13 @@ a.kb-ghost-btn {
 /* The social proof, quiet enough not to outshout the name above it. */
 .kb-mutuals {
   color: var(--kb-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
 }
 
 /* "Requested" / "Friends" where the ADD button was. */
 .kb-row-note {
   color: var(--kb-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   white-space: nowrap;
 }
 
@@ -3540,7 +3624,7 @@ a.kb-ghost-btn {
   border-radius: 6px;
   background: var(--kb-sunken);
   color: var(--kb-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
 }
 
 .kb-invite-copy {
@@ -3551,7 +3635,7 @@ a.kb-ghost-btn {
   border-radius: 6px;
   background: rgba(var(--kb-accent-rgb), 0.12);
   color: var(--kb-text);
-  font-size: 12px;
+  font-size: calc(12px * var(--kb-text-scale, 1));
   font-weight: 600;
   cursor: pointer;
 }
@@ -3599,7 +3683,7 @@ a.kb-ghost-btn {
   border-radius: 999px;
   background: var(--kb-sunken);
   color: var(--kb-dim);
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   cursor: pointer;
 }
 
@@ -3615,7 +3699,7 @@ a.kb-ghost-btn {
 }
 
 .kb-badge-icon {
-  font-size: 13px;
+  font-size: calc(13px * var(--kb-text-scale, 1));
   line-height: 1;
 }
 
@@ -3633,7 +3717,7 @@ a.kb-ghost-btn {
  */
 .kb-msg-badge {
   margin-right: 4px;
-  font-size: 11px;
+  font-size: calc(11px * var(--kb-text-scale, 1));
   line-height: 1;
   vertical-align: baseline;
   /* Never a reason to break a line between a name and its badge. */

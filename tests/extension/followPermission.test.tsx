@@ -65,6 +65,8 @@ function account(readiness: MeasurementReadiness | null): string {
   installWindow()
   return renderToStaticMarkup(
     <AccountCard
+      textSize="default"
+      onTextSizeChange={() => {}}
       client={CLIENT}
       identity={IDENTITY}
       onSignOut={() => {}}

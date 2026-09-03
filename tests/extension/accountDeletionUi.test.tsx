@@ -36,6 +36,8 @@ function account(): string {
   installWindow()
   return renderToStaticMarkup(
     <AccountCard
+      textSize="default"
+      onTextSizeChange={() => {}}
       client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
       onSignOut={() => {}}

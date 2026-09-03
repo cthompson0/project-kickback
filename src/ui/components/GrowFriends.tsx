@@ -278,8 +278,20 @@ export function InviteFriends({
       {link && (
         <>
           {/* Readonly rather than a div: it can be selected and copied by hand
-              when the clipboard API is refused. */}
-          <input className="kb-invite-link" type="text" value={link} readOnly spellCheck={false} />
+              when the clipboard API is refused.
+              The label is the price of that choice - an input is announced as
+              an editable field, and without a name this one was announced as
+              an editable field containing a URL and nothing to say what the
+              URL was for. There is no visible label to point at, so the name
+              is carried here rather than by a label element. */}
+          <input
+            className="kb-invite-link"
+            type="text"
+            value={link}
+            readOnly
+            spellCheck={false}
+            aria-label="Your Watchside invite link"
+          />
           <button type="button" className="kb-invite-copy" onClick={() => void copy()}>
             {copied ? 'Copied' : 'Copy invite link'}
           </button>

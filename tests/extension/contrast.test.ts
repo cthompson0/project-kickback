@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { TEXT_SIZES } from '../../src/ui/textSize'
 
 /**
  * Text contrast, computed from the tokens rather than judged by eye.
@@ -285,11 +286,19 @@ describe('the wordmark is text, and is held to the floor text owes', () => {
   })
 
   it('is small enough that the body floor is the one that applies', () => {
-    // If this ever grows past 18.66px the rule above could legitimately relax.
-    // Until then, asserting the size is what keeps AA_BODY honest.
-    const size = /font-size:\s*(\d+(?:\.\d+)?)px/.exec(wordmarkRule())
-    expect(size).not.toBeNull()
-    expect(Number(size![1])).toBeLessThan(18.66)
+    /*
+     * If this ever grows past 18.66px the rule above could legitimately relax
+     * to AA_LARGE, so asserting the size is what keeps AA_BODY honest.
+     *
+     * Checked at the LARGEST text scale, not the base one. Every font-size in
+     * the sheet is now calc(Npx * --kb-text-scale), so "how big is the
+     * wordmark" has three answers and only the biggest could cross the
+     * threshold. It does not: 13 x 1.3 is 16.9px.
+     */
+    const size = /font-size:\s*calc\((\d+(?:\.\d+)?)px/.exec(wordmarkRule())
+    expect(size, 'the wordmark should carry a scaled font-size').not.toBeNull()
+    const largest = Math.max(...TEXT_SIZES.map((entry) => entry.scale))
+    expect(Number(size![1]) * largest).toBeLessThan(18.66)
   })
 
   it('is not filled from the background gradient, whose stops are deep on purpose', () => {

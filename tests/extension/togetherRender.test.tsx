@@ -517,7 +517,26 @@ describe('the surfaces stay small', () => {
     // inside the tab, and slicing would lose it in both.
     expect(rule('.kb-tab-streamer')).toContain('text-overflow: ellipsis')
     expect(rule('.kb-tab-streamer')).toContain('max-width')
-    expect(rule('.kb-tab-session')).toContain('min-width: 0')
+
+    /*
+     * This used to assert `min-width: 0` literally, which is the flexbox
+     * incantation that lets a flex item shrink past its content so ellipsis
+     * can engage at all. That is still the property under test - but the
+     * declaration is now a small floor rather than zero, because zero let the
+     * tab vanish entirely: measured in Chrome at the 280px minimum with Extra
+     * Large text, the streamer tab collapsed to 4px, still focusable and still
+     * clickable and impossible to see. See textSize.test.ts.
+     *
+     * So the assertion is the intent rather than the literal: a floor low
+     * enough that truncation still happens, and not `auto`, which would refuse
+     * to shrink and push the row open instead.
+     */
+    const min = /min-width:\s*([^;]+);/.exec(rule('.kb-tab-session'))
+    expect(min, '.kb-tab-session needs an explicit min-width').not.toBeNull()
+    expect(min![1].trim()).not.toBe('auto')
+    const em = /^([\d.]+)em$/.exec(min![1].trim())
+    // Either zero, or a floor small enough to truncate long inside the tab.
+    expect(min![1].trim() === '0' || (em !== null && Number(em[1]) <= 4)).toBe(true)
   })
 
   it('holds the activity lane open so the composer cannot jump', () => {

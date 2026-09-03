@@ -62,6 +62,8 @@ function account(calls: string[] = []) {
   installWindow()
   return renderToStaticMarkup(
     <AccountCard
+      textSize="default"
+      onTextSizeChange={() => {}}
       // The badge shelf reads through the client; an empty one renders nothing.
       client={{ badges: async () => [] } as unknown as KickbackClient}
       identity={IDENTITY}
