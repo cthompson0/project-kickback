@@ -338,6 +338,42 @@ M3C.1 accepted
       from AMO; the v0.7 checklist tests an UNSIGNED v0.7 package locally.
 ```
 
+### G7 - the Twitch policy gate, closed against primary source
+
+G7 existed because nobody had read the contract: the policy report said its
+clause text came from **search-engine extraction**, and that the gate closes
+when somebody opens the agreement in a browser. The page is JS-rendered and
+returns only navigation to a fetcher, which is why it had never been read.
+**It was rendered in Chrome and read in full** - 64,305 characters, last
+modified 04/12/2024.
+
+**Schedule 2 does NOT apply.** An "Extension" under the DSA means a service
+distributed *on the twitch.tv web application in connection with Twitch
+Extensions*. Watchside ships through browser stores. Extension marketplace
+review, broadcaster installation, the iframe architecture and the Extension
+Helper are all irrelevant to Watchside, and any future analysis applying them
+is wrong.
+
+**One real violation, now fixed.** Schedule 1 SC permits caching Twitch
+Content for **twenty-four hours**. `sweep_twitch_metadata_cache` was written
+in 0017 to be "called by the Edge Function opportunistically" - and nothing
+ever called it, so rows accumulated for the life of the project. Invisible
+because the *serving* TTL is two minutes, so stale data was never used; the
+clause governs storage, not use. The sweep is now invoked on the write path,
+guarded by four tests.
+
+**Presence is not Twitch API data.** The watched channel is parsed from
+`location.pathname` in the user's own browser. That is the factual anchor for
+the presence and Gravity analysis, and it was never established before.
+
+M3D is compliant and needs no remediation. The historical "G7 blocks M3D"
+wording was a **process** gate - "has anyone read it" - not a compliance
+finding, which is why M3D could ship while it stayed open.
+
+Full analysis: `docs/reports/g7-twitch-policy-gate-2026-09-02.md`.
+
+---
+
 ### v0.9 RC - BUILT AND VERIFIED, held for human validation
 
 `0.9.0` candidates exist for both stores and **neither has been submitted**.
@@ -440,7 +476,7 @@ mechanism that keeps this decision true, not an obstacle to it.
 | **G4** `following_at_join` | **SATISFIED by delivery** - M3D |
 | **G5** `subscribed_at_join` | **SATISFIED by recorded decision** - above |
 | **G6** deletion path before any Twitch-derived write | **SATISFIED** |
-| **G7** D7 legal read of the Twitch DSA | **OPEN - counsel.** Note: recorded as blocking for M3D/M3E-a, and M3D shipped while it was open. That inconsistency predates this pass and should be closed deliberately |
+| **G7** Twitch DSA legal read | **CONDITIONALLY SATISFIED 2026-09-02.** The agreement was read in full from primary source for the first time. Schedule 2 (Extensions) does **not** apply. One real violation found and fixed - cached Twitch Content outlived Schedule 1 SC's 24-hour limit because the sweep 0017 designed was never called. **One deploy outstanding:** `supabase functions deploy twitch-metadata` |
 | **G8** D8 AMO `financialAndPaymentInfo` clarification | **RETIRED / NON-BLOCKING for M7** while M3E-a is deferred. D8 asks how to *declare* data Watchside has now chosen not to collect; there is nothing to declare. It returns if and only if `subscribed_at_join` is revisited |
 | **G9** privacy policy updated for every shipped measurement | **SATISFIED** - accuracy pass, `5d3b65b` |
 

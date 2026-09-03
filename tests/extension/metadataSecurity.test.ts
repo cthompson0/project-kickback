@@ -224,6 +224,54 @@ describe('the metadata cache is unreachable from a client', () => {
   })
 })
 
+describe('cached Twitch Content does not outlive its licence', () => {
+  /*
+   * TWITCH DSA, SCHEDULE 1, SECTION C.
+   *
+   *   "Do not store copies of Twitch Content or Program Materials, unless
+   *    you: ... (c) cache such information for only a twenty-four hour time
+   *    period without further sharing it with third parties."
+   *
+   * `twitch_metadata_cache` holds display names, profile image URLs, live
+   * state, category and stream titles. 0017 wrote a sweep and described it as
+   * "called by the Edge Function opportunistically rather than on a schedule,
+   * so it needs no pg_cron" - and then nothing called it, for the whole life
+   * of the project. A cache with no eviction is not a cache; it is storage.
+   *
+   * Found in the G7 Twitch policy gate, against the primary agreement text.
+   */
+  const EDGE = readFileSync('supabase/functions/twitch-metadata/index.ts', 'utf8')
+
+  it('actually invokes the sweep it was designed around', () => {
+    expect(EDGE).toContain('sweep_twitch_metadata_cache')
+  })
+
+  it('sweeps on the write path, where a fetch is already happening', () => {
+    const write = EDGE.slice(EDGE.indexOf('async function writeCache'))
+    const body = write.slice(0, 2000)
+    expect(body).toContain('sweep_twitch_metadata_cache')
+  })
+
+  it('never keeps a cached row longer than the agreement allows', () => {
+    /*
+     * Twenty-four hours is the ceiling in the contract, so the interval passed
+     * to the sweep may not exceed it. Anything longer is a licence Watchside
+     * does not have.
+     */
+    const call = /sweep_twitch_metadata_cache',\s*\{\s*p_older_than:\s*'([^']+)'/.exec(EDGE)
+    expect(call, 'the sweep is called without an explicit interval').not.toBeNull()
+    expect(['1 day', '24 hours', '1 hour', '12 hours']).toContain(call![1])
+  })
+
+  it('does not fail a metadata request when housekeeping fails', () => {
+    // A caller waiting on channel metadata must not see an error because a
+    // delete did not run. The next write sweeps instead.
+    const write = EDGE.slice(EDGE.indexOf('async function writeCache'))
+    const body = write.slice(0, 2000)
+    expect(body).toMatch(/try \{[\s\S]*sweep_twitch_metadata_cache[\s\S]*\} catch/)
+  })
+})
+
 describe('analytics carries the one field that answers a question', () => {
   it('records whether the destination was live, and nothing else about it', () => {
     const contract = readFileSync(join(SRC, 'core', 'analytics.ts'), 'utf8')

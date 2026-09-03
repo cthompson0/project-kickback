@@ -207,6 +207,32 @@ async function writeCache(records: ChannelMetadata[]): Promise<void> {
     })),
     { onConflict: 'login' },
   )
+
+  /*
+   * Discard anything older than a day, here, because there is nowhere else.
+   *
+   * `sweep_twitch_metadata_cache` was written to be "called by the Edge
+   * Function opportunistically rather than on a schedule, so it needs no
+   * pg_cron" - and then nothing ever called it. Rows therefore accumulated
+   * for as long as the project has existed.
+   *
+   * THAT IS A CONTRACTUAL PROBLEM, NOT AN UNTIDY ONE. The Twitch Developer
+   * Services Agreement, Schedule 1 §C, permits storing copies of Twitch
+   * Content only if you "cache such information for only a twenty-four hour
+   * time period". This table holds display names, profile image URLs, live
+   * state, category and stream titles - Twitch Content by any reading.
+   *
+   * Opportunistic on the write path is the right place: it runs only when
+   * somebody is already fetching, it is a bounded index range delete, and a
+   * failure here must never fail the caller's metadata request - which is why
+   * it is awaited but its error swallowed.
+   */
+  try {
+    await admin.rpc('sweep_twitch_metadata_cache', { p_older_than: '1 day' })
+  } catch {
+    // The next write sweeps instead. A caller waiting on channel metadata
+    // should not see an error because housekeeping failed.
+  }
 }
 
 // ----------------------------------------------------------------- handler
