@@ -106,6 +106,37 @@ export const HELIX_BATCH_LIMIT = 100
  */
 const LOGIN_PATTERN = /^[a-z0-9_]{3,25}$/
 
+/**
+ * What somebody typed into Find friends, as the server should receive it.
+ *
+ * THE REPORT THIS EXISTS FOR
+ *
+ *   "using the @ symbol breaks the lookup ... it works without it, might be
+ *    worth just ignore it if its the first symbol"
+ *
+ * The surface showed a person as `wtfchuck27` with `@wtfchuck27` beneath it,
+ * so the @ form is the one the UI itself taught. Typing it then failed,
+ * because a login never contains @ and the server matched literally.
+ *
+ * EXACTLY ONE LEADING @, and nothing else.
+ *
+ * Not a trim of arbitrary punctuation, not fuzzy matching, not a second
+ * chance for a malformed handle. `@@foo` still fails, `f@o` is untouched, and
+ * a friend code is unaffected because nobody puts an @ in front of one. The
+ * narrower the rule, the less it can quietly change what a search means.
+ *
+ * CLIENT-SIDE ON PURPOSE. Doing this in SQL would mean another migration to
+ * `search_users`, and there is nothing here the server needs to know: it
+ * receives the same single query it always did, so 0041's rate budget is
+ * charged exactly once, for exactly the same lookup. `@` alone normalises to
+ * an empty string and is refused before any request is made, which spends
+ * less budget rather than more.
+ */
+export function normalizeSearchQuery(raw: string): string {
+  const trimmed = raw.trim()
+  return trimmed.startsWith('@') ? trimmed.slice(1).trim() : trimmed
+}
+
 export function isValidLogin(value: unknown): value is string {
   return typeof value === 'string' && LOGIN_PATTERN.test(value)
 }

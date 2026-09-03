@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs'
 import { act } from 'react'
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from './harness'
@@ -51,14 +52,30 @@ const person = (id: string, name: string, mutualCount: number) => ({
   mutualCount,
 })
 
-/** Mount and let the fetch effect settle. */
-async function show(rows: unknown[]) {
+/** A friend, in the shape the worker broadcasts. */
+const friendOf = (id: string) =>
+  ({ user: { id, username: id, displayName: id, avatarUrl: null } }) as never
+
+/** An outgoing request, in the shape the worker broadcasts. */
+const requestTo = (id: string) =>
+  ({ requestId: 'r-' + id, user: { id, username: id, displayName: id, avatarUrl: null } }) as never
+
+/**
+ * Mount and let the fetch effect settle.
+ *
+ * `friends` and `outgoing` are the authoritative relationship state the worker
+ * broadcasts. Suggestion rows derive their button from them rather than from a
+ * local map, which is what makes a cancel performed anywhere show up here.
+ */
+async function show(rows: unknown[], friends: never[] = [], outgoing: never[] = []) {
   const { client, tracked } = stub(rows)
-  const view = mount(<FriendSuggestions client={client} />)
+  const view = mount(
+    <FriendSuggestions client={client} friends={friends} outgoingRequests={outgoing} />,
+  )
   await act(async () => {
     await Promise.resolve()
   })
-  return { view, tracked }
+  return { view, tracked, client }
 }
 
 describe('an empty suggestion list explains itself', () => {
@@ -158,13 +175,13 @@ describe('the impression means somebody could see it', () => {
         track,
       }) as unknown as KickbackClient
 
-    const view = mount(<FriendSuggestions client={fresh()} />)
+    const view = mount(<FriendSuggestions client={fresh()} friends={[]} outgoingRequests={[]} />)
     await act(async () => {
       await Promise.resolve()
     })
 
     for (let i = 0; i < 5; i += 1) {
-      view.render(<FriendSuggestions client={fresh()} />)
+      view.render(<FriendSuggestions client={fresh()} friends={[]} outgoingRequests={[]} />)
       await act(async () => {
         await Promise.resolve()
       })
@@ -200,7 +217,7 @@ describe('the impression means somebody could see it', () => {
       },
     } as unknown as KickbackClient
 
-    const view = mount(<FriendSuggestions client={client} />)
+    const view = mount(<FriendSuggestions client={client} friends={[]} outgoingRequests={[]} />)
     await act(async () => {
       await Promise.resolve()
     })
@@ -227,7 +244,7 @@ describe('adding somebody from a suggestion still works', () => {
       },
     } as unknown as KickbackClient
 
-    const view = mount(<FriendSuggestions client={client} />)
+    const view = mount(<FriendSuggestions client={client} friends={[]} outgoingRequests={[]} />)
     await act(async () => {
       await Promise.resolve()
     })
@@ -243,10 +260,85 @@ describe('adding somebody from a suggestion still works', () => {
     expect(sent).toEqual(['u1'])
     expect(tracked.map((event) => event.name)).toContain('friend_suggestion_add_clicked')
     expect(tracked.map((event) => event.name)).toContain('friend_suggestion_request_created')
-    expect(view.container.textContent).toContain('Requested')
+
+    /*
+     * The LABEL is deliberately not asserted here any more.
+     *
+     * It used to read "Requested" from a local map written on click. That map
+     * was the defect - it could never say "Add" again without a remount. The
+     * row now follows the worker's outgoing-request list, which this stub does
+     * not simulate, so the label belongs to the props-driven tests below. What
+     * this test owns is that pressing Add really sends the request and records
+     * the funnel events.
+     */
     view.unmount()
   })
 })
 
 // Keep vitest's unused-import check honest about `vi` if it is ever needed.
 void vi
+
+describe('a suggestion row follows authoritative relationship state', () => {
+  /**
+   * THE BETA REPORT THIS EXISTS FOR.
+   *
+   *   "add friend request, cancel it, have to leave page entirely to get the
+   *    Add button back, small QOL the 'people you may know' could refresh on
+   *    such actions"
+   *
+   * The row used to read from a local `added` map, written on Add and never
+   * cleared - so "Requested" survived until the component unmounted, which is
+   * literally what leaving the page does. It now derives from the friends and
+   * outgoing-request lists the worker broadcasts, so a cancel performed
+   * anywhere is reflected here.
+   */
+
+  it('offers Add when there is no relationship', async () => {
+    const { view } = await show([person('u1', 'Casey', 2)])
+    expect(view.container.textContent).toContain('ADD')
+    view.unmount()
+  })
+
+  it('says Requested while a request is outstanding', async () => {
+    const { view } = await show([person('u1', 'Casey', 2)], [], [requestTo('u1')])
+    expect(view.container.textContent).toContain('Requested')
+    expect(view.container.textContent).not.toContain('ADD')
+    view.unmount()
+  })
+
+  it('RETURNS TO ADD when the request is cancelled, without remounting', async () => {
+    /*
+     * The exact reported defect. The component is re-rendered with the new
+     * props - which is what a worker broadcast does - and never unmounted.
+     */
+    const { client, view } = await show([person('u1', 'Casey', 2)], [], [requestTo('u1')])
+    expect(view.container.textContent).toContain('Requested')
+
+    view.render(
+      <FriendSuggestions client={client} friends={[]} outgoingRequests={[]} />,
+    )
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(view.container.textContent).toContain('ADD')
+    expect(view.container.textContent).not.toContain('Requested')
+    view.unmount()
+  })
+
+  it('says Friends once the friendship exists', async () => {
+    const { view } = await show([person('u1', 'Casey', 2)], [friendOf('u1')], [])
+    expect(view.container.textContent).toContain('Friends')
+    expect(view.container.textContent).not.toContain('ADD')
+    view.unmount()
+  })
+
+  it('keeps no local record that could contradict the worker', () => {
+    /*
+     * A structural guard on the root cause rather than the symptom. If a
+     * local map comes back, a row can disagree with the server again.
+     */
+    const source = readFileSync('src/ui/components/GrowFriends.tsx', 'utf8')
+    expect(source).not.toMatch(/setAdded|const \[added/)
+  })
+})

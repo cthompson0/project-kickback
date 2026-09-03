@@ -961,6 +961,7 @@ export function KickbackPanel({
               <FindFriends
                 client={client}
                 outgoingRequests={view.outgoingRequests}
+                friends={view.friends}
                 referralCount={view.referralCount}
                 onBack={() => setFinding(false)}
               />

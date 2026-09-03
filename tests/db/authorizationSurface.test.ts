@@ -95,7 +95,7 @@ describe('every SECURITY DEFINER function is safe by construction', () => {
      */
     const callable = (await functions())
       .filter((f) => f.security_definer)
-      .filter((f) => /p_actor|p_user_id|p_caller/.test(f.source))
+      .filter((f) => /\bp_actor\b|\bp_user_id\b|\bp_caller\b/.test(f.source))
 
     const reachable: string[] = []
     for (const f of callable) {

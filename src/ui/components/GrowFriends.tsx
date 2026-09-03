@@ -3,7 +3,7 @@ import { humanMessage } from '../../core/errors'
 import { Avatar } from './Avatar'
 import { mutualBucket } from '../../core/analytics'
 import { inviteLinkFor } from '../../core/invites'
-import type { KickbackClient } from '../../client/types'
+import type { Friend, FriendRequest, KickbackClient } from '../../client/types'
 import type { FriendSuggestion } from '../../background/supabaseBackend'
 
 /**
@@ -31,10 +31,50 @@ function mutualLabel(count: number): string {
   return count === 1 ? '1 mutual friend' : `${count} mutual friends`
 }
 
-export function FriendSuggestions({ client }: { client: KickbackClient }) {
+/**
+ * What a suggestion row's button should say, from AUTHORITATIVE state.
+ *
+ * THE DEFECT THIS REPLACES
+ *
+ * This used to be a local `added: Record<string, string>` map, written when the
+ * Add button was pressed and never cleared. So the row said "Requested" for the
+ * life of the mount: send a request, cancel it, and the only way back to Add
+ * was to leave the surface entirely - which is exactly what a beta user
+ * reported, along with the observation that suggestions "could refresh on such
+ * actions".
+ *
+ * The worker already knows the truth. `mutate()` in background/friends.ts
+ * awaits `refresh()` before it resolves, so by the time `sendFriendRequest`
+ * returns, the friends and outgoing-request lists have been re-read and
+ * broadcast. Deriving from those props means a cancel performed anywhere -
+ * this surface, the requests list, another tab - is reflected here without a
+ * second synchronisation system.
+ */
+function suggestionAction(
+  userId: string,
+  friends: Friend[],
+  outgoingRequests: FriendRequest[],
+): { label: string; actionable: boolean } {
+  if (friends.some((friend) => friend.user.id === userId)) {
+    return { label: 'Friends', actionable: false }
+  }
+  if (outgoingRequests.some((request) => request.user.id === userId)) {
+    return { label: 'Requested', actionable: false }
+  }
+  return { label: 'Add', actionable: true }
+}
+
+export function FriendSuggestions({
+  client,
+  friends,
+  outgoingRequests,
+}: {
+  client: KickbackClient
+  friends: Friend[]
+  outgoingRequests: FriendRequest[]
+}) {
   const [suggestions, setSuggestions] = useState<FriendSuggestion[] | null>(null)
   const [busyUserId, setBusyUserId] = useState<string | null>(null)
-  const [added, setAdded] = useState<Record<string, string>>({})
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
@@ -89,11 +129,11 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
         mutual_bucket: bucket,
         outcome,
       })
-      setAdded((current) => ({
-        ...current,
-        [suggestion.userId]:
-          outcome === 'friends' || outcome === 'already_friends' ? 'Friends' : 'Requested',
-      }))
+      /*
+       * Nothing is recorded locally. The worker refreshed before this resolved,
+       * so the props already say "Requested" - and, unlike a local map, they
+       * will say "Add" again the moment the request is cancelled.
+       */
     } catch (cause) {
       setError(humanMessage(cause, 'Could not send that request.'))
     } finally {
@@ -136,7 +176,7 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
 
       {suggestions.map((suggestion, index) => {
         const busy = busyUserId === suggestion.userId
-        const done = added[suggestion.userId]
+        const action = suggestionAction(suggestion.userId, friends, outgoingRequests)
 
         return (
           <div className="kb-row" key={suggestion.userId}>
@@ -156,9 +196,7 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
               </div>
             </div>
 
-            {done ? (
-              <span className="kb-row-note">{done}</span>
-            ) : (
+            {action.actionable ? (
               <button
                 type="button"
                 className={`kb-join${busy ? ' kb-join-busy' : ''}`}
@@ -167,6 +205,8 @@ export function FriendSuggestions({ client }: { client: KickbackClient }) {
               >
                 {busy ? '…' : 'ADD'}
               </button>
+            ) : (
+              <span className="kb-row-note">{action.label}</span>
             )}
           </div>
         )

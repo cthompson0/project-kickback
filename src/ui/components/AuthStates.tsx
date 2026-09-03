@@ -703,16 +703,26 @@ export function AccountCard({
           * thing is to say where the other half lives rather than let the
           * switch imply a guarantee it cannot make.
           */}
+        {/*
+         * "If none arrive" made a beta user stop and ask what it meant.
+         *
+         * Fairly: "none" of WHAT sat two clauses back, behind a "them" that was
+         * itself a pronoun, and the phrase was a sentence fragment doing duty as
+         * a link. The reader had to reconstruct the antecedent, or open Support
+         * to find out what the sentence had been about.
+         *
+         * It now names the thing, and the link says what following it gets you.
+         */}
         {preferences.gatheringNotifications && (
           <div className="kb-presence-hint kb-hint-quiet">
-            Your browser has to allow them too.{' '}
+            Your browser has to allow notifications too.{' '}
             <a
               className="kb-inline-link"
               href="https://anoteros-labs.github.io/watchside/support/"
               target="_blank"
               rel="noreferrer noopener"
             >
-              If none arrive
+              Not seeing any notifications?
             </a>
           </div>
         )}

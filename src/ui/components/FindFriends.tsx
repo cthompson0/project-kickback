@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { humanMessage } from '../../core/errors'
 import type {
+  Friend,
   FriendRequest,
   KickbackClient,
   Relationship,
@@ -24,9 +25,38 @@ const MIN_QUERY_LENGTH = 2
 interface FindFriendsProps {
   client: KickbackClient
   outgoingRequests: FriendRequest[]
+  /** Authoritative relationships, so suggestion rows cannot go stale. */
+  friends: Friend[]
   /** Successful referrals, for the invite section copy. */
   referralCount: number
   onBack: () => void
+}
+
+/**
+ * The handle worth showing under a name, or nothing.
+ *
+ * THE REPORT THIS EXISTS FOR
+ *
+ *   "find friends, peoples names are listed twice, wtfchuck27 then below that
+ *    is @wtfchuck27, its not clear which is meant to go into the find friend
+ *    text field"
+ *
+ * The two values are genuinely different fields - Twitch's `display_name` and
+ * its `login` - but for most people they differ only in capitalisation, so the
+ * row printed the same word twice and left somebody deciding which one was the
+ * real identifier. The @ made it worse by teaching a syntax that the lookup
+ * then rejected.
+ *
+ * So the handle is shown only when it actually says something new. "Chuck"
+ * over "@wtfchuck27" is informative; "wtfchuck27" over "@wtfchuck27" is noise.
+ *
+ * The @ stays where the handle is shown: it is how Twitch handles are written
+ * everywhere else, and typing it now works.
+ */
+function handleFor(displayName: string, twitchLogin: string | null): string | null {
+  if (!twitchLogin) return null
+  if (twitchLogin.toLowerCase() === displayName.toLowerCase()) return null
+  return `@${twitchLogin}`
 }
 
 /** What the button for a given relationship should say and whether it acts. */
@@ -45,7 +75,13 @@ function actionFor(relationship: Relationship): { label: string; actionable: boo
   }
 }
 
-export function FindFriends({ client, outgoingRequests, referralCount, onBack }: FindFriendsProps) {
+export function FindFriends({
+  client,
+  outgoingRequests,
+  friends,
+  referralCount,
+  onBack,
+}: FindFriendsProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -194,7 +230,11 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
         */}
       {trimmed.length < MIN_QUERY_LENGTH && (
         <>
-          <FriendSuggestions client={client} />
+          <FriendSuggestions
+            client={client}
+            friends={friends}
+            outgoingRequests={outgoingRequests}
+          />
           <InviteFriends client={client} referralCount={referralCount} />
         </>
       )}
@@ -231,11 +271,16 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
             <div className="kb-row-main">
               <div className="kb-row-name">{result.displayName}</div>
               <div className="kb-row-status">
-                {result.twitchLogin ? (
-                  <span className="kb-handle">@{result.twitchLogin}</span>
-                ) : (
-                  <span className="kb-handle">Watchside user</span>
-                )}
+                {(() => {
+                  const handle = handleFor(result.displayName, result.twitchLogin)
+                  if (handle) return <span className="kb-handle">{handle}</span>
+                  // No Twitch login at all is worth saying; a login that merely
+                  // restates the name above is not.
+                  if (!result.twitchLogin) {
+                    return <span className="kb-handle">Watchside user</span>
+                  }
+                  return null
+                })()}
                 {result.matchedBy === 'friend_code' && (
                   <span className="kb-time">friend code</span>
                 )}
@@ -268,9 +313,13 @@ export function FindFriends({ client, outgoingRequests, referralCount, onBack }:
               <Avatar user={request.user} showDot={false} />
               <div className="kb-row-main">
                 <div className="kb-row-name">{request.user.displayName}</div>
-                <div className="kb-row-status">
-                  <span className="kb-handle">@{request.user.username}</span>
-                </div>
+                {handleFor(request.user.displayName, request.user.username) && (
+                  <div className="kb-row-status">
+                    <span className="kb-handle">
+                      {handleFor(request.user.displayName, request.user.username)}
+                    </span>
+                  </div>
+                )}
               </div>
               <button
                 type="button"

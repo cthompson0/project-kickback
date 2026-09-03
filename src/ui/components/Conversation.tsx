@@ -462,8 +462,30 @@ export function Composer({
           placeholder={placeholder}
           spellCheck
           autoComplete="off"
+          /*
+           * Reaching for the composer puts the picker away.
+           *
+           *   "clicking into the chat box usually closes the emoji menu i feel
+           *    like, having to specifically click the emoji button again felt
+           *    odd"
+           *
+           * POINTERDOWN, NOT FOCUS, and that is the whole subtlety. `onPick`
+           * focuses this input after every emote so typing continues where the
+           * user left off - so closing on focus would slam the picker shut on
+           * the first pick and destroy the deliberate "pick several in a row"
+           * behaviour. A programmatic focus() fires no pointer event, so this
+           * fires for the human and not for us.
+           */
+          onPointerDown={() => setPickerOpen(false)}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
+            // Escape puts it away too, which is what a dismissible layer should
+            // do and what a keyboard user will try first.
+            if (event.key === 'Escape' && pickerOpen) {
+              event.preventDefault()
+              setPickerOpen(false)
+              return
+            }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault()
               void send()

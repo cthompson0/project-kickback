@@ -301,3 +301,64 @@ describe('the management lists do not grow the panel forever', () => {
     expect(html.indexOf('Muted ·')).toBeLessThan(html.indexOf('Blocked ·'))
   })
 })
+
+describe('the Support link is centred like the buttons around it', () => {
+  const css = readFileSync(join(process.cwd(), 'src', 'ui', 'kickback.css'), 'utf8')
+
+  /**
+   * THE BETA REPORT THIS EXISTS FOR.
+   *
+   *   "support ui/text isn't centred correctly"
+   *
+   * Support is the one anchor in a column of buttons. A <button> centres its
+   * own label by UA default; an anchor does not, and `a.kb-ghost-btn` makes
+   * this one a flex container - at which point `text-align` stops reaching the
+   * label entirely and it sits wherever justify-content puts it.
+   *
+   * Measured in Chrome against the sheet as it was: in a 320px panel the three
+   * sibling labels centred to the pixel and "Support" sat 104px to their left,
+   * inside a box that was exactly the same width. The bug was invisible to
+   * anyone reading the CSS because `.kb-ghost-link` asked for
+   * `display: block; text-align: center` - which never applied, because
+   * `a.kb-ghost-btn` carries an element AND a class and therefore outranks it.
+   *
+   * So the assertions below are about the CASCADE, not about a string. A
+   * spot-check for "text-align: center" is exactly what passed while the link
+   * was 104px off.
+   */
+
+  /** The declarations inside one rule, by selector. */
+  function block(selector: string): string {
+    const at = css.indexOf(selector + ' {')
+    expect(at, `${selector} should exist`).toBeGreaterThan(-1)
+    return css.slice(at, css.indexOf('}', at))
+  }
+
+  it('centres on the rule that actually wins the display', () => {
+    const anchor = block('a.kb-ghost-btn')
+    // If this rule makes the element a flex container - and it does, so the
+    // anchor can take the button's box - then it owns the centring too.
+    expect(anchor).toMatch(/display:\s*inline-flex/)
+    expect(anchor).toMatch(/justify-content:\s*center/)
+  })
+
+  it('has no lower-specificity rule contradicting that display', () => {
+    /*
+     * The root cause, guarded directly. `.kb-ghost-link` (0,1,0) losing to
+     * `a.kb-ghost-btn` (0,1,1) is what made the sheet describe a layout it was
+     * not producing. A `display` here can only ever be dead or confusing.
+     */
+    expect(block('.kb-ghost-link')).not.toMatch(/display:/)
+  })
+
+  it('still applies to the Support link and nothing else', () => {
+    // Both rules exist for one element. If a second anchor ever takes these
+    // classes, the centring above has to be re-checked against its width.
+    const source = readFileSync(
+      join(process.cwd(), 'src', 'ui', 'components', 'AuthStates.tsx'),
+      'utf8',
+    )
+    expect((source.match(/kb-ghost-link/g) ?? []).length).toBe(1)
+    expect(source).toContain('kb-ghost-btn kb-ghost-link')
+  })
+})

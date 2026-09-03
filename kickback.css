@@ -2245,32 +2245,10 @@
   color: var(--kb-dim);
 }
 
-/*
- * An anchor styled as one of our buttons.
- *
- * WHY justify-content IS LOAD-BEARING
- *
- * A <button> centres its own label - that is the UA default - so every ghost
- * button in the account column reads as centred for free. An anchor does not,
- * and this rule makes it a flex container, at which point `text-align` no
- * longer reaches the label at all: the text becomes an anonymous flex item and
- * sits wherever justify-content puts it, which defaults to the start.
- *
- * That is what a beta user saw. Measured against this sheet, "Reset layout",
- * "Feedback" and "Sign out" each centred to the pixel while "Support" sat 104px
- * to their left, hard against its own padding edge, in a box that was otherwise
- * exactly the same width.
- *
- * .kb-ghost-link below LOOKED like it had already handled this - it asked for
- * `display: block; text-align: center` - but `a.kb-ghost-btn` carries an
- * element and a class where that rule carries only a class, so this display
- * won and the centring never applied. The sheet was asserting something untrue
- * about itself, which is why the defect survived reading.
- */
+/* An anchor styled as one of our buttons. */
 a.kb-ghost-btn {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   text-decoration: none;
 }
 
@@ -3440,13 +3418,8 @@ a.kb-ghost-btn {
  * preview a person expects from a link, none of which a button can offer.
  */
 .kb-ghost-link {
-  /*
-   * Centring deliberately does NOT live here. `display` and `text-align` were
-   * both removed because neither ever took effect - a.kb-ghost-btn outranks
-   * this rule and turns the element into a flex container - and leaving them
-   * in place is what made the misalignment invisible to anyone reading the
-   * sheet. Centring is where it actually applies, on a.kb-ghost-btn.
-   */
+  display: block;
+  text-align: center;
   text-decoration: none;
   line-height: normal;
 }

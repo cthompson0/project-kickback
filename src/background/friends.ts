@@ -1,3 +1,4 @@
+import { normalizeSearchQuery } from '../core/twitchMetadata'
 import { IDLE } from '../core/types'
 import type { Presence } from '../core/types'
 import type { BackendResult } from './auth'
@@ -276,7 +277,16 @@ export function createFriendsService(deps: FriendsDeps): FriendsService {
     },
 
     async search(query: string): Promise<SearchResult[]> {
-      const trimmed = query.trim()
+      /*
+       * One leading @ is dropped before anything else happens.
+       *
+       * Here rather than in the component, because this is the single place a
+       * search reaches the server - so every caller gets the same rule and no
+       * surface can send an @ that the database will match literally and fail
+       * to find. The length check runs on the NORMALISED value, so "@" alone
+       * never becomes a request at all.
+       */
+      const trimmed = normalizeSearchQuery(query)
       if (trimmed.length < 2) return []
 
       const result = await deps.backend.searchUsers(trimmed)
