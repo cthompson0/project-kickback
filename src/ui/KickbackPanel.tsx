@@ -1045,10 +1045,29 @@ export function KickbackPanel({
         </div>
       )}
 
-      {/* Grips on both bottom corners, because the panel can be parked on
-          either side of the window and only one of them is natural there. */}
-      <div className="kb-resize kb-resize-sw" onPointerDown={beginResize('sw')} />
+      {/*
+        * All four sides and all four corners.
+        *
+        * It used to be the bottom edge and the two bottom corners. A tester
+        * tried the top, nothing happened, and they reported that Watchside was
+        * not resizable - so the missing directions did not read as "fewer
+        * handles", they read as "no feature". West and east were already
+        * implemented in resizeTo and had simply never been given a grip.
+        *
+        * The north strip deliberately overlaps the header, which is the drag
+        * handle, and wins on z-index. That overlap is the fix for the second
+        * half of the same report: the top edge answered a resize gesture with
+        * a grab cursor, telling the tester "you can move this" at exactly the
+        * moment they were trying to resize it. The strip is 6px, so the rest
+        * of the header still drags, and the buttons inside it are untouched.
+        */}
+      <div className="kb-resize kb-resize-n" onPointerDown={beginResize('n')} />
       <div className="kb-resize kb-resize-s" onPointerDown={beginResize('s')} />
+      <div className="kb-resize kb-resize-w" onPointerDown={beginResize('w')} />
+      <div className="kb-resize kb-resize-e" onPointerDown={beginResize('e')} />
+      <div className="kb-resize kb-resize-nw" onPointerDown={beginResize('nw')} />
+      <div className="kb-resize kb-resize-ne" onPointerDown={beginResize('ne')} />
+      <div className="kb-resize kb-resize-sw" onPointerDown={beginResize('sw')} />
       <div className="kb-resize kb-resize-se" onPointerDown={beginResize('se')} />
     </div>
     </AnalyticsProvider>

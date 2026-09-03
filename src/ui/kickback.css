@@ -228,64 +228,161 @@
   cursor: grabbing;
 }
 
-/* Controls inside the header are still controls. */
+/*
+ * Controls inside the header are still controls.
+ *
+ * The z-index is not decoration. The top-right corner grip is 16px square and
+ * the collapse button sits 11px from the panel's right edge, so adding the
+ * north-east grip put it over the button's top-right corner: measured in
+ * Chrome, 42 of that button's 576 pixels started answering a resize gesture
+ * instead of a click. A control beats a grip - losing a few pixels of
+ * diagonal resize at one corner is nothing, and a collapse button that
+ * sometimes resizes the panel instead is a bug somebody would report.
+ *
+ * `position: relative` is what makes z-index apply at all here; these buttons
+ * are flex items with no positioning of their own.
+ */
 .kb-header button {
+  position: relative;
+  z-index: 4;
   cursor: pointer;
 }
 
 /* ---------- resize grips ---------- */
 
+/*
+ * Eight grips: four sides, four corners.
+ *
+ * The z-index matters more than it looks. The header is the drag handle and
+ * carries `cursor: grab`, so before the north strip existed the top edge
+ * answered a resize gesture with a MOVE cursor - which is exactly what a
+ * tester read as "the top wasnt letting me". The strip sits above the header
+ * and is only 6px tall, so the top edge resizes and the rest of the header
+ * still drags.
+ *
+ * Corners are declared after the sides and are 16px, so they win the overlap:
+ * at a corner, a diagonal pull is the more specific intent.
+ */
+
 .kb-resize {
   position: absolute;
-  z-index: 2;
+  z-index: 3;
   touch-action: none;
 }
 
+.kb-resize-n,
 .kb-resize-s {
   left: 14px;
   right: 14px;
-  bottom: 0;
   height: 6px;
   cursor: ns-resize;
+}
+
+.kb-resize-n {
+  top: 0;
+}
+
+.kb-resize-s {
+  bottom: 0;
+}
+
+.kb-resize-w,
+.kb-resize-e {
+  top: 14px;
+  bottom: 14px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.kb-resize-w {
+  left: 0;
+}
+
+.kb-resize-e {
+  right: 0;
+}
+
+.kb-resize-nw,
+.kb-resize-ne,
+.kb-resize-sw,
+.kb-resize-se {
+  width: 16px;
+  height: 16px;
+}
+
+.kb-resize-nw,
+.kb-resize-ne {
+  top: 0;
 }
 
 .kb-resize-sw,
 .kb-resize-se {
   bottom: 0;
-  width: 16px;
-  height: 16px;
 }
 
+.kb-resize-nw,
 .kb-resize-sw {
   left: 0;
-  cursor: nesw-resize;
 }
 
+.kb-resize-ne,
 .kb-resize-se {
   right: 0;
+}
+
+/* Diagonals: nw/se share one axis, ne/sw the other. */
+.kb-resize-nw,
+.kb-resize-se {
   cursor: nwse-resize;
 }
 
-/* A quiet corner hint, so the grip is discoverable without shouting. */
-.kb-resize-se::after,
-.kb-resize-sw::after {
+.kb-resize-ne,
+.kb-resize-sw {
+  cursor: nesw-resize;
+}
+
+/*
+ * A quiet corner hint, so the grip is discoverable without shouting.
+ *
+ * On all four corners now, not just the bottom two. The report this answers
+ * was not "I want more handles", it was "i didnt realize i could resize cuz
+ * the top wasnt letting me" - somebody looked at the top of the panel, saw
+ * nothing that said resize, and concluded the whole feature was absent. A mark
+ * at 22% white is the smallest thing that answers that.
+ */
+.kb-resize-nw::after,
+.kb-resize-ne::after,
+.kb-resize-sw::after,
+.kb-resize-se::after {
   content: '';
   position: absolute;
-  bottom: 3px;
   width: 7px;
   height: 7px;
-  border-bottom: 2px solid rgba(255, 255, 255, 0.22);
   transition: border-color 0.12s ease;
 }
 
-.kb-resize-se::after {
-  right: 3px;
-  border-right: 2px solid rgba(255, 255, 255, 0.22);
+.kb-resize-nw::after,
+.kb-resize-ne::after {
+  top: 3px;
+  border-top: 2px solid rgba(255, 255, 255, 0.22);
 }
 
+.kb-resize-sw::after,
+.kb-resize-se::after {
+  bottom: 3px;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.22);
+}
+
+.kb-resize-nw::after,
 .kb-resize-sw::after {
   left: 3px;
   border-left: 2px solid rgba(255, 255, 255, 0.22);
+}
+
+.kb-resize-ne::after,
+.kb-resize-se::after {
+  right: 3px;
+  border-right: 2px solid rgba(255, 255, 255, 0.22);
 }
 
 .kb-resize:hover::after,

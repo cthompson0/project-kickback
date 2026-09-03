@@ -299,14 +299,35 @@ export function dragTo(
 }
 
 /** Which edge or corner a resize gesture is pulling. */
-export type ResizeEdge = 's' | 'w' | 'e' | 'sw' | 'se'
+export type ResizeEdge = 'n' | 's' | 'w' | 'e' | 'nw' | 'ne' | 'sw' | 'se'
+
+/** Every direction, in the order the grips are drawn. Also the test's alphabet. */
+export const RESIZE_EDGES: readonly ResizeEdge[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 
 /**
  * Resizes the panel by dragging one edge or corner.
  *
- * Pulling a left edge moves x and changes width together, which is the part
- * that is easy to get subtly wrong: the opposite edge must stay exactly where
- * it was, even once the size hits its minimum.
+ * WHY ALL EIGHT
+ *
+ * Only the bottom edge and the two bottom corners had grips. A beta tester
+ * tried the top, nothing happened, and they concluded the panel was not
+ * resizable at all:
+ *
+ *   "the app is only resizeable on the bottom corners? at least the top
+ *    corners too, if not the 4 sides as well for that imo"
+ *   "didnt realize i could resize cuz the top wasnt letting me"
+ *
+ * Note what that cost: not "a direction is missing" but "the feature does not
+ * exist". West and east were already implemented here and simply had no grip
+ * rendered, so two of the four sides were unreachable code.
+ *
+ * THE ONE THING THAT IS EASY TO GET WRONG
+ *
+ * Pulling a north or west edge changes the size AND the origin, because the
+ * OPPOSITE edge is the anchor and must not move by a pixel - not while
+ * dragging, and not once the size has hit its minimum and the pointer keeps
+ * going. Everything below is arranged around that: compute the size, then let
+ * the origin absorb whatever the size could not.
  */
 export function resizeTo(
   start: { layout: PanelLayout; pointer: Point },
@@ -317,33 +338,50 @@ export function resizeTo(
   const dx = pointer.x - start.pointer.x
   const dy = pointer.y - start.pointer.y
 
-  let { x, width, height } = start.layout
-  const { y } = start.layout
+  const { x: left, y: top } = start.layout
+  const right = left + start.layout.width
+  const bottom = top + start.layout.height
 
-  if (edge.includes('e')) width = start.layout.width + dx
-  if (edge.includes('w')) width = start.layout.width - dx
-  if (edge.includes('s')) height = start.layout.height + dy
+  const west = edge.includes('w')
+  const east = edge.includes('e')
+  const north = edge.includes('n')
+  const south = edge.includes('s')
 
-  // Never let a resize push the panel past the bottom or right of the viewport.
-  const available = clampSize(
-    {
-      width: edge.includes('w') ? width : Math.min(width, viewport.width - x - EDGE_MARGIN),
-      height: Math.min(height, viewport.height - y - EDGE_MARGIN),
-    },
-    viewport,
-  )
+  let width = start.layout.width
+  let height = start.layout.height
 
-  if (edge.includes('w')) {
-    // The right edge is the anchor, so x absorbs whatever the width could not.
-    const right = start.layout.x + start.layout.width
-    x = right - available.width
-    if (x < EDGE_MARGIN) {
-      x = EDGE_MARGIN
-      available.width = right - EDGE_MARGIN
-    }
-  }
+  if (east) width = start.layout.width + dx
+  if (west) width = start.layout.width - dx
+  if (south) height = start.layout.height + dy
+  if (north) height = start.layout.height - dy
 
-  return clampLayout({ x, y, width: available.width, height: available.height }, viewport)
+  /*
+   * A moving edge may not travel past the viewport margin.
+   *
+   * The anchored edge is fixed, so containment is a cap on the SIZE rather
+   * than a correction to the position - which is what keeps the anchor honest.
+   * Dragging north far enough to leave the window becomes "as tall as the
+   * space above the bottom edge allows", never "the panel jumped".
+   */
+  if (east) width = Math.min(width, viewport.width - left - EDGE_MARGIN)
+  if (west) width = Math.min(width, right - EDGE_MARGIN)
+  if (south) height = Math.min(height, viewport.height - top - EDGE_MARGIN)
+  if (north) height = Math.min(height, bottom - EDGE_MARGIN)
+
+  const size = clampSize({ width, height }, viewport)
+
+  /*
+   * The origin absorbs the difference, so the anchored edge stays put.
+   *
+   * The Math.max floor only bites on a viewport too small to hold the panel's
+   * own minimum at all. There the two rules genuinely conflict, and a panel
+   * that keeps its minimum size wins over one that keeps its margin: too
+   * narrow to use is broken, eight pixels closer to the edge is not.
+   */
+  const x = west ? Math.max(EDGE_MARGIN, right - size.width) : left
+  const y = north ? Math.max(EDGE_MARGIN, bottom - size.height) : top
+
+  return clampLayout({ x, y, width: size.width, height: size.height }, viewport)
 }
 
 /**

@@ -19,6 +19,7 @@ import {
   isInteractive,
   movedBeyondSlop,
   parseStoredLayout,
+  RESIZE_EDGES,
   resizeTo,
   serializeLayout,
 } from '../../src/ui/layout/layout'
@@ -436,7 +437,7 @@ describe('resizing', () => {
   })
 
   it('leaves the panel usable whatever the gesture', () => {
-    for (const edge of ['s', 'e', 'w', 'sw', 'se'] as const) {
+    for (const edge of RESIZE_EDGES) {
       for (const pointer of [
         { x: 99_999, y: 99_999 },
         { x: -99_999, y: -99_999 },
@@ -448,6 +449,167 @@ describe('resizing', () => {
         expect(reachable(resized, LAPTOP)).toBe(true)
       }
     }
+  })
+})
+
+describe('resizing from the top and the sides', () => {
+  /**
+   * THE BETA REPORT THIS EXISTS FOR.
+   *
+   *   "the app is only resizeable on the bottom corners? at least the top
+   *    corners too, if not the 4 sides as well for that imo"
+   *   "didnt realize i could resize cuz the top wasnt letting me"
+   *
+   * The failure was not a missing convenience. The tester tried the top, got
+   * nothing, and concluded Watchside could not be resized at all - so three
+   * absent grips read as an absent feature.
+   *
+   * The invariant every test here turns on is the ANCHOR: pulling north or
+   * west changes the size and the origin together, and the opposite edge must
+   * not move by a pixel - including after the size has bottomed out and the
+   * pointer keeps travelling, which is exactly where naive geometry drifts.
+   */
+  const start = {
+    layout: layout({ x: 400, y: 200, width: 320, height: 500 }),
+    pointer: { x: 400, y: 200 },
+  }
+  const bottomOf = (l: PanelLayout) => l.y + l.height
+  const rightOf = (l: PanelLayout) => l.x + l.width
+
+  it('grows upwards from the top edge, holding the bottom edge still', () => {
+    const resized = resizeTo(start, { x: 400, y: 100 }, DESKTOP, 'n')
+    expect(resized.height).toBe(600)
+    expect(resized.y).toBe(100)
+    expect(bottomOf(resized)).toBe(bottomOf(start.layout))
+  })
+
+  it('shrinks from the top edge, holding the bottom edge still', () => {
+    const resized = resizeTo(start, { x: 400, y: 300 }, DESKTOP, 'n')
+    expect(resized.height).toBe(400)
+    expect(bottomOf(resized)).toBe(bottomOf(start.layout))
+  })
+
+  it('holds the bottom edge still even once the minimum height is reached', () => {
+    // The drift case. Past the minimum the height stops changing, so a naive
+    // `y += dy` keeps walking the panel up the screen.
+    const resized = resizeTo(start, { x: 400, y: 99_999 }, DESKTOP, 'n')
+    expect(resized.height).toBe(MIN_HEIGHT)
+    expect(bottomOf(resized)).toBe(bottomOf(start.layout))
+  })
+
+  it('grows from the left edge without moving the right edge', () => {
+    const resized = resizeTo(start, { x: 300, y: 200 }, DESKTOP, 'w')
+    expect(resized.width).toBe(420)
+    expect(rightOf(resized)).toBe(rightOf(start.layout))
+  })
+
+  it('grows from the right edge without moving the left edge', () => {
+    const resized = resizeTo(start, { x: 500, y: 200 }, DESKTOP, 'e')
+    expect(resized.width).toBe(420)
+    expect(resized.x).toBe(start.layout.x)
+  })
+
+  it('moves two edges at once from the top-left corner, and only two', () => {
+    const resized = resizeTo(start, { x: 300, y: 100 }, DESKTOP, 'nw')
+    expect(resized).toMatchObject({ width: 420, height: 600, x: 300, y: 100 })
+    expect(rightOf(resized)).toBe(rightOf(start.layout))
+    expect(bottomOf(resized)).toBe(bottomOf(start.layout))
+  })
+
+  it('moves two edges at once from the top-right corner, and only two', () => {
+    const resized = resizeTo(start, { x: 500, y: 100 }, DESKTOP, 'ne')
+    expect(resized).toMatchObject({ width: 420, height: 600, x: 400, y: 100 })
+    expect(resized.x).toBe(start.layout.x)
+    expect(bottomOf(resized)).toBe(bottomOf(start.layout))
+  })
+
+  it('cannot be dragged out through the top of the window', () => {
+    const resized = resizeTo(start, { x: 400, y: -99_999 }, DESKTOP, 'n')
+    expect(resized.y).toBeGreaterThanOrEqual(0)
+    expect(resized.height).toBeGreaterThanOrEqual(MIN_HEIGHT)
+  })
+
+  it('does not escape through the top when the panel starts against it', () => {
+    const high = {
+      layout: layout({ x: 400, y: EDGE_MARGIN, width: 320, height: 500 }),
+      pointer: { x: 400, y: EDGE_MARGIN },
+    }
+    const resized = resizeTo(high, { x: 400, y: -400 }, DESKTOP, 'nw')
+    expect(resized.y).toBeGreaterThanOrEqual(0)
+    expect(bottomOf(resized)).toBe(bottomOf(high.layout))
+  })
+
+  it('never drifts, for any edge, at any pointer, on any viewport', () => {
+    /*
+     * The property, stated once. An anchored edge is any edge the gesture is
+     * not pulling; it must come back bit-identical. This is the test that
+     * would have caught the whole class had north existed earlier.
+     */
+    for (const viewport of [DESKTOP, LAPTOP, TINY]) {
+      for (const edge of RESIZE_EDGES) {
+        for (const pointer of [
+          { x: 99_999, y: 99_999 },
+          { x: -99_999, y: -99_999 },
+          { x: 0, y: 99_999 },
+          { x: 99_999, y: 0 },
+          { x: 405, y: 205 },
+        ]) {
+          const resized = resizeTo(start, pointer, viewport, edge)
+          const note = `${edge} at ${pointer.x},${pointer.y} on ${viewport.width}x${viewport.height}`
+
+          /*
+           * The baseline is the SAME gesture with no travel, not the raw
+           * start layout. On a viewport too small for the panel the clamps
+           * legitimately reshape it the moment it is touched, and that is
+           * containment rather than drift - measuring against the untouched
+           * layout would call the safety net a bug.
+           */
+          const still = resizeTo(start, start.pointer, viewport, edge)
+
+          if (!edge.includes('w') && !edge.includes('e')) {
+            expect(resized.x, note).toBe(still.x)
+            expect(resized.width, note).toBe(still.width)
+          }
+          if (!edge.includes('n') && !edge.includes('s')) {
+            expect(resized.y, note).toBe(still.y)
+            expect(resized.height, note).toBe(still.height)
+          }
+          // Pulling west pins the right edge; pulling east pins the left.
+          if (edge.includes('w')) expect(resized.x, note).toBeLessThanOrEqual(rightOf(start.layout))
+          if (edge.includes('e')) expect(resized.x, note).toBe(still.x)
+          if (edge.includes('s')) expect(resized.y, note).toBe(still.y)
+
+          // And the geometry is always valid, whatever happened above.
+          expect(resized.width, note).toBeGreaterThanOrEqual(MIN_WIDTH)
+          expect(resized.height, note).toBeGreaterThanOrEqual(MIN_HEIGHT)
+          expect(Number.isInteger(resized.x), note).toBe(true)
+          expect(Number.isInteger(resized.y), note).toBe(true)
+          expect(reachable(resized, viewport), note).toBe(true)
+        }
+      }
+    }
+  })
+
+  it('survives a gesture applied one pixel at a time', () => {
+    /*
+     * A real drag is a stream of pointermoves, all measured from the SAME
+     * origin. Replaying it step by step must land where one big step lands,
+     * or the panel creeps while the mouse is held still.
+     */
+    let last = resizeTo(start, start.pointer, DESKTOP, 'nw')
+    for (let step = 1; step <= 120; step += 1) {
+      last = resizeTo(start, { x: 400 - step, y: 200 - step }, DESKTOP, 'nw')
+    }
+    expect(last).toEqual(resizeTo(start, { x: 280, y: 80 }, DESKTOP, 'nw'))
+    expect(bottomOf(last)).toBe(bottomOf(start.layout))
+    expect(rightOf(last)).toBe(rightOf(start.layout))
+  })
+
+  it('round-trips through storage without changing shape', () => {
+    // Persisted geometry is the thing a resize bug corrupts silently.
+    const resized = resizeTo(start, { x: 300, y: 100 }, DESKTOP, 'nw')
+    const restored = parseStoredLayout(serializeLayout(resized, true))
+    expect(restored?.layout).toEqual(resized)
   })
 })
 
