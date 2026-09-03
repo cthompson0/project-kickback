@@ -2838,8 +2838,33 @@ a.kb-ghost-btn {
  * line of context under their name. Scrolls on its own so the reaction bar
  * below stays reachable however many people are here.
  */
+/*
+ * Who is here: as tall as the people in it, and no taller.
+ *
+ * THE BETA REPORT THIS EXISTS FOR
+ *
+ *   "the watching together area seems really tall for just one other person -
+ *    does it have a static height to show a set number of people?"
+ *
+ * It had no static height. It had `flex: 1 1 auto`, and so does chat - so the
+ * two of them SPLIT the panel's free space, while this one also kept its own
+ * content height as its basis. Measured in a 520px session with two people:
+ * this box was 236px tall around 46px of names, and chat got 202px and a
+ * scrollbar. The empty space was not reserved for anybody, it was arithmetic.
+ *
+ * `flex: 0 1 auto` is the fix: take the content height, never grow into space
+ * that belongs to the conversation, still shrink if the panel gets short.
+ *
+ * The cap is expressed in em rather than pixels so it follows the text-size
+ * preference instead of contradicting it - at Extra Large the rows are taller,
+ * and the ceiling has to be too, or the second person disappears behind a
+ * scrollbar the moment somebody turns it on. Past the cap this scrolls
+ * internally, which is what `overflow-y` was always for and what a busy
+ * channel now actually reaches.
+ */
 .kb-room-people {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
+  max-height: min(11em, 35%);
   min-height: 0;
   overflow-y: auto;
   display: flex;
@@ -2847,6 +2872,17 @@ a.kb-ghost-btn {
   gap: 2px;
   /* A user card opened from a row is measured against this, not the row. */
   position: relative;
+  /*
+   * Where presence ends and conversation begins.
+   *
+   * Asked for directly - "if it cannot be dynamic there should at least be a
+   * visual cue separating the participant region from the chat below" - and
+   * still worth having now that it can be dynamic, because a list that sizes
+   * itself has a different edge every time. One hairline, the same one the
+   * panel uses everywhere else.
+   */
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--kb-line);
 }
 
 .kb-room-person {
@@ -3308,10 +3344,19 @@ a.kb-ghost-btn {
   color: var(--kb-dim);
 }
 
+/*
+ * The disclosure chevron - "small and difficult to see", and it was both.
+ *
+ * 10px of --kb-faint is 3.56:1 against the panel, which is the bare floor for
+ * a graphical control. --kb-dim is 6.88:1 and is what the label beside it
+ * already uses, so the control and its name now read as one thing. The glyph
+ * itself is an SVG path now rather than U+2303/U+2304; see ChevronIcon.
+ */
 .kb-session-chevron {
   flex: none;
-  font-size: 10px;
-  color: var(--kb-faint);
+  display: flex;
+  align-items: center;
+  color: var(--kb-dim);
 }
 
 /*

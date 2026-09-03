@@ -16,6 +16,7 @@ import { useAnalytics } from '../Analytics'
 import { Avatar } from './Avatar'
 import { AVATAR_SIZE } from '../avatarSizes'
 import { ActiveComboBar, Composer, MessageList } from './Conversation'
+import { ChevronIcon } from './Icons'
 import { UserCard } from './UserCard'
 import type { UserCardContext } from './UserCard'
 
@@ -291,8 +292,8 @@ export function StreamSession({
           })}
         </span>
         <span className="kb-session-count">WATCHING TOGETHER · {participants}</span>
-        <span className="kb-session-chevron" aria-hidden="true">
-          {rosterOpen ? '⌃' : '⌄'}
+        <span className="kb-session-chevron">
+          <ChevronIcon open={rosterOpen} />
         </span>
       </button>
 

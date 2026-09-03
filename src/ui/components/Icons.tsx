@@ -83,3 +83,40 @@ export function ChatIcon() {
     </svg>
   )
 }
+
+/**
+ * The disclosure chevron, pointing down when the thing below is open.
+ *
+ * THE BETA REPORT THIS EXISTS FOR: "the dropdown/collapse arrow is small and
+ * difficult to see."
+ *
+ * It used to be the literal characters U+2303 and U+2304 - UP and DOWN
+ * ARROWHEAD - set at 10px in the faintest colour in the palette. Two problems
+ * at once. Those code points are not in most UI font stacks, so what actually
+ * drew them was whatever fallback the browser found, at whatever weight it
+ * happened to have; and 10px of --kb-faint is 3.56:1, the floor for a
+ * graphical control and nothing more.
+ *
+ * A path cannot fall back to a different font, and it keeps its stroke weight
+ * at any size. Same idiom as every other icon here.
+ */
+export function ChevronIcon({ open }: { open: boolean }) {
+  return (
+    <svg
+      width="14"
+      height="14"
+      viewBox="0 0 14 14"
+      aria-hidden="true"
+      style={{ transform: open ? 'rotate(180deg)' : undefined }}
+    >
+      <path
+        d="M3.5 5.5L7 9l3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
+      />
+    </svg>
+  )
+}
