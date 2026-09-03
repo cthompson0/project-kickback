@@ -793,8 +793,221 @@ this architecture.
    the write path, so under sustained zero metadata traffic a row could outlive
    24 hours until the next write. With live beta traffic this is continuous, and
    nothing stale is ever *served* (the serving TTL is 2 minutes) — but the
-   storage duration is what Schedule 1 §C speaks to. A scheduled sweep
-   (`pg_cron`) would close it definitively. **Not implemented here: it is new
-   behaviour and outside this pass's scope.** Noted for the owner's judgement.
+   storage duration is what Schedule 1 §C speaks to.
+   **→ Addressed by migration 0044. See §A8.**
 2. The three accepted interpretive risks in §A6, which do not expire.
 3. Ordinary platform dependency (§11 of the audit) — not a compliance matter.
+
+---
+---
+
+# ADDENDUM 2 — the retention guarantee, made independent of traffic
+
+**Date:** 2026-09-03
+**Status:** migration **prepared, NOT applied**. G7 remains **B**.
+
+## A8. Why the write-path sweep was necessary but not sufficient
+
+Deploying the write-path sweep (§A3) was the right first move and it closed the
+finding as reported: the sweep existed and nothing called it, and now something
+does.
+
+It does not, on its own, produce a *guarantee*. The call site is inside the
+metadata **write** path, so the sweep runs only when a signed-in user causes a
+cache miss and a Twitch fetch. Retention therefore depends on user traffic:
+
+- **Busy period** — sweeps run constantly; retention is far inside the cap.
+- **Quiet period** — no writes, no sweeps. Rows persist. After 24 hours of
+  quiet, stored Twitch Content is outside Schedule 1 §C regardless of the fact
+  that nothing stale is ever served, because the clause governs **storage
+  duration**, not what is displayed.
+
+Overnight lulls, a gap between beta cohorts, a Twitch outage, or simply a small
+user base are all enough. So the invariant has to hold at **zero traffic**,
+which means the cleanup cannot be triggered by a client request at all.
+
+Recorded plainly because the distinction is easy to lose: *the write-path sweep
+was not wrong, and it was not enough.*
+
+## A9. Investigation
+
+| Question | Finding |
+| --- | --- |
+| The existing sweep | `sweep_twitch_metadata_cache(p_older_than interval)`, migration `0017:68`. `security definer`, pinned `search_path`, revoked from `public`/`anon`/`authenticated`, returns a deleted count, backed by `twitch_metadata_cache_fetched_at_idx` so it is a range scan |
+| Suitable to invoke directly? | **Yes.** Parameterised, idempotent, bounded, single-table. A scheduler should call it, not reimplement it |
+| Is pg_cron already enabled/used? | **No.** `grep` across all 44 migrations finds **no `create extension` of any kind** and no scheduler anywhere |
+| Is there an existing scheduler? | **None.** The project has a deliberate, repeated pattern of opportunistic sweeps precisely to avoid one — `0017`, `0019:151`, `0020:294`, `0021:201` each say "no pg_cron" in their comments. 0044 is the first scheduled mechanism in the project, which is a genuine change in operational posture and is why it is proposed rather than assumed |
+| **Is pg_cron available?** | **NOT VERIFIED — and I could not verify it.** The only credential here is the anon publishable key; the CLI's `db`/`inspect` commands need a database password, and this CLI build has no `functions logs`. Supabase offers pg_cron on all current plans, but that is an expectation, not evidence. **Owner must confirm — §A12 step 1** |
+| Simpler mechanism? | No. Supabase's Cron UI and its scheduled Edge Functions are pg_cron underneath; an external scheduler would add infrastructure and a secret to hold. pg_cron calling the existing function is the smallest production-safe option |
+
+## A10. Proposed migration
+
+**`supabase/migrations/0044_twitch_metadata_retention_schedule.sql`** — prepared,
+**not applied**. New schema version would be **44**.
+
+**Mechanism:** `pg_cron`, hourly at minute 7, running exactly:
+
+```sql
+select public.sweep_twitch_metadata_cache(interval '12 hours')
+```
+
+**Cadence rationale.** Threshold 12 hours + hourly granularity = **worst-case
+retention 13 hours against a 24-hour cap**. A threshold *at* the cap would make
+compliance depend on the scheduler firing on time — the margin-free design that
+produced the original finding. Nothing functional depends on rows older than two
+minutes (the read path skips and refetches them), so the shorter retention costs
+no Twitch API calls and changes no behaviour; 12 hours is chosen for margin, not
+for use. Minute 7 avoids the top-of-hour crowd.
+
+**What it does not do.** It does not redefine the sweep, touch the 2-minute
+serving TTL, alter the cache's shape, or create any table, view, policy, index
+or grant in `public`. A test asserts that last point.
+
+**Why it is conditional.** The database suite builds this schema in **PGlite,
+which has no pg_cron**; an unconditional `create extension` would fail there and
+take all 616 database tests and the authorization gate with it. The guard is
+`pg_available_extensions` — Supabase lists pg_cron whether or not it is enabled,
+PGlite does not list it at all — so it schedules for real in production and
+correctly no-ops where there is no scheduler.
+
+> **The price of that, stated in the migration itself:** a silent skip is
+> precisely the failure mode G7 was created by. **This migration applying
+> successfully is not evidence that the job exists.** The §A12 verification is
+> the evidence. A test asserts that warning is present in the file.
+
+## A11. Tests added
+
+`tests/db/twitchMetadataRetention.test.ts` — **14 tests**, all green.
+
+| Requirement | How it is proven |
+| --- | --- |
+| The job targets only the intended sweep | The scheduled command is extracted from the migration and compared exactly; asserted to contain no `;` and none of `delete/drop/truncate/update/insert/alter/grant` |
+| The sweep deletes rows past the threshold | Real rows at 400h, 25h, 13h inserted into PGlite and swept |
+| Recent rows remain | Rows at 0h, 2h, 11h survive; only the 13h row goes |
+| No stored row outlives the cap | Ten rows from 0h to 1000h; after one sweep, `count(*) where fetched_at < now() - interval '24 hours'` is **0** |
+| Unrelated tables unaffected | Two ways: `pg_get_functiondef` read **from the catalog** shows exactly one `DELETE`, against `public.twitch_metadata_cache`, and no `truncate/drop/update/insert`; plus a 400-day-old `creator_relationship_observations` row is counted across a sweep and survives — deliberately ancient, so a time-keyed rather than table-keyed sweep would have taken it |
+| Repeated execution is safe | Sweep returns 1, then 0 four times running; survivors unchanged |
+| Authorization surface intact | `anon` and `authenticated` still cannot EXECUTE the sweep or SELECT the cache; the migration creates no object in `public` |
+| Cadence is inside the cap | 12 + 1 < 24 asserted arithmetically, plus the literal schedule and interval |
+| Idempotent by construction | `cron.unschedule` precedes `cron.schedule` |
+
+**Verified by mutation:** changing the scheduled threshold from 12 to 24 hours
+fails two of these tests. The suite is not merely descriptive.
+
+**Gate results with 0044 in the tree:**
+
+| Gate | Result |
+| --- | --- |
+| `npm test` | **3,318 passing, 140 files** (3,304 → 3,318: the 14 new tests) |
+| `npm run typecheck` / `lint` | clean |
+| `npm run test:authz` | **18/18, exit 0**, from a verified-green baseline |
+| `tests/db/authorizationSurface` + `authzHarness` | **38/38** |
+| `npm run test:destruction` | **109/109, exit 0** |
+| `tests/db/bundle` | 27/27 — applies twice over and on top of the hosted baseline |
+
+The schema fingerprint moved `344c21dc1589` → `9a877343683e`, which is
+`analytics_schema_version()` returning 44 and nothing else.
+
+## A12. Production owner-action sequence
+
+**Nothing below has been performed.**
+
+**1 — verify pg_cron is available** (read-only):
+
+```sql
+select name, default_version, installed_version
+  from pg_available_extensions
+ where name = 'pg_cron';
+```
+
+A row must come back. If `installed_version` is null, 0044 will enable it; if no
+row appears, **stop** — the migration will skip silently and the retention
+guarantee will not exist.
+
+**2 — verify the migration list** (read-only):
+
+```sql
+select public.analytics_schema_version();   -- expect 43 before applying
+```
+
+**3 — dry run.** Apply `0044_twitch_metadata_retention_schedule.sql` to a branch
+or staging database first if one is available, and run step 4's checks there.
+
+**4 — apply** the single file `0044_twitch_metadata_retention_schedule.sql`
+through the usual path (Supabase dashboard → SQL editor). No other migration.
+
+**5 — verify the scheduler exists** (read-only). *This is the step that matters
+— a clean apply proves nothing:*
+
+```sql
+select jobid, jobname, schedule, command, active
+  from cron.job
+ where jobname = 'sweep-twitch-metadata-cache';
+```
+
+Expect exactly one row: `schedule = '7 * * * *'`, `active = true`, and
+`command = select public.sweep_twitch_metadata_cache(interval '12 hours')`.
+**No row means the conditional skipped and nothing is scheduled.**
+
+**6 — verify the schema marker** (read-only):
+
+```sql
+select public.analytics_schema_version();   -- expect 44
+```
+
+**7 — verify the cache**, after the job has had one hour to run (read-only):
+
+```sql
+select
+  count(*)                                                          as rows_cached,
+  min(fetched_at)                                                   as oldest,
+  count(*) filter (where fetched_at < now() - interval '13 hours')  as beyond_worst_case,
+  count(*) filter (where fetched_at < now() - interval '24 hours')  as beyond_cap
+from public.twitch_metadata_cache;
+```
+
+Expect `beyond_cap = 0` and `beyond_worst_case = 0`.
+
+**8 — confirm the job actually ran** (read-only):
+
+```sql
+select status, return_message, start_time, end_time
+  from cron.job_run_details
+ where jobid = (select jobid from cron.job where jobname = 'sweep-twitch-metadata-cache')
+ order by start_time desc
+ limit 5;
+```
+
+Expect `status = 'succeeded'`.
+
+**9 — confirm nothing unrelated moved** (read-only), before and after:
+
+```sql
+select 'twitch_metadata_cache'             as tbl, count(*) from public.twitch_metadata_cache
+union all
+select 'creator_relationship_observations',      count(*) from public.creator_relationship_observations
+union all
+select 'twitch_credentials',                     count(*) from public.twitch_credentials;
+```
+
+Only the first row should change.
+
+## A13. G7 status
+
+**Still B.** Not moved to A, and deliberately so — steps 1–9 above have not been
+run, the migration is not applied, and the job does not exist yet.
+
+G7 becomes **A — SATISFIED** when:
+
+- [ ] pg_cron confirmed available (A12 step 1);
+- [ ] 0044 applied; `analytics_schema_version()` returns 44;
+- [ ] `cron.job` shows the job, active, with the expected schedule and command;
+- [ ] `cron.job_run_details` shows a succeeded run;
+- [ ] the cache query shows `beyond_cap = 0`;
+- [ ] the three owner acceptances in §A6 stand.
+
+**Does `97e82cc` need superseding?** **No.** It recorded a deployment that
+happened and verification evidence that was accurate. Nothing in it is now
+false: it already named this exact gap as residual risk #1 and said a scheduled
+sweep would close it. This addendum is the follow-through, and amends the
+status forward rather than correcting anything backward.
