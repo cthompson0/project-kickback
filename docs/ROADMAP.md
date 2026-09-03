@@ -374,11 +374,33 @@ Full analysis: `docs/reports/g7-twitch-policy-gate-2026-09-02.md`.
 
 ---
 
-### v0.9 RC - BUILT AND VERIFIED, held for human validation
+### v0.9 - SUBMITTED TO BOTH STORES; FIREFOX PUBLIC
 
-`0.9.0` candidates exist for both stores and **neither has been submitted**.
-Chrome v0.8 is still in review - the public listing reads 0.7.0 - and the
-no-submit rule holds until it clears and the owner approves.
+**Firefox 0.9.0 is APPROVED and PUBLIC on AMO.** Verified read-only against the
+AMO API on 2026-09-03: addon status `public`, current version `0.9.0`, file
+status `public`, file created 2026-09-03T17:26:07Z. The versions endpoint shows
+0.9.0 above 0.8.0 and 0.6.0, all public.
+
+**Chrome 0.9.0 is SUBMITTED and in review.** Chrome 0.8.0 is approved and public
+- the store listing served 0.8.0 when checked on 2026-09-03, which is what a
+pending 0.9.0 review looks like from outside. The review queue itself is not
+publicly readable, so "in review" rests on the owner's confirmation rather than
+on evidence this repository can produce.
+
+Both stores received the **already-approved RC artifacts, unmodified**:
+
+| Store | Artifact | SHA-256 |
+| --- | --- | --- |
+| Chrome | `releases/Watchside-Store-v0.9.0.zip` | `a6dd55b5ae6de466f82e970f05acc052d073850ab9e5bf7a1303566c694945be` |
+| Firefox | `releases/Watchside-AMO-Candidate-v0.9.0.zip` | `b05ad845c90d2b1a46efa266c08752a4c2472cbd03eac0c338919a8f94642147` |
+| Firefox source | `releases/Watchside-AMO-Source-v0.9.0.zip` | `778cdaf354d5012cbea4a94f24433f55fc86cef082d1f299f045f572bb57d026` |
+
+Nothing was rebuilt or repackaged for submission. **v0.9 product scope is frozen
+during review and initial production observation** - blocker fixes only.
+
+*The earlier heading called this "held for human validation". That hold was
+lifted when facilitated testing was ruled out as a launch prerequisite; the
+heading had simply outlived the decision.*
 
 **The RC security pass found one stop-ship defect, and it was live in
 production.** Supabase grants SELECT on anything new in `public` to `anon`
@@ -402,7 +424,34 @@ SECURITY DEFINER function has a pinned `search_path`, anon can execute
 nothing and read no table, and production dependencies report zero
 vulnerabilities.
 
-**Human validation is next**, using `docs/FIRST_IMPRESSION_VALIDATION.md`.
+**Superseded.** Human validation was ruled out as a launch prerequisite, and
+v0.9 has since been submitted to both stores. `docs/FIRST_IMPRESSION_VALIDATION.md`
+remains available as an owner tool, not as a gate. The current phase is below.
+
+### THE PHASE AFTER SUBMISSION
+
+```
+store review / publication          <- Firefox 0.9.0 PUBLIC; Chrome 0.9.0 in review
+        |
+controlled real-user distribution
+        |
+observe the activation funnel and production telemetry
+        |
+G1 evidence: channel_dwell_ended confirmed emitting in production
+        |
+evidence-driven fixes
+        |
+broader M7 distribution
+        |
+1.0
+```
+
+**v0.9 scope is frozen** through review and initial production observation.
+Blocker fixes only - no features, no refactors, no opportunistic cleanup.
+
+**G1 is the next thing that needs the world rather than the repository.** It is a
+production-observation gate: it did not block submission and cannot be closed by
+writing code. It closes when real users generate real dwell events.
 
 ---
 
@@ -527,8 +576,10 @@ established convention, and one was not invented.
 
 ### v0.8 - relationship measurement, SHIPPED
 
-**Firefox 0.8.0 is approved and public on AMO. Chrome 0.8.0 is submitted and in
-review.** v0.8 carries M3D, M5A–M5E and the compatibility work, verified marker
+**Both stores approved v0.8.0.** Firefox went public on AMO first; Chrome 0.8.0
+was in review at the time this section was written and has since been approved
+and published - it is what the Chrome listing serves today, with 0.9.0 behind it
+in review. v0.8 carries M3D, M5A–M5E and the compatibility work, verified marker
 by marker by `npm run verify:candidate`.
 
 **What actually happened**, against the blocked plan recorded below: the custody
