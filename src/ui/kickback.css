@@ -1501,6 +1501,32 @@
   color: var(--kb-on-accent);
 }
 
+/*
+ * Presence, without borrowing the language of unread items.
+ *
+ * A numeric bubble on a top-nav control means "this many things are waiting
+ * for you" - that is what every other control up there means by it - and
+ * friend presence was using it to say something passive. A tester read it
+ * exactly as the convention told them to and thought they had two
+ * notifications.
+ *
+ * So this is a dot. Same green as presence everywhere else in Watchside,
+ * smaller than the badge it replaces and with no digits in it, which is the
+ * whole point: it says somebody is here, not that something needs doing. The
+ * count still exists - it is in the launcher's title, and in the names
+ * themselves one click away.
+ */
+.kb-launcher-here {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--kb-here);
+  box-shadow: 0 0 0 2px rgba(21, 21, 25, 0.9);
+}
+
 .kb-search {
   width: calc(100% - 8px);
   margin: 2px 4px 8px;

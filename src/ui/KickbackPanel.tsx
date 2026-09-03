@@ -612,13 +612,40 @@ export function KickbackPanel({
     '--kb-h': `${layout.height}px`,
   } as React.CSSProperties
 
+  /**
+   * What the collapsed launcher is, in words.
+   *
+   * Ordered the way the badges are, so the title always describes whichever
+   * one is actually drawn - waiting items win, then presence, then neither.
+   * "Waiting" rather than "unread": these are requests and gatherings, and
+   * calling them unread would reintroduce the notification reading that the
+   * numeral was removed for.
+   */
+  const launcherTitle =
+    view.unread.length > 0
+      ? `Open Watchside · ${view.unread.length} waiting`
+      : friendsHere.length > 0
+        ? `Open Watchside · ${friendsHere.length} ${
+            friendsHere.length === 1 ? 'friend' : 'friends'
+          } here`
+        : 'Open Watchside'
+
   if (collapsed) {
     return (
       <button
         type="button"
         className="kb-launcher"
         style={position}
-        title="Open Watchside"
+        /*
+         * The dot says "somebody is here"; this says who and how many.
+         *
+         * Dropping the numeral must not drop the information, and a title is
+         * where it belongs: available on hover and to a screen reader, absent
+         * from the visual language that caused the confusion. It is also the
+         * accessible name of this button, which previously said only "Open
+         * Watchside" no matter what the badge was showing.
+         */
+        title={launcherTitle}
         onPointerDown={beginLauncherDrag}
         // A click always follows a press, so without this every drag would also
         // open the panel - and moving Watchside out of the way would be the one
@@ -629,15 +656,31 @@ export function KickbackPanel({
         }}
       >
         <WatchsideMark size={24} />
-        {/* Unseen, actionable things only. A friend changing channel is not
-            news; a friend request or a gathering forming is. */}
+        {/*
+          * A NUMBER MEANS "THINGS ARE WAITING FOR YOU". NOTHING ELSE.
+          *
+          * Unseen and actionable only: a friend request, a gathering forming.
+          * A friend changing channel is not news.
+          *
+          * This half was always right. The other half was not, and a beta user
+          * read the launcher exactly the way the convention told them to:
+          *
+          *   "the number badge made me think i had 2 notifications"
+          *
+          * A small numeric bubble in a top navigation bar means unread items -
+          * that is what every other control up there means by it, Twitch's
+          * included. Friend presence was borrowing that language to say
+          * something passive, so the count is now a dot: still "people are
+          * here", no longer "two things need you". The number itself is not
+          * lost, it is one click away, attached to the names it refers to.
+          */}
         {view.unread.length > 0 && (
           <span className="kb-launcher-badge kb-launcher-badge-request">
             {view.unread.length}
           </span>
         )}
         {view.unread.length === 0 && friendsHere.length > 0 && (
-          <span className="kb-launcher-badge">{friendsHere.length}</span>
+          <span className="kb-launcher-here" aria-hidden="true" />
         )}
       </button>
     )
