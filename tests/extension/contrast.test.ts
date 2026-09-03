@@ -249,3 +249,92 @@ describe('focus is visible', () => {
     expect(value).toBeGreaterThanOrEqual(AA_LARGE)
   })
 })
+
+describe('the wordmark is text, and is held to the floor text owes', () => {
+  /**
+   * THE BETA REPORT THIS EXISTS FOR.
+   *
+   * The small purple "watchside" in the header was hard to read against the
+   * dark panel, "beside an icon with substantially stronger visual
+   * definition". That comparison was the diagnosis: the icon is a solid
+   * #A855F7 - the accent, straight - and the wordmark was the one thing in
+   * Watchside filled with a GRADIENT of two darker purples. One lockup,
+   * painted by two different rules.
+   *
+   * --kb-gradient exists to be a BACKGROUND with white text on top, so both
+   * its stops are deep on purpose. Filling text with it inverts the
+   * requirement: 3.46:1 at one end and 2.62:1 at the other, so the word got
+   * dimmer towards its own end and neither stop reached the 4.5:1 that 13px
+   * text owes.
+   *
+   * 13px at weight 800 is NOT "large text" under WCAG - that needs 18.66px
+   * bold - so AA_LARGE is not available here, and the size assertion below is
+   * what stops somebody reaching for it.
+   */
+  const wordmarkRule = () => {
+    const rule = /\.kb-wordmark \{([^}]*)\}/.exec(CSS)
+    expect(rule, 'the wordmark should have a rule').not.toBeNull()
+    return rule![1]
+  }
+
+  it('is drawn in a colour that passes the body floor', () => {
+    const colour = /color:\s*var\(--kb-([a-z0-9-]+)\)/.exec(wordmarkRule())
+    expect(colour, 'the wordmark should take a tokenised colour').not.toBeNull()
+    const value = ratio(over(token(colour![1]), PANEL), PANEL)
+    expect(value, `--kb-${colour![1]} against the panel`).toBeGreaterThanOrEqual(AA_BODY)
+  })
+
+  it('is small enough that the body floor is the one that applies', () => {
+    // If this ever grows past 18.66px the rule above could legitimately relax.
+    // Until then, asserting the size is what keeps AA_BODY honest.
+    const size = /font-size:\s*(\d+(?:\.\d+)?)px/.exec(wordmarkRule())
+    expect(size).not.toBeNull()
+    expect(Number(size![1])).toBeLessThan(18.66)
+  })
+
+  it('is not filled from the background gradient, whose stops are deep on purpose', () => {
+    /*
+     * The root cause, guarded directly. --kb-gradient's stops are checked
+     * elsewhere in this file as GROUNDS for white text; they are correct there
+     * and wrong here, and nothing else stops the two uses collapsing back into
+     * one token again.
+     */
+    expect(wordmarkRule()).not.toMatch(/background/)
+  })
+
+  it('needs no stroke or shadow to get there', () => {
+    // Colour alone cleared the floor with room to spare, so the treatments
+    // that muddy small glyphs were not taken. If one appears here, the colour
+    // has probably regressed.
+    expect(wordmarkRule()).not.toMatch(/text-shadow|-webkit-text-stroke|paint-order/)
+  })
+
+  it('stays in the brand family rather than drifting to grey', () => {
+    /*
+     * Brightening must not become abandoning. The wordmark colour has to be
+     * recognisably the icon's #A855F7 - same hue, more luminance - not a
+     * lighter neutral that would pass contrast by giving up the identity.
+     */
+    const colour = /color:\s*var\(--kb-([a-z0-9-]+)\)/.exec(wordmarkRule())!
+    const [r, g, b] = parse(token(colour[1])).rgb
+    const [ar, ag, ab] = parse(token('accent')).rgb
+    const hue = (red: number, green: number, blue: number) => {
+      const max = Math.max(red, green, blue)
+      const min = Math.min(red, green, blue)
+      if (max === min) return 0
+      const d = max - min
+      const h =
+        max === red
+          ? ((green - blue) / d) % 6
+          : max === green
+            ? (blue - red) / d + 2
+            : (red - green) / d + 4
+      return ((h * 60) % 360 + 360) % 360
+    }
+    expect(Math.abs(hue(r, g, b) - hue(ar, ag, ab))).toBeLessThan(8)
+    // And brighter than the accent, which is the point.
+    expect(ratio(over(token(colour[1]), PANEL), PANEL)).toBeGreaterThan(
+      ratio(over(token('accent'), PANEL), PANEL),
+    )
+  })
+})

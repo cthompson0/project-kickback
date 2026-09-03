@@ -96,6 +96,22 @@
   /* Both ends carry text, so both ends have to pass. See --kb-accent-deep. */
   --kb-gradient: linear-gradient(135deg, var(--kb-accent-deep), var(--kb-accent-2));
   /*
+   * The same purple, one step up, for purple that IS the text.
+   *
+   * --kb-gradient is a BACKGROUND. Both its stops are deliberately deep,
+   * because white sits on top of them and has to pass there - the exact
+   * opposite requirement to text made OF this colour, where a deep purple is
+   * a dark thing on a dark panel. The wordmark was filled with it, and that
+   * one token doing two jobs is the whole of the legibility complaint.
+   *
+   * Brighter than --kb-accent rather than equal to it, and that is measured
+   * rather than decorative: the icon is a 24px shape with large filled areas
+   * and carries the accent perfectly well, while this is a 13px glyph whose
+   * stems are one or two antialiased pixels wide. The thinner the ink, the
+   * more luminance it needs to read as the same colour.
+   */
+  --kb-accent-bright: #c084fc;
+  /*
    * ONE glow token, and one only.
    *
    * "Restrained neon" is a promise that cannot be kept if every component can
@@ -415,14 +431,40 @@
   border-bottom: 1px solid var(--kb-line);
 }
 
+/*
+ * The wordmark.
+ *
+ * THE BETA REPORT THIS EXISTS FOR: the small purple "watchside" was hard to
+ * read against the dark panel, beside an icon with far more definition.
+ *
+ * THE COMPARISON IN THAT SENTENCE IS THE WHOLE DIAGNOSIS. The icon is a solid
+ * #A855F7 - the brand accent, straight. The wordmark was the only thing in
+ * Watchside filled with a GRADIENT of two darker purples, through
+ * background-clip. So the two halves of one lockup were painted by different
+ * rules, and the word came off worse.
+ *
+ * MEASURED, NOT JUDGED. Rendered at its real size - 13px, weight 800 - and the
+ * pixels that actually carry ink sampled in Chrome at three device scales. The
+ * median of those pixels was 2.44:1 against the panel. That is not "a bit
+ * dim": it is under even the 3:1 floor for LARGE text, and 13px is not large
+ * text, so it owes 4.5:1. Solid --kb-accent-bright measures 7.04:1.
+ *
+ * SOLID, SO THE LOCKUP AGREES WITH ITSELF. A 135deg gradient across 70px of
+ * text was never visible as a gradient anyway; all it did was make the end of
+ * the word dimmer than the start. Dropping it also keeps the one-accent-
+ * gradient rule that brandAssets.test.ts enforces, which a second gradient
+ * would have cost.
+ *
+ * COLOUR ALONE, DELIBERATELY. A stroke, a shadow and a size bump were all on
+ * the table. None is here: colour alone clears the floor with room to spare,
+ * and at 13px a stroke thickens stems into mud while a shadow only adds a
+ * second dim copy. The weight is already 800.
+ */
 .kb-wordmark {
   font-size: 13px;
   font-weight: 800;
   letter-spacing: -0.02em;
-  background: var(--kb-gradient);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+  color: var(--kb-accent-bright);
 }
 
 .kb-header-spacer {
