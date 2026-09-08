@@ -18,7 +18,45 @@
       No analytics, no tracking, no external scripts, no external fonts, no
       cookies. Everything each page needs is in that page. The domain existing
       is not a reason to start measuring visitors.
+
+      THE POLICY BELOW IS ENFORCEMENT OF THAT, not a statement about it.
+
+      It is added while the site genuinely loads nothing from anywhere else,
+      which is the only moment a strict policy is free. Written as a meta tag
+      because GitHub Pages cannot set response headers - which costs us
+      `frame-ancestors` and `report-uri`, both of which are ignored in meta and
+      are therefore deliberately absent rather than written and useless.
+
+        default-src 'none'      everything is denied unless named below
+        script-src  'self'      the two scripts this site has are same-origin
+                                FILES. That is why they are files: an inline
+                                script would need 'unsafe-inline' or a per-page
+                                hash, and 'unsafe-inline' is not strict
+        style-src   'self' 'unsafe-inline'
+                                the shell's <style> block, the landing page's
+                                injected CSS, and a couple of style attributes.
+                                Honest about what it permits: style injection is
+                                a real if minor vector, and the one that matters
+                                - script - is closed
+        img-src     'self' data:
+                                same-origin .webp, and the favicon, which is a
+                                data: URI so the site makes no icon request
+        connect-src 'none'      no fetch, no XHR, no beacon, no WebSocket. This
+                                is the line that would have to be edited before
+                                any analytics could phone home, which is the
+                                point of writing it
+        form-action 'none'      there are no forms
+        base-uri    'none'      a <base> tag cannot be injected to re-target
+                                every relative URL on the page
+
+      A third-party script - an advertising pixel, an analytics tag - cannot be
+      added without editing this. That is deliberate: it makes weakening the
+      policy an explicit decision somebody has to make on purpose.
     -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'"
+    />
     <style>
       :root {
         color-scheme: dark;

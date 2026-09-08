@@ -545,3 +545,53 @@
     }
   }
 </style>
+
+/* ------------------------------------------------------- campaign continue */
+
+/*
+ * The post-install step, on a campaign landing page only.
+ *
+ * WHY IT IS VISIBLE FROM THE START
+ *
+ * The browser store is the one part of the journey that is not ours, and it is
+ * where the campaign code would otherwise be lost: the visitor leaves for the
+ * store, installs, and never comes back to the only page that can hand the code
+ * to Twitch. So this block is rendered complete and reachable in the HTML - no
+ * script required - and campaign.js only PROMOTES it once a store has been
+ * chosen. If scripts are blocked the journey still works, which matters
+ * because the people blocking them are exactly the people most likely to.
+ */
+.continue {
+  margin-top: 28px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+/* Once a store has been chosen, this is the next thing to do, and it says so. */
+.continue-live {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.continue p {
+  margin: 0 0 12px;
+  color: var(--dim);
+  font-size: 0.95rem;
+}
+
+.continue-live p {
+  color: var(--text);
+}
+
+.continue .btn {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .continue {
+    padding: 16px;
+  }
+}

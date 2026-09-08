@@ -25,10 +25,21 @@ import { INVITE_LANDING_BASE, inviteLinkFor, legacyInviteLinkFor, normalizeInvit
 
 const OUT = join('dist-site')
 
-/** The site's invite logic, exercised the way a browser would. */
+/**
+ * The site's routing logic, exercised the way a browser would.
+ *
+ * Reads the SHIPPED FILE. It used to slice the script out of 404.html's inline
+ * block; the script became a real file so the Content-Security-Policy could say
+ * `script-src 'self'` without 'unsafe-inline', and reading the file is the
+ * better test anyway - it exercises the bytes the browser actually fetches
+ * rather than a substring of the page that references them.
+ */
+function routeScript(): string {
+  return readFileSync(join(OUT, 'js', 'route.js'), 'utf8')
+}
+
 function resolveInvite(url: string): string | null {
-  const source = readFileSync(join(OUT, '404.html'), 'utf8')
-  const script = source.slice(source.indexOf('(function () {'), source.lastIndexOf('})()') + 4)
+  const script = routeScript()
 
   const parsed = new URL(url)
   const elements: Record<string, Record<string, unknown>> = {}
@@ -192,8 +203,7 @@ describe('nothing here can redirect anywhere else', () => {
    * redirector for somebody else's site.
    */
   it('builds only twitch.tv destinations, all of them from literals', () => {
-    const source = readFileSync(join(OUT, '404.html'), 'utf8')
-    const script = source.slice(source.indexOf('(function () {'))
+    const script = routeScript()
 
     /*
      * TWO destinations since the campaign route landed, one per arrival kind.
@@ -213,7 +223,7 @@ describe('nothing here can redirect anywhere else', () => {
   })
 
   it('never reads a destination out of the URL', () => {
-    const source = readFileSync(join(OUT, '404.html'), 'utf8')
+    const source = routeScript()
     for (const forbidden of ['location.href =', 'location.replace', 'location.assign', 'window.open']) {
       expect(source, forbidden).not.toContain(forbidden)
     }
@@ -499,8 +509,7 @@ describe('the campaign route is separate from the referral route', () => {
 
   /** The site's own script, run the way a browser would, for a campaign URL. */
   function resolveCampaign(url: string): { href: string | null; headline: string } {
-    const source = readFileSync(join(OUT, '404.html'), 'utf8')
-    const script = source.slice(source.indexOf('(function () {'), source.lastIndexOf('})()') + 4)
+    const script = routeScript()
     const parsed = new URL(url)
     const captured: Record<string, { href?: string; text?: string }> = {}
     const element = (id: string) => {

@@ -203,12 +203,41 @@ name the context.
 
 ## When to pause marketing
 
-The marketing gate is currently **closed** anyway. Once it opens, pause on:
+The marketing gate is **OPEN on the extension side**: Chrome 0.8+ and Firefox
+0.9 both read `watchside_campaign`, verified against the shipped artifacts. It
+is **not open on spend** - see "Before any ad spend" below.
+
+Pause on:
 
 - sign-in failing for anybody,
 - the backend being unavailable,
 - `watchside.app` or the campaign route being down — the campaign links point
-  there, so spending on traffic to a dead route is spending on nothing.
+  there, so spending on traffic to a dead route is spending on nothing. Check a
+  real one, not the root: `curl -sI https://watchside.app/c/reddit-launch-a/`
+  must return **200**, not 404.
+- `acquisition_touch_outcomes_v` showing a rising `unknown` rate — links are in
+  the wild that resolve to no campaign, which otherwise looks exactly like a
+  campaign nobody clicked.
+
+### Before any ad spend
+
+Three things must be true, and the third is the one that is easy to skip:
+
+1. **Twitch integration is healthy — sign-in AND presence.** Sign-in is the step
+   every attribution depends on: no sign-in, no `bind_acquisition`, no
+   attribution at all. Presence matters for a second reason: it is the first
+   stage of the funnel this measures (`friend_presence_actors`), so certifying
+   an acquisition funnel against a panel showing no presence would prove the
+   plumbing and nothing about the product.
+
+   *As of 2026-09-08: sign-in RECOVERED on a replacement Twitch application;
+   friend presence still missing after a fresh login. Under investigation.*
+2. **Migration 0045 is applied** and `analytics_schema_version()` returns 45.
+3. **One real end-to-end bind has been observed in production** - campaign URL,
+   store, continue to Twitch, sign in, and an `acquisition_attribution` row
+   with `touch='first'`. Instrumentation that exists is not instrumentation
+   that works; M5C sat finished in `main` for a whole milestone while measuring
+   nobody, because no released build contained it.
 
 ---
 

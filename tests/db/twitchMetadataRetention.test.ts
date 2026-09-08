@@ -271,8 +271,19 @@ describe('the authorization surface is unchanged by scheduling', () => {
     expect(created.map((m) => m[1])).toEqual([])
   })
 
-  it('reports the advanced schema version', async () => {
+  it('advanced the schema version, without pinning it', async () => {
+    /*
+     * AT LEAST 44, not exactly 44.
+     *
+     * bundle.test.ts says outright that it is the one place that pins the
+     * marker, and why: "a test in 0040's file claiming 40 breaks the moment
+     * 0041 lands, which is noise rather than coverage." This suite pinned it
+     * anyway, and 0045 duly broke it - the predicted failure, on schedule.
+     *
+     * What 0044 actually needs to prove is that IT advanced the marker, which a
+     * lower bound says exactly. The current value stays pinned in one place.
+     */
     const [{ v }] = await db.root<{ v: number }>('select public.analytics_schema_version() as v')
-    expect(v).toBe(44)
+    expect(v).toBeGreaterThanOrEqual(44)
   })
 })

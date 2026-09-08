@@ -193,14 +193,15 @@ describe('the generated bundle', () => {
      * rate budget; 0042 for the activation denominator; 0043 for the reporting-view revokes;
      * 0044 for the Twitch metadata retention schedule - where "did this reach
      * production" is the whole point, because the schedule is applied
-     * conditionally and a silent skip is the failure mode it exists to prevent.
+     * conditionally and a silent skip is the failure mode it exists to prevent;
+     * 0045 for the campaign provider metadata and acquisition_activation_v.
 
      *
      * THIS IS THE ONE PLACE THAT PINS THE MARKER. Per-migration suites must not
      * assert it - a test in 0040's file claiming "40" breaks the moment 0041
      * lands, which is noise rather than coverage.
      */
-    expect(version).toBe(44)
+    expect(version).toBe(45)
 
     // The revised contract survived the upgrade, rather than 0013's copy
     // winning because it runs later in the file.

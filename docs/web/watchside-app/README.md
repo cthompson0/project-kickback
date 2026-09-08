@@ -10,10 +10,13 @@ compatibility tree under `anoteros-labs.github.io/watchside/`. Edit here, never
 in a published repository: the next build overwrites anything changed there.
 
 ```
-/                index.html      what Watchside is, and how to get it
+/                index.html       what Watchside is, and how to get it
 /privacy         generated from docs/PRIVACY.md
 /support         works whether or not the extension does
-/i/<code>        404.html        the canonical invite route
+/i/<code>        404.html         the canonical invite route
+/c/<code>/       index.html       a REAL 200 page per minted campaign
+/js/route.js     the invite + campaign routing, as a file
+/js/campaign.js  promotes the continue step after a store click
 CNAME            watchside.app
 .nojekyll
 ```
@@ -176,3 +179,50 @@ to define — without needing to touch the referral path or re-do this routing.
 
 **Do not fold these into one `referrer` field.** They answer different questions
 and one of them is already durable.
+
+## Campaign pages, and why they are pre-rendered
+
+`/c/<code>` used to fall through to `404.html`, which meant paid traffic landed
+on an **HTTP 404** carrying a logo, one paragraph and two buttons — not the
+landing page the site exists to be. Buying clicks to that would have been buying
+clicks to the worst page on the domain.
+
+A static host has no router, so the only way to answer 200 is for the file to
+exist. `build-site.mjs` reads `campaigns.json` and writes one page per campaign
+from the same source as the root page.
+
+**`404.html` keeps its campaign branch as the fallback**, so a code that has been
+minted but not rebuilt, or a link from a campaign retired long ago, still reaches
+a working page rather than a bare 404.
+
+**Do not merge `/c/` with `/i/`.** A campaign says how somebody discovered
+Watchside; an invite says which Watchside user brought them. Different facts,
+different tables, different parameters. A shared route would make a code's
+meaning depend on context, and that gets discovered in a report six weeks later.
+
+### Adding a campaign
+
+`npm run campaign -- --code ... --source ... --provider ... --medium ... --content ... --label "..."`
+
+One command emits the SQL, the link with its UTMs, and the `campaigns.json`
+entry — so the published link cannot disagree with the registry definition.
+Then `npm run build:site`.
+
+### Why the scripts are files
+
+So the Content-Security-Policy in `shell.html` can say `script-src 'self'` and
+mean it. An inline script would force either `'unsafe-inline'` — which is not a
+strict policy — or a per-page hash, which is more machinery than two small files
+are worth.
+
+### Two things a tidy-up must not "fix"
+
+- **`rel="noreferrer"` is deliberately absent** from the store links. It would
+  strip the referrer the Chrome and AMO aggregate reports attribute on, which is
+  the entire point of tagging those URLs. `rel="noopener"` is the one that closes
+  the actual hole; they are different flags and only one is about security.
+- **`target="_blank"` is only on campaign pages.** The campaign page holds the
+  only link that can hand the code to Twitch, so it has to survive the store
+  visit. The root page has nothing to come back for.
+
+`tests/extension/campaignPages.test.ts` pins both.

@@ -51,8 +51,14 @@ const AUTH_UI = 'src/ui/components/AuthStates.tsx'
 const GRAVITY_UI = 'src/ui/components/SocialGravity.tsx'
 const ZERO_SUITE = 'tests/extension/zeroFriendLoop.test.tsx'
 const SUGGEST_SUITE = 'tests/dom/friendSuggestions.test.tsx'
-const SITE_404 = 'docs/web/watchside-app/pages/404.html'
 const SITE_ROOT = 'docs/web/watchside-app/pages/index.html'
+/*
+ * The routing logic moved out of 404.html and into a file of its own, so the
+ * Content-Security-Policy could say `script-src 'self'` without permitting
+ * inline script. The mutations that used to reach into the page's <script>
+ * block now target the file the browser actually fetches.
+ */
+const SITE_ROUTE_JS = 'docs/web/watchside-app/js/route.js'
 const ROUTING_SUITE = 'tests/extension/publicRouting.test.ts'
 const INVITES = 'src/core/invites.ts'
 const SHELF = 'src/ui/components/BadgeShelf.tsx'
@@ -76,6 +82,18 @@ const AUTHZ_SUITE = 'tests/db/authorizationSurface.test.ts'
 const HOSTS_SUITE = 'tests/extension/hostPermissions.test.ts'
 const ACQ_SUITE = 'tests/extension/acquisition.test.ts'
 const ACQ_DB_SUITE = 'tests/db/acquisition.test.ts'
+/*
+ * 0045 REDEFINES the immutability trigger and acquisition_campaign_v.
+ *
+ * That matters to this harness more than it looks. A mutation applied to
+ * 0038's copy of either is simply overwritten when 0045 runs afterwards, so
+ * the mutated schema behaves correctly and the mutation reads as UNDETECTED -
+ * a false alarm that would have sent somebody looking for a missing test that
+ * was there all along. A mutation has to target the LAST definition of the
+ * thing it is destroying.
+ */
+const ACQ_PROVIDER_MIGRATION = 'supabase/migrations/0045_acquisition_provider_metadata.sql'
+const ACQ_PROVIDER_SUITE = 'tests/db/acquisitionProvider.test.ts'
 const PANEL_UI = 'src/ui/KickbackPanel.tsx'
 const CSS_UI = 'src/ui/kickback.css'
 const ERRORS = 'src/core/errors.ts'
@@ -620,30 +638,30 @@ grant select on public.m3d_relationship_v to authenticated;`,
     // The canonical route stops carrying the code, so every /i/<code> link
     // silently becomes an unattributed install and the inviter loses credit.
     name: 'site: drop the code from the canonical /i/ route',
-    file: SITE_404,
+    file: SITE_ROUTE_JS,
     suite: ROUTING_SUITE,
-    from: "            var match = /^\\/i\\/([^/?#]+)\\/?$/.exec(path)",
-    to: '            var match = null',
+    from: "    var match = /^\\/i\\/([^/?#]+)\\/?$/.exec(path)",
+    to: '    var match = null',
     expect: 'carries the code from /i/<code> to Twitch',
   },
   {
     // The old ?c= shape stops working, breaking every link already shared in
     // messages, clipboards and browser histories.
     name: 'site: drop compatibility with the old ?c= links',
-    file: SITE_404,
+    file: SITE_ROUTE_JS,
     suite: ROUTING_SUITE,
-    from: "            var query = new URLSearchParams(window.location.search).get('c') || ''",
-    to: "            var query = ''",
+    from: "    var query = new URLSearchParams(window.location.search).get('c') || ''",
+    to: "    var query = ''",
     expect: 'still carries the code from the old ?c= shape',
   },
   {
     // Validation goes, so any path segment becomes a "code" - including one
     // carrying somebody else's URL.
     name: 'site: accept any code shape at all',
-    file: SITE_404,
+    file: SITE_ROUTE_JS,
     suite: ROUTING_SUITE,
-    from: '          if (!CODE_PATTERN.test(code)) {',
-    to: '          if (false) {',
+    from: '  if (!CODE_PATTERN.test(code)) {',
+    to: '  if (false) {',
     expect: 'refuses an absolute URL smuggled into the code',
   },
   {
@@ -657,9 +675,15 @@ grant select on public.m3d_relationship_v to authenticated;`,
      * the visitors away with nothing to install.
      */
     name: 'site: drop the Firefox install link',
+    /*
+     * The store hrefs became build placeholders when campaign pages started
+     * deriving UTM tags from the trusted registry definition, so the link no
+     * longer exists as a literal in the page. Removing the placeholder is the
+     * same destruction: the Firefox CTA stops being a Firefox CTA.
+     */
     file: SITE_ROOT,
     suite: ROUTING_SUITE,
-    from: "              href=\"https://addons.mozilla.org/firefox/addon/watchside/\"",
+    from: '              {{FIREFOX_LINK}}',
     to: '              href="/support"',
     expect: 'offers both stores in both places',
   },
@@ -912,6 +936,53 @@ grant select on public.m3d_relationship_v to authenticated;`,
     expect: 'refuses an expired touch',
   },
   {
+    /*
+     * A grouping key becomes editable. Nothing looks wrong afterwards: the row
+     * is well-formed, every rate still computes, and every historical
+     * comparison has quietly changed meaning.
+     */
+    name: 'acquisition: let a campaign’s provider be edited after the fact',
+    file: ACQ_PROVIDER_MIGRATION,
+    suite: ACQ_PROVIDER_SUITE,
+    from: '  if new.provider is distinct from old.provider then',
+    to: '  if false then',
+    expect: 'refuses to change a provider',
+  },
+  {
+    name: 'acquisition: let a campaign’s medium be edited after the fact',
+    file: ACQ_PROVIDER_MIGRATION,
+    suite: ACQ_PROVIDER_SUITE,
+    from: '  if new.medium is distinct from old.medium then',
+    to: '  if false then',
+    expect: 'refuses to change a medium',
+  },
+  {
+    /*
+     * The 0043 stop-ship, re-armed for the view 0045 adds. A reporting view
+     * left readable by `anon` is reachable by anybody holding the publishable
+     * key that ships inside the extension.
+     */
+    name: 'acquisition: leave acquisition_activation_v readable by clients',
+    file: ACQ_PROVIDER_MIGRATION,
+    suite: ACQ_PROVIDER_SUITE,
+    from: 'revoke all on public.acquisition_activation_v from public, anon, authenticated;',
+    to: '',
+    expect: 'grants nothing on acquisition_activation_v to anon',
+  },
+  {
+    /*
+     * The denominator loosens: attributed actors who never authenticated fall
+     * into the funnel, where they read as a failure at every stage. A campaign
+     * would look broken because somebody clicked a link and never came back.
+     */
+    name: 'acquisition: count attributed actors who never signed in',
+    file: ACQ_PROVIDER_MIGRATION,
+    suite: ACQ_PROVIDER_SUITE,
+    from: '  join public.activation_actor_v v on v.actor_id = t.actor_id',
+    to: '  left join public.activation_actor_v v on v.actor_id = t.actor_id',
+    expect: 'counts only attributed actors who authenticated',
+  },
+  {
     // The boundary moves. Chosen because a window that quietly widened would
     // never fail anything else - it would simply attribute more, and look like
     // the campaigns got better.
@@ -958,7 +1029,7 @@ grant select on public.m3d_relationship_v to authenticated;`,
     // events carry source, so editing one row would silently rewrite what every
     // past event meant - and nothing would look wrong.
     name: 'acquisition: let a campaign’s source be edited after the fact',
-    file: ACQ_MIGRATION,
+    file: ACQ_PROVIDER_MIGRATION,
     suite: ACQ_DB_SUITE,
     from: '  if new.source is distinct from old.source then',
     to: '  if false then',
@@ -979,7 +1050,7 @@ grant select on public.m3d_relationship_v to authenticated;`,
     // Small-cohort suppression disappears, so a two-person campaign reports a
     // 50% rate that is really one individual's behaviour with a percent sign.
     name: 'acquisition: report rates for a cohort of two',
-    file: ACQ_MIGRATION,
+    file: ACQ_PROVIDER_MIGRATION,
     suite: ACQ_DB_SUITE,
     from: '  case when x.acquired_actors >= 3\n       then round(x.connected_actors::numeric / x.acquired_actors, 3) end',
     to: '  round(x.connected_actors::numeric / x.acquired_actors, 3)',
@@ -1001,7 +1072,7 @@ grant select on public.m3d_relationship_v to authenticated;`,
     // visitor is recorded as having been invited by somebody. Silent, and not
     // undoable.
     name: 'acquisition: send a campaign arrival as a friend referral',
-    file: SITE_404,
+    file: SITE_ROUTE_JS,
     suite: ROUTING_SUITE,
     from: "'https://www.twitch.tv/?watchside_campaign=' + encodeURIComponent(campaign),",
     to: "'https://www.twitch.tv/?kickback_invite=' + encodeURIComponent(campaign),",

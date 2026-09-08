@@ -1,0 +1,28 @@
+{
+  "campaigns": [
+    {
+      "code": "reddit-launch-a",
+      "source": "reddit",
+      "provider": "reddit",
+      "medium": "paid_social",
+      "content": "explanatory_presence",
+      "label": "Reddit launch - explanatory"
+    },
+    {
+      "code": "reddit-launch-b",
+      "source": "reddit",
+      "provider": "reddit",
+      "medium": "paid_social",
+      "content": "social_gravity",
+      "label": "Reddit launch - gravity"
+    },
+    {
+      "code": "reddit-launch-c",
+      "source": "reddit",
+      "provider": "reddit",
+      "medium": "paid_social",
+      "content": "join_payoff",
+      "label": "Reddit launch - JOIN payoff"
+    }
+  ]
+}

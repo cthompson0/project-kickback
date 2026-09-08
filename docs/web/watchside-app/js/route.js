@@ -1,0 +1,130 @@
+/*
+ * THE INVITE ROUTE, AND NOTHING ELSE.
+ *
+ * GitHub Pages serves this file for any path it does not have, which is
+ * how a static host answers /i/CODE with no server behind it. So this
+ * page is both the 404 and the invite landing, and it has to be careful
+ * about which one it is: anything that is not a valid code stays a 404.
+ *
+ * WHAT DOES NOT CHANGE
+ *
+ * The referral identity. The code is validated against the same pattern
+ * it always was and handed to Twitch as ?kickback_invite=, where the
+ * extension's content script already picks it up. A new URL shape must
+ * not become a new referral concept, and this file is the only place
+ * that could have made it one.
+ *
+ * WHY THE HOP THROUGH TWITCH
+ *
+ * A content script on this page would need a host permission, which the
+ * browser shows the user as "read your data on that site" - for one
+ * string. The hop avoids asking for that.
+ *
+ * TWO ROUTES, KEPT APART
+ *
+ * /i/CODE means a friend invited you. /c/CODE means a campaign brought
+ * you. They are different facts about how somebody arrived, so they get
+ * different prefixes, different parameters and different copy - a code
+ * whose meaning depended on context would be discovered wrong in a
+ * report six weeks later.
+ *
+ * A campaign link carries a CODE AND NOTHING ELSE. No source, no
+ * creator, no label: everything about what a campaign is resolves
+ * server-side from a registry the visitor cannot write to. Somebody
+ * appending ?source=official_twitch_partnership changes nothing at all,
+ * because nothing here reads it.
+ *
+ * Nothing is stored, nothing is sent anywhere, no analytics run, and no
+ * destination is taken from the URL: the only link this page can build
+ * points at twitch.tv.
+ */
+(function () {
+  var CODE_PATTERN = /^[0-9ABCDEFGHJKMNPQRSTVWXYZ]{22}$/
+
+  /*
+   * The code, from the path or the query.
+   *
+   * /i/CODE is canonical. ?c=CODE is what every link shared before today
+   * carries, and those must keep working - so both are read, and the
+   * path wins if somehow both are present.
+   */
+  /*
+   * A campaign code, from /c/CODE.
+   *
+   * Lowercase and hyphenated, 2-32 characters - readable because these
+   * get typed off a stream overlay by hand. Requires the /c/ prefix
+   * rather than taking a trailing segment: any path has a last segment,
+   * and matching one of those would attribute somebody to a campaign
+   * that never existed.
+   */
+  var CAMPAIGN_PATTERN = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])$/
+
+  function readCampaign() {
+    var match = /^\/c\/([^/?#]+)\/?$/.exec(window.location.pathname || '')
+    if (!match) return ''
+    try {
+      return decodeURIComponent(match[1]).trim().toLowerCase()
+    } catch (error) {
+      return ''
+    }
+  }
+
+  function readCode() {
+    var path = window.location.pathname || ''
+    var match = /^\/i\/([^/?#]+)\/?$/.exec(path)
+    if (match) {
+      try {
+        return decodeURIComponent(match[1]).trim().toUpperCase()
+      } catch (error) {
+        return ''
+      }
+    }
+    var query = new URLSearchParams(window.location.search).get('c') || ''
+    return query.trim().toUpperCase()
+  }
+
+  var campaign = readCampaign()
+  if (CAMPAIGN_PATTERN.test(campaign)) {
+    /*
+     * A campaign arrival. Different copy from an invite, because the
+     * visitor was not invited by anybody they know and telling them
+     * they were would be a small lie on the first screen.
+     */
+    document.getElementById('headline').textContent =
+      'Watch Twitch alongside your friends'
+    document.getElementById('blurb').textContent =
+      'Watchside shows you where your friends are watching on Twitch, so you can jump in together.'
+    document.getElementById('next').hidden = false
+    document.getElementById('continue-wrap').hidden = false
+    document
+      .getElementById('continue')
+      .setAttribute(
+        'href',
+        'https://www.twitch.tv/?watchside_campaign=' + encodeURIComponent(campaign),
+      )
+    return
+  }
+
+  var code = readCode()
+  if (!CODE_PATTERN.test(code)) {
+    /*
+     * Not an invite. A typo, a truncated link, or curiosity. Watchside
+     * still works for them - they simply arrive unattributed, which
+     * costs them nothing and costs the inviter one credit.
+     */
+    return
+  }
+
+  document.getElementById('headline').textContent =
+    'A friend invited you to Watchside'
+  document.getElementById('blurb').textContent =
+    'Watchside shows you where your friends are watching on Twitch, so you can jump in together.'
+  document.getElementById('next').hidden = false
+  document.getElementById('continue-wrap').hidden = false
+  document
+    .getElementById('continue')
+    .setAttribute(
+      'href',
+      'https://www.twitch.tv/?kickback_invite=' + encodeURIComponent(code),
+    )
+})()

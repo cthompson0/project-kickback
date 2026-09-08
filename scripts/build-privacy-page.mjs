@@ -183,7 +183,17 @@ const page = `<!doctype html>
     <!--
       No analytics, no tracking, no external scripts, no external fonts.
       Everything this page needs is in this file.
+
+      The same policy the rest of the site carries, and stricter by one
+      directive: this page has no script at all, so script-src is 'none' rather
+      than 'self'. It is generated separately from shell.html, which is exactly
+      why it needs its own copy - a policy that covered every page except the
+      one about privacy would be an embarrassing gap.
     -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'"
+    />
     <style>
       :root {
         color-scheme: dark;

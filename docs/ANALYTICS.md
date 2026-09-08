@@ -1443,3 +1443,173 @@ no release and produced no rows; M3C.1 replaced it while the table was empty.
 Every `channel_dwell_ended` row that will ever exist is per-stream, so no query
 needs a cut-over date and no figure needs a footnote about which rule produced
 it. That was the entire reason for correcting it now rather than after v0.7.
+
+---
+
+## 16. Acquisition attribution: how somebody came to Watchside
+
+This section is the durable description of the first-party acquisition
+foundation. It is provider-neutral by design: Reddit is the first paid consumer
+of it, not its shape.
+
+### 16.1 The chain, and where trust enters
+
+```
+Reddit / Google / Meta / X / Product Hunt / a creator / an organic post
+        |
+        v   an ad or a link pointing at a campaign URL
+https://watchside.app/c/<code>/?utm_source=...&utm_medium=...
+        |       ^-- path segment: TRUSTED   ^-- query string: DECORATION
+        v
+the visitor installs from a store, comes back, and continues to Twitch
+        |
+        v
+https://www.twitch.tv/?watchside_campaign=<code>
+        |
+        v   the content script reads it; the worker holds it, 7-day window
+ext.storage.local  { code, capturedAt }
+        |
+        v   at sign-in
+bind_acquisition('<code>')  ->  acquisition_attribution (first touch IMMUTABLE)
+        |
+        v
+activation -> friend graph -> Social Gravity -> social JOIN -> dwell -> retention
+```
+
+**Trust enters in exactly one place**: the opaque code, resolved against
+`acquisition_campaigns` server-side by a `SECURITY DEFINER` function that takes
+one argument and has no parameter for whose attribution to write.
+
+### 16.2 The registry is the metadata store
+
+`acquisition_campaigns` carries what a campaign *means*:
+
+| Column | Mutable? | What it is |
+|---|---|---|
+| `code` | **no** | the immutable public identity; the only thing in the URL |
+| `source` | **no** | the channel class (0038). `reddit` has always been in it |
+| `provider` | **no** | the ad/distribution platform whose dashboard holds the spend |
+| `medium` | **no** | how the traffic was obtained |
+| `creator_key` | **no** | the creator or partner this is associated with |
+| `content` | yes | the creative/variant label |
+| `term` | yes | the targeting/keyword label |
+| `label` | yes | the human name |
+| `active` | yes | whether new attribution may bind |
+
+**`provider` is not a synonym for `source`.** `source` is the channel class;
+`provider` is the vendor. A creator campaign bought through Reddit ads is
+`source = 'creator'`, `provider = 'reddit'`, and one column could only ever
+answer one of those questions.
+
+**Immutable means immutable, enforced by trigger.** The test is whether a report
+*groups* on the column across time. It does for provider, medium, source and
+creator: editing one would silently rewrite what every earlier comparison meant,
+without a single row looking wrong. It does not for `content`, `term` and
+`label`, which name a thing rather than classify it — so a creative can be
+renamed without invalidating a link already sitting in a published ad. If an
+immutable field is wrong, **mint a new code**. Codes are cheap;
+retroactively-changed history is not.
+
+### 16.3 UTMs are outbound only
+
+**This is the rule the whole design rests on.**
+
+UTM parameters are *generated from* the registry, for the vendor's dashboard,
+the Chrome Web Store's tagged page-view report, AMO's tagged download report,
+and humans reading a link. **Nothing in Watchside ever reads one back.**
+
+A visitor who edits `?utm_source=google` on a Reddit campaign link changes
+nothing at all, because the campaign code wins by construction — there is no
+code path in which a query parameter becomes attribution.
+`tests/extension/campaignVocabulary.test.ts` asserts that absence directly
+across the product and the site rather than trusting it.
+
+Consequently: no `utm_*` value, no `document.referrer`, and no provider click
+identifier (`rdt_cid`, `fbclid`, `gclid`, …) is stored on any user-scoped record
+or bound to any authenticated actor.
+
+`scripts/campaign.mjs` emits the SQL, the link, the UTMs and the site manifest
+entry **from one set of arguments**, so there is no supported path in which a
+human types a UTM value by hand and it disagrees with the registry.
+
+### 16.4 The two browser stores measure different things
+
+**Do not add these together. They are not the same event.**
+
+| Store | What a tagged URL reports | Where |
+|---|---|---|
+| Chrome Web Store | listing **page views**, by `utm_source` / `utm_medium` / `utm_campaign` | Developer Dashboard |
+| Firefox AMO | **downloads**, by appended UTM parameters (40-char cap per value) | Developer Hub statistics |
+
+Chrome does **not** break installs down by source. AMO's number is one step
+further along the funnel than Chrome's, and a download is still not an install.
+Both are aggregate and non-identifying; neither can be joined to a person, which
+is the point.
+
+The 40-character AMO cap is why `scripts/campaign-vocabulary.mjs` constrains a
+label to 40 rather than the registry's 80: a value that arrives whole in one
+dashboard and truncated in the other is a value two reports disagree about.
+
+### 16.5 What is unobservable, and stays that way
+
+The click → landing → store → install → extension chain **cannot** be observed
+at the individual level without tracking Watchside will not do. That is
+accepted, and is not to be "solved" by fingerprinting, permanent anonymous IDs,
+advertising identifiers, click-ID carriage, device characteristics or cross-site
+identity stitching.
+
+Four layers, which **will not reconcile**, and no metric should imply they do:
+
+1. **Reddit** — vendor-reported impressions, clicks, spend.
+2. **Chrome** — aggregate tagged store page views.
+3. **Firefox** — aggregate tagged downloads.
+4. **Watchside** — trusted campaign-bound authenticated users and everything
+   downstream. The only layer that is ours, and the only one joined to
+   behaviour.
+
+**There is deliberately no "direct" bucket.** Watchside cannot distinguish
+somebody who typed the store URL from somebody whose campaign touch expired.
+Both are unattributed, and `acquisition_coverage_v` reports how much of arrival
+is unattributed rather than inventing a label for it.
+
+### 16.6 The reporting views
+
+| View | Grain | Answers |
+|---|---|---|
+| `acquisition_actor_v` | attributed non-internal actor | first-touch campaign joined to observed behaviour |
+| `acquisition_campaign_v` | campaign | rollup, carrying provider/medium/content/term |
+| `acquisition_activation_v` | campaign × environment × first app version | **campaign → activation**, from the canonical milestones |
+| `acquisition_coverage_v` | environment × first app version | what fraction of arrivals we can attribute at all |
+| `acquisition_touch_outcomes_v` | environment × day × outcome | every touch the server ruled on, accepted or refused |
+| `acquisition_downstream_v` | (acquired inviter, invitee) | one hop of viral lineage |
+
+`acquisition_activation_v` **redefines nothing**. Every milestone is read from
+`activation_actor_v` (0042), itself derived from the friend graph and
+`m3d_social_joins_v` (0034). A second definition of "socially joined" would
+drift from the first, and the two would then disagree about the most important
+step in the funnel while both looked correct.
+
+**Its denominator is attributed actors who authenticated** — never ad clicks. An
+attributed actor who never signed in is absent from it entirely (inner join),
+because a row of nulls would read as a failure at every stage and make a
+campaign look broken because somebody clicked a link and never came back.
+
+All of these are **revoked from `public`, `anon` and `authenticated`**, and
+`tests/db/authorizationSurface.test.ts` fails the build on any `%_v` that is
+not. That check exists because 0043 was a stop-ship, already live in production,
+after four migrations in a row forgot.
+
+Rates are `NULL` below **3 actors**, never `0`: a suppressed rate and a
+genuinely zero rate must not look alike.
+
+### 16.7 What a future dashboard can consume
+
+The model is relational and provider-neutral. Per campaign it already yields:
+acquired, authenticated, cold-start, friended, friend-presence-exposed,
+gravity-exposed, social-JOIN, arrived, watched and returned actors, plus median
+time to first friend — with provider, medium, content and term as grouping
+dimensions.
+
+Supply spend from anywhere and CPA, cost per activated user and cost per social
+JOIN fall out of one join. **The dashboard is not built, and there is no spend
+table**; the data model is what leaves the path clean.

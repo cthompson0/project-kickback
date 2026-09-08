@@ -310,6 +310,78 @@ mistake.
 
 ---
 
+## ACQUISITION — the first-party attribution foundation (2026-09-08)
+
+**Built and verified locally. Not deployed, not applied, no ad spend.**
+
+Watchside's durable, vendor-neutral acquisition attribution foundation. Reddit
+is the first paid consumer of it, **not its shape** — Google, Meta, TikTok, X,
+Product Hunt, Hacker News and creator campaigns plug in by adding a provider
+value, minting codes and publishing links. No attribution redesign per provider.
+
+**The full architecture lives in `docs/ANALYTICS.md` §16.** Read that, not this.
+This section is state, not design.
+
+### What shipped into `main`
+
+| | |
+|---|---|
+| Migration **0045** | `provider` / `medium` (immutable) and `content` / `term` (mutable) on `acquisition_campaigns`; `acquisition_activation_v`; both new/replaced views revoked from `public`/`anon`/`authenticated` **in the same migration** |
+| `scripts/campaign-vocabulary.mjs` | one closed-set vocabulary, asserted against the SQL check constraints |
+| `scripts/campaign.mjs` | `--provider --medium --content --term`; emits SQL, link, UTMs **and** the site manifest from one command |
+| `docs/web/watchside-app/campaigns.json` | the committed manifest the site pre-renders from |
+| **`/c/<code>/`** | a real **HTTP 200** page with the full landing content, per campaign |
+| Store URLs | UTM-tagged, derived from the trusted registry definition |
+| Store→Twitch handoff | store opens in a new tab (`noopener`, deliberately **not** `noreferrer`); the continue step is promoted after a store click |
+| Strict meta **CSP** | `default-src 'none'`, `script-src 'self'`, `connect-src 'none'` — added while the site still loads nothing external |
+
+### The Reddit experiment
+
+Three creative concepts, three campaign codes, **not published**:
+
+| Code | content | Concept |
+|---|---|---|
+| `reddit-launch-a` | `explanatory_presence` | "See where your friends are watching Twitch." |
+| `reddit-launch-b` | `social_gravity` | "3 of your friends are watching the same stream." |
+| `reddit-launch-c` | `join_payoff` | "Find your friends. Hit JOIN. Watch together." |
+
+All `source=reddit`, `provider=reddit`, `medium=paid_social`. The human labels
+are mutable on purpose — the media capture work may rename the creatives, and a
+rename must never change the stable identity in a published ad.
+
+### DEFERRED, and not to be implemented as a convenience
+
+Reddit Pixel · Reddit CAPI · `rdt_cid` carriage through the extension ·
+`_rdt_uuid` · Enhanced/Advanced matching · permanent anonymous visitor IDs ·
+fingerprinting · device characteristics · a first-party anonymous site beacon ·
+third-party analytics SaaS · campaign-management UI · acquisition dashboard ·
+spend table · generic analytics platform · any change to the 7-day window.
+
+**CAPI is not merely deferred — it is not implementable today.** Signup happens
+inside the extension, never on the website, so the Pixel can never observe it;
+and a server-side SignUp has **no valid Reddit matching signal**, because
+Watchside holds no email (deliberately), no IP, no user agent, no device id and
+no click id at the moment an account is created.
+
+### The go/no-go before spending money
+
+1. Twitch integration healthy — **sign-in and presence**.
+   *Sign-in RECOVERED 2026-09-08 on a replacement Twitch application, after the
+   original app's secret rotation failed; Supabase Auth and the project-level
+   `TWITCH_CLIENT_ID`/`TWITCH_CLIENT_SECRET` both point at it. Friend presence
+   is still missing after a fresh login — a separate production incident, and
+   the remaining blocker on step 4 below.*
+2. 0045 applied; `analytics_schema_version()` = 45.
+3. Website deployed; `/c/<code>/` returns **200**.
+4. **One real production end-to-end bind observed** — not inserted by hand, and
+   walked through a panel that actually shows presence.
+
+Until all four are true, no meaningful paid traffic should be bought. M5C sat
+finished in `main` for a whole milestone while measuring nobody; that is the
+mistake worth not repeating.
+
+---
+
 ## The road to public launch
 
 ```
@@ -466,8 +538,13 @@ stayed frozen.
 | **P0-1** | Invite page offers Firefox as well as Chrome | **SHIPPED AND LIVE** - website only, no release |
 | **P0-2** | Pending invite persisted across worker eviction | **DONE** - in v0.9 |
 | **P0-3** | Canonical `watchside.app/i/` invite minting | **DONE** - in v0.9 |
-| **P0-4** | Rate budget on `search_users` | **DONE** - migration 0041, **not yet applied to production** |
-| **P0-5** | Zero-friend activation denominator | **DONE** - migration 0042, **not yet applied to production** |
+| **P0-4** | Rate budget on `search_users` | **DONE** - migration 0041, **applied** |
+| **P0-5** | Zero-friend activation denominator | **DONE** - migration 0042, **applied** |
+
+*Corrected 2026-09-08: both said "not yet applied to production". Production is
+at `analytics_schema_version() = 44` - owner-verified in the G7 closure, which
+records the migration state as "aligned through 0043, only 0044 pending" before
+0044 was pushed. 0041 and 0042 went with it.*
 
 **P0-1 was the urgent one and needed no release.** Every invite in circulation
 pointed at a page offering Chrome alone, while Firefox was the only build a

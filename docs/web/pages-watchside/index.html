@@ -18,7 +18,45 @@
       No analytics, no tracking, no external scripts, no external fonts, no
       cookies. Everything each page needs is in that page. The domain existing
       is not a reason to start measuring visitors.
+
+      THE POLICY BELOW IS ENFORCEMENT OF THAT, not a statement about it.
+
+      It is added while the site genuinely loads nothing from anywhere else,
+      which is the only moment a strict policy is free. Written as a meta tag
+      because GitHub Pages cannot set response headers - which costs us
+      `frame-ancestors` and `report-uri`, both of which are ignored in meta and
+      are therefore deliberately absent rather than written and useless.
+
+        default-src 'none'      everything is denied unless named below
+        script-src  'self'      the two scripts this site has are same-origin
+                                FILES. That is why they are files: an inline
+                                script would need 'unsafe-inline' or a per-page
+                                hash, and 'unsafe-inline' is not strict
+        style-src   'self' 'unsafe-inline'
+                                the shell's <style> block, the landing page's
+                                injected CSS, and a couple of style attributes.
+                                Honest about what it permits: style injection is
+                                a real if minor vector, and the one that matters
+                                - script - is closed
+        img-src     'self' data:
+                                same-origin .webp, and the favicon, which is a
+                                data: URI so the site makes no icon request
+        connect-src 'none'      no fetch, no XHR, no beacon, no WebSocket. This
+                                is the line that would have to be edited before
+                                any analytics could phone home, which is the
+                                point of writing it
+        form-action 'none'      there are no forms
+        base-uri    'none'      a <base> tag cannot be injected to re-target
+                                every relative URL on the page
+
+      A third-party script - an advertising pixel, an analytics tag - cannot be
+      added without editing this. That is deliberate: it makes weakening the
+      policy an explicit decision somebody has to make on purpose.
     -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'none'; form-action 'none'; base-uri 'none'"
+    />
     <style>
       :root {
         color-scheme: dark;
@@ -698,6 +736,56 @@
   }
 </style>
 
+/* ------------------------------------------------------- campaign continue */
+
+/*
+ * The post-install step, on a campaign landing page only.
+ *
+ * WHY IT IS VISIBLE FROM THE START
+ *
+ * The browser store is the one part of the journey that is not ours, and it is
+ * where the campaign code would otherwise be lost: the visitor leaves for the
+ * store, installs, and never comes back to the only page that can hand the code
+ * to Twitch. So this block is rendered complete and reachable in the HTML - no
+ * script required - and campaign.js only PROMOTES it once a store has been
+ * chosen. If scripts are blocked the journey still works, which matters
+ * because the people blocking them are exactly the people most likely to.
+ */
+.continue {
+  margin-top: 28px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+/* Once a store has been chosen, this is the next thing to do, and it says so. */
+.continue-live {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.continue p {
+  margin: 0 0 12px;
+  color: var(--dim);
+  font-size: 0.95rem;
+}
+
+.continue-live p {
+  color: var(--text);
+}
+
+.continue .btn {
+  margin: 0;
+}
+
+@media (max-width: 640px) {
+  .continue {
+    padding: 16px;
+  }
+}
+
   </head>
   <body>
     <main>
@@ -751,7 +839,7 @@
             <a
               class="btn btn-primary"
               id="install"
-              href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+              href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip?utm_source=watchside_site&amp;utm_medium=referral&amp;utm_campaign=site_landing"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path
@@ -763,7 +851,7 @@
             </a>
             <a
               class="btn btn-secondary"
-              href="https://addons.mozilla.org/firefox/addon/watchside/"
+              href="https://addons.mozilla.org/firefox/addon/watchside/?utm_source=watchside_site&amp;utm_medium=referral&amp;utm_campaign=site_landing"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                 <path
@@ -780,6 +868,7 @@
               >Signs in with your Twitch account</span
             >
           </p>
+
         </div>
 
         <div class="wrap">
@@ -1025,12 +1114,12 @@
             <div class="actions">
               <a
                 class="btn btn-primary"
-                href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip"
+                href="https://chromewebstore.google.com/detail/ngfopkeokddfnncdhfkhnffilbdhkkip?utm_source=watchside_site&amp;utm_medium=referral&amp;utm_campaign=site_landing"
                 >Add to Chrome</a
               >
               <a
                 class="btn btn-secondary"
-                href="https://addons.mozilla.org/firefox/addon/watchside/"
+                href="https://addons.mozilla.org/firefox/addon/watchside/?utm_source=watchside_site&amp;utm_medium=referral&amp;utm_campaign=site_landing"
                 >Add to Firefox</a
               >
             </div>
