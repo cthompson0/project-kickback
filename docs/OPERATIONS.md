@@ -286,3 +286,80 @@ distributed yet.
 
 Both come from views that exist now. Nothing needs building first — only
 observing.
+
+---
+
+## Twitch credentials changed: the checklist
+
+**Written after 2026-09-08**, when updating the Client ID but not the Client
+Secret took friend rendering down for nine hours with no error anywhere. Full
+incident: `docs/reports/incident-twitch-metadata-outage-2026-09-08.md`.
+
+A Twitch credential lives in **four** places. Changing one and not the others is
+the failure mode, and it is silent.
+
+| Where | Used by | Symptom if stale |
+| --- | --- | --- |
+| Supabase → Authentication → Providers → Twitch | user sign-in | **sign-in fails** — loud, obvious |
+| Edge Function secret `TWITCH_CLIENT_ID` | metadata, credential, eventsub | see below |
+| Edge Function secret `TWITCH_CLIENT_SECRET` | metadata, credential, eventsub | **silent**: online friends vanish from the panel |
+| `TWITCH_EVENTSUB_SECRET` | eventsub callback HMAC | revoke events silently rejected |
+
+**The ID and the secret must move together.** A mismatched pair is non-empty on
+both sides, so `twitch_credentials_missing` does not fire and every layer
+reports success.
+
+### Verify after any credential change
+
+```bash
+npx supabase secrets list --project-ref <ref>
+```
+
+**Read `updated_at`, not just the names.** In the 2026-09-08 incident the
+timestamps named the bug outright: `TWITCH_CLIENT_ID` had moved that morning,
+`TWITCH_CLIENT_SECRET` was two weeks old. Any Twitch secret whose `updated_at`
+predates the change is stale.
+
+Then confirm the metadata path is actually writing:
+
+```sql
+select login, fetched_at, now() - fetched_at as age
+  from public.twitch_metadata_cache order by fetched_at desc limit 5;
+```
+
+**Rows older than a few minutes while people are using Watchside means the
+metadata path is down**, regardless of what any log says.
+
+### Why the logs will not tell you
+
+`twitch-metadata` converts a Twitch failure into **HTTP 200 with
+`{ channels: [], diagnostics: [...] }`**. That produces no Edge Function error,
+no cache write, and no client `client_error` — and `client_error` is
+`technicalAndInteraction`, which **Firefox drops entirely**. The absence of
+fresh cache rows is the only durable signal.
+
+To read the function's own diagnosis, invoke it through a normal authenticated
+client and print only `diagnostics` — never the token. The codes distinguish
+`twitch_credentials_missing` (empty env) from `twitch_unavailable` (present but
+rejected) from `twitch_error` (network).
+
+### Secrets are runtime-injected
+
+[Supabase injects Edge Function secrets at runtime, not build
+time](https://supabase.com/docs/guides/functions/secrets); a corrected secret is
+picked up on the next invocation. **A redeploy is not the fix** and should not
+be the first move. Prefer the CLI with `--env-file` over the dashboard: it
+avoids shell quoting, avoids trailing-newline contamination, and there is a
+known issue where dashboard-set secrets intermittently fail to load.
+
+### If the Twitch application itself was replaced
+
+Changing the **application**, not just the secret, additionally means:
+
+- stored user tokens in `twitch_credentials` belong to the old app — they
+  self-heal on each user's next sign-in and need no migration;
+- **EventSub subscriptions belong to the old app and stop working**. They are
+  conditioned on `client_id`. Check with the function's read-only admin action
+  `{"action":"subscription_status"}`, and recreate with `ensure_subscription`
+  only after checking. Until then, `user.authorization.revoke` is not delivered
+  and the G6 cleanup path is not firing.

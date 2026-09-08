@@ -310,6 +310,55 @@ mistake.
 
 ---
 
+## NEXT RELEASE — metadata failure must never hide an online friend
+
+**A latent client bug, exposed by the 2026-09-08 production outage.** Full
+analysis: `docs/reports/incident-twitch-metadata-outage-2026-09-08.md` §8.
+
+**THE INVARIANT, and it is not currently held:**
+
+> **A metadata failure MUST degrade to a plain destination/presence card.
+> It MUST NEVER hide an online friend.**
+
+`src/background/metadata.ts` calls `changed()` — the only thing that
+re-broadcasts `channelMetadataPending` — **only on the success path**. Both
+failure paths (thrown error, and "succeeded but produced nothing usable") clear
+`inFlight` in `finally` without re-broadcasting. The panel therefore keeps a
+stale pending list, `awaitingEnrichment` keeps returning true, and
+`visibleGravity` keeps filtering out the destination section. `want()` re-fires
+on the next heartbeat because the record is still missing, so nothing ever
+clears it.
+
+During the outage this hid two friends who were correctly online, correctly
+counted in `Friends 2/6`, and drawn in no section at all.
+
+The code's own comment already states the intended behaviour:
+
+> *"a failed request clears itself… so a failure degrades to the plain card the
+> panel has always drawn rather than to an indefinite spinner."*
+
+`inFlight` does clear. The panel's copy of it is never told. **The fix is to
+broadcast on the failure paths too**, so `pending` empties and the plain card
+draws — one small change in `src/background/metadata.ts`.
+
+**Do not fix this by removing the hold-back.** It earns its keep: without it a
+newly discovered destination renders as a raw lowercase login and then visibly
+transforms. The bug is the missing release, not the guard.
+
+**Regression tests to add with the fix:**
+
+- a failing metadata fetch leaves `channelMetadataPending` empty
+- a metadata fetch returning zero usable records leaves it empty
+- `visibleGravity` draws a destination section for an online friend when
+  metadata has failed — the invariant, asserted directly
+- a destruction mutation that removes the failure-path broadcast is detected
+
+**NOT part of incident closure.** v0.9 is submitted and frozen; this ships in
+the next release. The production symptom was resolved server-side and needed no
+client change.
+
+---
+
 ## ACQUISITION — the first-party attribution foundation (2026-09-08)
 
 **Built and verified locally. Not deployed, not applied, no ad spend.**
