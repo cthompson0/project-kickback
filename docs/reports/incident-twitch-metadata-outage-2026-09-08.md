@@ -377,3 +377,125 @@ verification, and Twitch disables subscriptions whose callback repeatedly fails.
 | Acquisition 0045 / website deploy | **PAUSED** pending follow-up closure |
 | Marketing capture | **PAUSED** |
 | v0.9 artifacts | **UNTOUCHED** |
+
+---
+
+# F2 CLOSED — EventSub restored under the replacement application
+
+**2026-09-09T00:04Z.** G6 revocation delivery is working again.
+
+## The gap, proven before it was touched
+
+EventSub subscriptions are owned by the **application** that created them, and
+`twitch-eventsub` binds them further with `condition: { client_id: CLIENT_ID }`.
+Everything created under the old app stayed there.
+
+Listed directly against Twitch with the replacement app's own credentials —
+unfiltered, so every subscription of every type it owns:
+
+```
+eventsub list HTTP : 200
+total              : 0
+total_cost         : 0 / 10000
+user.authorization.revoke present: false
+```
+
+Zero existing, not zero enabled. `total_cost: 0` corroborates independently.
+Old-app subscriptions are unreachable — listing or deleting them needs the old
+app's token, whose secret no longer exists.
+
+## Why the built-in endpoint could not be used
+
+`twitch-eventsub` already exposes an owner-gated `ensure_subscription`, but it
+requires `TWITCH_EVENTSUB_ADMIN_TOKEN`, which is write-only in Supabase and
+**deliberately not stored in this repository** — `scripts/m3d-acceptance/run.mjs`
+states that policy outright. That is least privilege working as designed, so it
+was not routed around.
+
+The obstacle is structural: *both* routes to creating a subscription need a
+write-only value. `ensure_subscription` needs the admin token; creating directly
+at Twitch needs `TWITCH_EVENTSUB_SECRET`, because the subscription's HMAC secret
+must equal the receiver's or the verification callback fails. Any recovery
+therefore required exactly one secret write. The only real choice was which.
+
+**`TWITCH_EVENTSUB_SECRET` was chosen because it had zero dependents.** With no
+subscriptions in existence, nothing could break by rotating it — whereas the
+admin token is also read by `twitch-credential`'s owner-gated `credential_shape`
+branch and by the M3D acceptance script.
+
+## What was done
+
+1. Fresh secret generated locally: 32 random bytes, base64url, 43 ASCII chars
+   (Twitch permits 10–100). Never printed.
+2. Written to Supabase as **`TWITCH_EVENTSUB_SECRET` only**, via a temp env file
+   containing that single key, mode `0600`, outside the repository.
+   `TWITCH_CLIENT_ID`, `TWITCH_CLIENT_SECRET`, `TWITCH_EVENTSUB_ADMIN_TOKEN` and
+   every `VITE_*` value were untouched.
+3. Temp file deleted immediately; removal confirmed.
+4. App token minted from the replacement app's credentials. Never printed.
+5. **Re-listed before creating** and confirmed `total: 0` a second time — a
+   duplicate guard, since `ensure_subscription`'s own idempotency check was
+   unavailable on this path.
+6. Exactly one subscription created, matching the deployed function's shape
+   field for field (`REVOKE_SUBSCRIPTION_TYPE`, `REVOKE_SUBSCRIPTION_VERSION`
+   and the `CALLBACK_URL` string `subscriptionState` exact-matches on).
+
+The whole sequence ran in a single process, so the generated value existed on
+disk only for the duration of the `secrets set` call.
+
+## Verification
+
+```
+create HTTP        : 202   status: webhook_callback_verification_pending
+poll  1            : total=1 rows=1 status=enabled cost=1
+
+total              : 1
+total_cost         : 1 / 10000
+  type             : user.authorization.revoke v1
+  status           : enabled
+  transport        : webhook
+  callback         : ezikxbbcwcxhkboeekkk.supabase.co/functions/v1/twitch-eventsub
+  callback exact   : true
+  condition        : client_id | matches current app: true
+  created_at       : 2026-09-09T00:04:02Z
+enabled revoke subs: 1 | duplicates: false
+```
+
+**Reaching `enabled` is the proof, and it proves more than it looks.** Twitch
+delivers a signed challenge, and `twitch-eventsub` answers it only after
+`verifyRequest` passes — so `enabled` means the subscription's secret and the
+receiver's `TWITCH_EVENTSUB_SECRET` agree. Nobody needed to know the value, and
+nobody does. It also confirms independently that Supabase secrets are
+runtime-injected: the write took effect with no redeploy.
+
+## What this restores
+
+`user.authorization.revoke` is delivered again. When a user disconnects
+Watchside on Twitch, the receiver calls `purge_twitch_derived`, destroying that
+actor's encrypted credential and Twitch-derived relationship observations —
+and nothing else. **That is the G6 compliance path, and it was not firing
+between the application replacement and now.**
+
+## Residue, stated plainly
+
+- **Old-application subscriptions cannot be cleaned up.** Deleting them needs the
+  old app's token. They are inert: conditioned on a client id no user authorizes
+  any more, and unable to pass HMAC verification against the rotated secret.
+  Twitch disables subscriptions whose callback repeatedly fails.
+- **Revocations that happened during the gap were not delivered** and cannot be
+  replayed. If a user disconnected Watchside on Twitch between ~08:17 on
+  2026-09-08 and 00:04 on 2026-09-09, their credential and observations were not
+  purged. The blast radius is bounded by how few users exist; the durable fix is
+  that delivery now works.
+- **The new secret is known to nobody**, by design. If it is ever needed, rotate
+  it again — which is exactly what happened here.
+
+## Status
+
+| | |
+| --- | --- |
+| F2 EventSub | **CLOSED** |
+| G6 revocation delivery | **RESTORED** |
+| F1 old-app credentials | open, self-healing, no action required |
+| Metadata outage | closed (`d6c46ad`) |
+| Latent client bug | open, next release |

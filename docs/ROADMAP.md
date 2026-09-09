@@ -310,6 +310,23 @@ mistake.
 
 ---
 
+## Twitch application migration — CLOSED (2026-09-09)
+
+The replacement Twitch application is fully migrated. Both follow-ups from the
+2026-09-08 incident are resolved:
+
+- **F1, old-app user credentials** — no action needed. `handOffTwitchCredential`
+  upserts on every sign-in, so each user self-heals on next sign-in. Impact was
+  confined to M3D follow-baseline measurement and invisible to users.
+- **F2, EventSub** — **CLOSED.** The replacement app owned zero subscriptions;
+  exactly one `user.authorization.revoke` webhook was created and reached
+  `enabled`, restoring **G6 revocation delivery**. Full detail in
+  `docs/reports/incident-twitch-metadata-outage-2026-09-08.md`.
+
+Acquisition 0045, the website deployment and marketing capture are unblocked.
+
+---
+
 ## NEXT RELEASE — metadata failure must never hide an online friend
 
 **A latent client bug, exposed by the 2026-09-08 production outage.** Full
