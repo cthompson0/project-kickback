@@ -438,27 +438,46 @@ async function main() {
    * is a preference rather than three constants.
    */
   const live = metadata.filter((record) => record.live === 'live').map((record) => record.login)
+  const offline = metadata.filter((record) => record.live !== 'live').map((record) => record.login)
   const roles = ['gathering', 'elsewhere', 'third']
 
-  if (metadata.length > 0 && live.length < roles.length) {
+  /*
+   * TWO LIVE CHANNELS ARE ENOUGH; THE THIRD MAY BE DARK.
+   *
+   * The two roles that carry the story have to be live. `gathering` is what the
+   * friends are clustered on and what JOIN points at; `elsewhere` is where the
+   * viewer already is, so the hero is a real choice between two things rather
+   * than one card in an empty panel.
+   *
+   * `third` is texture - one friend somewhere else, so "they have all gathered
+   * in one place" reads as something that happened rather than as the only
+   * state the fixture has. A channel Twitch says is OFFLINE does that job
+   * honestly: somebody left Twitch open on a stream that has since ended, the
+   * metadata says exactly that, and the panel sinks the card below the live
+   * ones. Real product behaviour, and a real Twitch fact.
+   *
+   * What is NOT acceptable is dressing a dark channel up as live. The metadata
+   * is whatever Helix returned, and the run prints which roles are dark so
+   * nobody discovers it in the finished image.
+   */
+  if (metadata.length > 0 && live.length < 2) {
     console.error(
       `\n  Only ${live.length} of ${preference.length} candidate channels are live` +
         ` (${live.join(', ') || 'none'}).\n` +
-        `  This set needs ${roles.length}. Pass more with --channels a,b,c,d,e.\n`,
+        '  The gathering and the viewer channel must both be live. Pass more\n' +
+        '  candidates with --channels a,b,c,d,e and try again.\n',
     )
     return 3
   }
 
   /*
-   * Roles from the channels Twitch says are live.
-   *
-   * Without metadata there is nothing to filter on, so the first three
-   * preferences take the roles UNVERIFIED - which is fine for a trial run of
-   * the harness and is exactly why that path prints a warning and is not the
-   * default.
+   * Live first, then dark. Without metadata there is nothing to sort on, so the
+   * preference order stands UNVERIFIED - fine for a trial run of the harness,
+   * which is why that path warns and is not the default.
    */
-  const assigned = metadata.length > 0 ? live : preference
+  const assigned = metadata.length > 0 ? [...live, ...offline] : preference
   const channels = Object.fromEntries(roles.map((role, index) => [role, assigned[index]]))
+  const liveSet = new Set(live)
 
   const chosen = new Set(Object.values(channels))
   const payload = {
@@ -470,7 +489,11 @@ async function main() {
   }
 
   console.log(`\n== Roles`)
-  for (const role of roles) console.log(`   ${role.padEnd(10)} ${channels[role]}`)
+  for (const role of roles) {
+    const login = channels[role]
+    const state = liveSet.has(login) ? 'LIVE' : 'offline (rendered as ended, not faked)'
+    console.log(`   ${role.padEnd(10)} ${String(login).padEnd(18)} ${state}`)
+  }
 
   /*
    * ALWAYS REBUILT, and this is not belt-and-braces.
