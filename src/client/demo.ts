@@ -8,6 +8,7 @@ import type {
   KickbackState,
 } from './types'
 import { CHANNELS, mockPresenceService } from '../mock/presenceService'
+import { captureMetadataMap, readCaptureOverride } from '../mock/capture'
 import { FRIEND_IDS } from '../mock/social'
 import { getUser } from '../mock/users'
 import { IDLE } from '../core/types'
@@ -214,6 +215,25 @@ export function createDemoClient(): KickbackClient {
     roomMembers: { [ROOM_CHANNEL]: ROOM_MEMBERS },
     roomPeers: { [ROOM_CHANNEL]: ROOM_PEERS },
     roomMessages: ROOM_MESSAGES,
+    /*
+     * Real Twitch metadata, when a capture run supplied some.
+     *
+     * `{}` for every ordinary demo load, which is what INITIAL_STATE already
+     * says and what the demo has always done: no backend, so no enrichment, so
+     * the plain Gravity card. Metadata is enrichment and never a dependency, and
+     * the panel renders identically either way - that property is exactly what
+     * makes it safe to hand records in here.
+     *
+     * NOTHING IS INVENTED. These records are fetched from Helix at capture time
+     * by scripts/marketing-capture.mjs, through the same two endpoints and the
+     * same buildMetadata parser the Edge Function uses in production, and are
+     * revalidated on the way in by src/mock/capture.ts. The friends are mock;
+     * every Twitch fact on the card is real and current.
+     *
+     * `channelMetadataPending` stays empty on purpose: nothing is in flight, so
+     * no card should be held back waiting for enrichment that is already here.
+     */
+    channelMetadata: captureMetadataMap(readCaptureOverride()),
     demo: true,
   }
 

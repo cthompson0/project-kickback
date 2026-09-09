@@ -64,6 +64,15 @@ dist-testlab
 # a listing edit. Assembled by `npm run assets:store`.
 !assets/store/current/**/*.png
 !assets/store/current/*.png
+# The marketing capture set. Same reasoning as the Store set - photographs of
+# LIVE Twitch, so a re-run produces a different picture rather than the same
+# one - and a stronger one again: these go into paid advertising, where the
+# exact image that ran has to stay recoverable. Assembled by
+# `npm run capture:marketing`. Deliberately a SEPARATE directory from
+# assets/store/current, which holds the approved v0.9 listing set and must not
+# be replaced by a marketing run.
+!assets/marketing/current/**/*.png
+!assets/marketing/current/*.png
 
 # Private-beta archives. Built by `npm run package:beta`, sent by hand, and
 # never committed - a release is reproducible from a tag plus the script.
@@ -75,3 +84,15 @@ scripts/firefox-e2e/seeds.local.json
 dist-pages
 dist-pages-routing
 dist-pages-artifact
+
+# Twitch metadata harvested from the production twitch-metadata Edge Function by
+# `npm run metadata:harvest`, for the marketing capture to render. Public Twitch
+# facts only - no session, no token, no user data - but it is a point-in-time
+# snapshot that goes stale in minutes, so it is never committed.
+.metadata-harvest.json
+
+# The metadata harvest's browser profile. Holds a real Watchside sign-in on the
+# owner's own machine, so `npm run metadata:harvest` asks for OAuth once rather
+# than once per run. Never committed; `--fresh` or deleting the directory clears
+# it.
+.harvest-profile

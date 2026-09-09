@@ -1,6 +1,7 @@
 import { IDLE } from '../core/types'
 import type { Activity, Presence } from '../core/types'
 import { isSameActivity, isWatching } from '../core/presence'
+import { readCaptureOverride } from './capture'
 
 /**
  * Phase 0 stand-in for the future Watchside presence service.
@@ -32,7 +33,7 @@ const watching = (channel: string): Activity => ({
  * these too, in scripts/store-screenshots.mjs, and a third hand-typed copy in
  * the demo client is exactly how a screenshot ends up on the wrong streamer.
  */
-export const CHANNELS = {
+const DEFAULT_CHANNELS = {
   /*
    * Owner-chosen for the Store capture run.
    *
@@ -50,6 +51,32 @@ export const CHANNELS = {
   elsewhere: 'summit1g',
   third: 'zchum',
 }
+
+/**
+ * The three channels this run uses.
+ *
+ * DEFAULTS ARE THE STORE SET AND DO NOT MOVE. `npm run screenshots:store` and
+ * every local demo take exactly the values above, unchanged.
+ *
+ * A marketing capture overrides them, because a marketing shot has to be taken
+ * against channels that are live TODAY - a streamer who was live when the store
+ * set was captured is not a permanent fixture, and a capture tool that hard-codes
+ * five names is a capture tool that quietly rots. See src/mock/capture.ts.
+ *
+ * Read once at module load, so everything importing CHANNELS - the seed below,
+ * the roamers, and the demo client's Stream Room - agrees about which channel is
+ * which. A second read later would let two halves of one screenshot disagree.
+ */
+const CAPTURE = readCaptureOverride()
+
+export const CHANNELS = { ...DEFAULT_CHANNELS, ...(CAPTURE.channels ?? {}) }
+
+/**
+ * Whether this load is a capture, and must therefore hold still.
+ *
+ * False for every ordinary demo load, which keeps drifting exactly as it did.
+ */
+const STEADY = CAPTURE.steady === true
 
 const SEED: Presence[] = [
   // Three friends on one channel, always. A pair reads as a coincidence; three
@@ -143,6 +170,8 @@ export class MockPresenceService {
 
   private scheduleFollow(): void {
     window.clearTimeout(this.followTimer)
+    // A capture is a photograph, not a simulation: nobody walks into frame.
+    if (STEADY) return
     const target = this.localActivity
     if (!isWatching(target)) return
 
@@ -155,6 +184,7 @@ export class MockPresenceService {
   }
 
   private scheduleRoam(): void {
+    if (STEADY) return
     const delay = ROAM_MIN_MS + Math.random() * (ROAM_MAX_MS - ROAM_MIN_MS)
     this.roamTimer = window.setTimeout(() => {
       this.roam()

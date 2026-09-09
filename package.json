@@ -49,7 +49,9 @@
     "verify:m3d": "node scripts/m3d-acceptance/run.mjs",
     "build:site": "node scripts/build-site.mjs",
     "build:site:pages": "node scripts/build-site.mjs dist-pages /watchside/",
-    "campaign": "node scripts/campaign.mjs"
+    "campaign": "node scripts/campaign.mjs",
+    "capture:marketing": "node scripts/marketing-capture.mjs",
+    "metadata:harvest": "node scripts/metadata-harvest.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.3",

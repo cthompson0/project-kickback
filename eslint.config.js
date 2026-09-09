@@ -53,10 +53,13 @@ export default defineConfig([
       'scripts/verify-chat-wrapping.mjs',
       'scripts/verify-test-lab.mjs',
       'scripts/store-screenshots.mjs',
+      'scripts/marketing-capture.mjs',
+      'scripts/metadata-harvest.mjs',
       'scripts/site-images.mjs',
     ],
     languageOptions: {
-      globals: { ...globals.node, ...globals.browser },
+      // `chrome` too: metadata-harvest evaluates inside the extension worker.
+      globals: { ...globals.node, ...globals.browser, chrome: 'readonly' },
     },
   },
   {

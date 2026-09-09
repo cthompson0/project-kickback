@@ -18,7 +18,7 @@
  * A scenario module default-exports `async ({ page, browser, log }) => {}`.
  */
 import { spawn } from 'node:child_process'
-import { mkdtempSync, rmSync, existsSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -92,9 +92,25 @@ function connect(wsUrl) {
   }
 }
 
-export async function launch({ extension = null, headful = false, width = 1600, height = 900 } = {}) {
+export async function launch({
+  extension = null,
+  headful = false,
+  width = 1600,
+  height = 900,
+  /*
+   * A profile directory to KEEP, instead of a throwaway one.
+   *
+   * Every other caller wants the throwaway: a capture must not inherit state
+   * from the last capture. The metadata harvest is the exception, because the
+   * state it accumulates is a human sign-in, and asking a person to complete
+   * Twitch OAuth again for every retry is a bad trade against one directory on
+   * their own machine. Gitignored, and the harvest offers --fresh to wipe it.
+   */
+  profileDir = null,
+} = {}) {
   const port = 9200 + Number(process.hrtime.bigint() % 300n)
-  const profile = mkdtempSync(join(tmpdir(), 'kickback-cdp-'))
+  const profile = profileDir ?? mkdtempSync(join(tmpdir(), 'kickback-cdp-'))
+  if (profileDir) mkdirSync(profileDir, { recursive: true })
 
   const args = [
     `--remote-debugging-port=${port}`,
@@ -146,16 +162,57 @@ export async function launch({ extension = null, headful = false, width = 1600, 
       await cdp.send('Runtime.enable', {}, sessionId)
       return makePage(cdp, sessionId, targetId)
     },
+
+    /** Every target the browser currently has, pages and workers alike. */
+    async targets() {
+      const { targetInfos } = await cdp.send('Target.getTargets')
+      return targetInfos
+    },
+
+    /**
+     * Attach to a NON-page target - in practice the extension's MV3 service
+     * worker - and return something that can evaluate in it.
+     *
+     * Only `evaluate` is offered. A worker has no Page domain, so `goto`,
+     * `screenshot` and the input methods would all be broken promises; giving
+     * back a crippled page object would be worse than giving back the one thing
+     * that works.
+     *
+     * The worker may be asleep. Callers poll rather than assume: opening a tab
+     * the content script runs in is what wakes it.
+     */
+    async attach(predicate, { timeoutMs = 30_000 } = {}) {
+      const deadline = Date.now() + timeoutMs
+      for (;;) {
+        const { targetInfos } = await cdp.send('Target.getTargets')
+        const target = targetInfos.find(predicate)
+        if (target) {
+          const { sessionId } = await cdp.send('Target.attachToTarget', {
+            targetId: target.targetId,
+            flatten: true,
+          })
+          await cdp.send('Runtime.enable', {}, sessionId)
+          const page = makePage(cdp, sessionId, target.targetId)
+          return { info: target, evaluate: page.evaluate.bind(page) }
+        }
+        if (Date.now() > deadline) return null
+        await new Promise((r) => setTimeout(r, 400))
+      }
+    },
     async close() {
       try {
         cdp.close()
         child.kill()
       } finally {
-        // A locked profile directory is not worth failing the run over.
-        try {
-          rmSync(profile, { recursive: true, force: true })
-        } catch {
-          /* ignore */
+        // A kept profile is kept: it holds the sign-in the harvest exists to
+        // avoid asking for twice. Only throwaway profiles are removed, and a
+        // locked directory is not worth failing the run over.
+        if (!profileDir) {
+          try {
+            rmSync(profile, { recursive: true, force: true })
+          } catch {
+            /* ignore */
+          }
         }
       }
     },
@@ -203,11 +260,20 @@ function makePage(cdp, sessionId, targetId) {
       return result.result.value
     },
 
-    async setViewport(width, height) {
+    /**
+     * The CSS viewport, and how many device pixels each CSS pixel becomes.
+     *
+     * `deviceScaleFactor` defaults to 1, which is what every existing caller
+     * gets and what the Store set was captured at. A marketing run raises it,
+     * because those images are cropped and rescaled afterwards and a 1x master
+     * has nothing to give: the layout stays identical - same CSS pixels, same
+     * breakpoints, same panel - and only the output resolution changes.
+     */
+    async setViewport(width, height, deviceScaleFactor = 1) {
       await send('Emulation.setDeviceMetricsOverride', {
         width,
         height,
-        deviceScaleFactor: 1,
+        deviceScaleFactor,
         mobile: false,
       })
     },
@@ -235,6 +301,12 @@ function makePage(cdp, sessionId, targetId) {
         )
       }
       await this.mouse('mouseReleased', toX, toY)
+    },
+
+    /** Close this tab. A harvest opens many; leaving them open changes what
+     *  the worker considers an open destination. */
+    async close() {
+      await cdp.send('Target.closeTarget', { targetId })
     },
 
     async screenshot(path) {
