@@ -243,7 +243,16 @@ async function main() {
    finishes, and later runs will not need to open one.
 `)
 
-      const signInDeadline = Date.now() + 5 * 60_000
+      /*
+       * Long enough that the person can arrive.
+       *
+       * Five minutes assumed somebody was watching the terminal when the window
+       * opened, which is the one thing a script that just asked for a human
+       * cannot assume. The cost of waiting is an idle browser; the cost of
+       * timing out is the whole run, and this run's output goes stale in
+       * thirty minutes, so it has to be re-done rather than resumed.
+       */
+      const signInDeadline = Date.now() + 15 * 60_000
       while (!(await worker.evaluate(probeSignedIn))) {
         if (Date.now() > signInDeadline) {
           console.error('\n  Timed out waiting for sign-in.\n')
