@@ -114,7 +114,10 @@ describe('every campaign has a real page', () => {
     for (const campaign of manifest()) {
       const html = read('c', campaign.code, 'index.html')
       expect(html, campaign.code).toContain('See where your friends are')
-      expect(html, campaign.code).toContain('img/presence.webp')
+      // The hero screenshot, whose filename tracks whichever master currently
+      // fills that slot - the point is that the campaign page carries the real
+      // landing content, not that any one image is in it forever.
+      expect(html, campaign.code).toContain('img/gravity-join.webp')
       expect(html, campaign.code).toContain('How it works')
       // Comparable in size to the root page, rather than to the 404.
       expect(html.length, campaign.code).toBeGreaterThan(read('404.html').length * 2)
