@@ -376,6 +376,36 @@ client change.
 
 ---
 
+## ACQUISITION V1 — ACTIVATED IN PRODUCTION (2026-09-09)
+
+**Migration 0045 applied. Website deployed. End-to-end attribution PROVEN in
+production.** No ad spend; Reddit Ads inactive.
+
+| | |
+| --- | --- |
+| `analytics_schema_version()` | **45** |
+| Campaign registry | 3 Reddit creative codes, active |
+| watchside.app | deployed `5724c39..768d762`; `/c/<code>/` answers **200** |
+| Production bind | `reddit-launch-a` bound to a real actor, `touch=first`, `source=reddit` |
+| Reporting views | correctly empty - the test actor is `is_internal` |
+
+Evidence and the full method: `docs/reports/acquisition-v1-implementation-2026-09-08.md`,
+section PRODUCTION ACTIVATION.
+
+**Two things learned that outlive this milestone:**
+
+- **A Store artifact cannot be side-loaded for an OAuth test.** The zip carries
+  no `key`, so Chromium derives a different extension ID and the
+  `chromiumapp.org` redirect is not allow-listed. Use the real store install.
+- **An empty reporting view is not a failure signal on its own.** Prove the
+  cause: run the same join without the internal filter, and check that the view
+  machinery is live elsewhere.
+
+**Remaining before spend:** creative assets only. G1 remains the real-production-data
+gate for broader M7 distribution and is unchanged by this.
+
+---
+
 ## ACQUISITION — the first-party attribution foundation (2026-09-08)
 
 **Built and verified locally. Not deployed, not applied, no ad spend.**
