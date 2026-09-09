@@ -44,6 +44,7 @@ supabase/.temp
 dist-demo
 dist-firefox
 dist-site
+dist-site-campaigns
 
 # Test Lab build output. The lab is normally RUN, not built - see docs/TEST_LAB.md.
 dist-testlab

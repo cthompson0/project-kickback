@@ -35,7 +35,15 @@ import { CODE_PATTERN, MEDIUMS, PROVIDERS, SOURCES } from '../../scripts/campaig
  *     copy, on the page, twenty lines above the install button.
  */
 
-const OUT = join('dist-site')
+/*
+ * Its own output tree, not dist-site.
+ *
+ * publicRouting.test.ts builds the same site in a parallel worker, and sharing
+ * one directory raced them into an intermittent EPIPE on Windows - the copy of
+ * static/img failing because the other worker held it. pagesArtifact.test.ts
+ * already learned this; the fix is the same one.
+ */
+const OUT = join('dist-site-campaigns')
 const SOURCE = join('docs', 'web', 'watchside-app')
 
 const read = (...parts: string[]) => readFileSync(join(OUT, ...parts), 'utf8')
@@ -55,7 +63,7 @@ const manifest = (): Campaign[] =>
 
 beforeAll(() => {
   rmSync(OUT, { recursive: true, force: true })
-  execFileSync(process.execPath, [join('scripts', 'build-site.mjs')], { stdio: 'pipe' })
+  execFileSync(process.execPath, [join('scripts', 'build-site.mjs'), OUT], { stdio: 'pipe' })
 }, 60_000)
 
 // ------------------------------------------------------------ the manifest
