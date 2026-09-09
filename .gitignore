@@ -102,3 +102,4 @@ dist-pages-artifact
 # The capture harness needs a Chromium that still honours --load-extension;
 # branded Chrome dropped the switch in M137. A browser binary, never committed.
 .browsers
+dist-site-markup
