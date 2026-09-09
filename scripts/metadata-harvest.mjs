@@ -138,19 +138,37 @@ async function main() {
   if (has('fresh')) rmSync(PROFILE_DIR, { recursive: true, force: true })
 
   /*
-   * HEADFUL, and not optionally so. A human has to complete Twitch's OAuth
-   * screen, which is the entire point: this obtains metadata as a legitimate
-   * signed-in client, and there is no legitimate headless way to become one.
+   * HEADLESS FIRST, HEADED ONLY IF A PERSON IS ACTUALLY NEEDED.
+   *
+   * One step of this script genuinely requires a human: completing Twitch's
+   * OAuth screen. There is no legitimate headless way to become a signed-in
+   * client, and becoming one is the entire point - the metadata is fetched by a
+   * real session through the JWT-verified Edge Function, exactly as ordinary
+   * use does.
+   *
+   * But that is the FIRST run only. The kept profile holds the session
+   * afterwards, so every later run can do the whole job with no window at all,
+   * and opening one anyway would be a visible browser on the machine for no
+   * reason. So: start headless, ask the worker whether a session already
+   * exists, and open a window only if the answer is no.
+   *
+   * `--headed` forces the window for somebody who wants to watch it work.
    */
-  const browser = await launch({
+  let browser = await launch({
     extension: 'dist',
-    headful: true,
+    headful: has('headed'),
     width: 1400,
     height: 900,
     profileDir: PROFILE_DIR,
   })
 
-  try {
+  /**
+   * A Twitch tab, the worker it wakes, and whether a session is already there.
+   *
+   * Everything here is per-browser, so re-running it after a relaunch is how
+   * the headed retry gets its own worker rather than a stale handle.
+   */
+  async function connect() {
     // A Twitch tab wakes the worker: the content script connects to it.
     const first = await browser.newPage()
     await first.goto('https://www.twitch.tv/', { waitMs: 4_000 })
@@ -159,9 +177,10 @@ async function main() {
      * OUR worker, named exactly.
      *
      * The first version matched any `chrome-extension://` service worker, which
-     * is wrong twice: Edge ships its own extensions, so the first match could
-     * easily be one of theirs, and a wrong attach fails later and further away.
-     * The background script's filename comes from the manifest and is ours.
+     * is wrong twice: a browser may carry extensions of its own, so the first
+     * match could easily be one of those, and a wrong attach fails later and
+     * further away. The background script's filename comes from the manifest
+     * and is ours.
      *
      * It also needs longer than it looks. Measured on this machine, the
      * Watchside worker appears roughly twelve seconds after the Twitch tab
@@ -169,11 +188,16 @@ async function main() {
      * the worker at all - so a short timeout reports "no extension" for what is
      * really "not yet".
      */
-    const worker = await browser.attach(
+    const attached = await browser.attach(
       (target) =>
         target.type === 'service_worker' && target.url.endsWith('/kickback-background.js'),
       { timeoutMs: 90_000 },
     )
+    return attached
+  }
+
+  try {
+    let worker = await connect()
     if (!worker) {
       console.error('\n  Could not attach to the Watchside service worker. Targets seen:\n')
       for (const target of await browser.targets()) {
@@ -185,6 +209,28 @@ async function main() {
     console.log(`== Attached to ${worker.info.url}`)
 
     if (!(await worker.evaluate(probeSignedIn))) {
+      /*
+       * No session, so a person is needed - and only now does a window open.
+       * The headless browser is closed first rather than left behind: two
+       * browsers on one kept profile would fight over the same profile lock.
+       */
+      if (!has('headed')) {
+        console.log('== No session in the kept profile; opening a window for sign-in')
+        await browser.close()
+        browser = await launch({
+          extension: 'dist',
+          headful: true,
+          width: 1400,
+          height: 900,
+          profileDir: PROFILE_DIR,
+        })
+        worker = await connect()
+        if (!worker) {
+          console.error('\n  Could not attach after reopening for sign-in.\n')
+          return 3
+        }
+      }
+
       console.log(`
 == SIGN IN, please.
 
@@ -193,17 +239,18 @@ async function main() {
 
    This is the only step that needs a person, and it is the step that makes
    the metadata request a legitimate one. Nothing is read from your session -
-   the script only checks that one exists.
+   the script only checks that one exists. The window closes when the harvest
+   finishes, and later runs will not need to open one.
 `)
-    }
 
-    const signInDeadline = Date.now() + 5 * 60_000
-    while (!(await worker.evaluate(probeSignedIn))) {
-      if (Date.now() > signInDeadline) {
-        console.error('\n  Timed out waiting for sign-in.\n')
-        return 4
+      const signInDeadline = Date.now() + 5 * 60_000
+      while (!(await worker.evaluate(probeSignedIn))) {
+        if (Date.now() > signInDeadline) {
+          console.error('\n  Timed out waiting for sign-in.\n')
+          return 4
+        }
+        await wait(2_000)
       }
-      await wait(2_000)
     }
     console.log('== Signed in')
 

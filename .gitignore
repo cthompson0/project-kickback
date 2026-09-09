@@ -96,3 +96,9 @@ dist-pages-artifact
 # than once per run. Never committed; `--fresh` or deleting the directory clears
 # it.
 .harvest-profile
+
+# Chrome for Testing, downloaded by
+#   npx @puppeteer/browsers install chrome@stable --path .browsers
+# The capture harness needs a Chromium that still honours --load-extension;
+# branded Chrome dropped the switch in M137. A browser binary, never committed.
+.browsers

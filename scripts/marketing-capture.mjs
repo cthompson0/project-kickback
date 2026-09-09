@@ -491,7 +491,17 @@ async function main() {
   console.log(`\n== Roles`)
   for (const role of roles) {
     const login = channels[role]
-    const state = liveSet.has(login) ? 'LIVE' : 'offline (rendered as ended, not faked)'
+    /*
+     * Three states, not two. Without a harvest there is no metadata to check,
+     * so the honest word is "unverified" - printing "offline" there would be
+     * reporting a Twitch fact this run never learned.
+     */
+    const state =
+      metadata.length === 0
+        ? 'unverified (no metadata harvested)'
+        : liveSet.has(login)
+          ? 'LIVE'
+          : 'offline (rendered as ended, not faked)'
     console.log(`   ${role.padEnd(10)} ${String(login).padEnd(18)} ${state}`)
   }
 

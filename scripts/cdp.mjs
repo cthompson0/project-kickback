@@ -7,8 +7,34 @@
  * This is the harness for those questions.
  *
  * Zero dependencies - Node has a WebSocket client built in, and CDP is just
- * JSON over one socket. It launches Edge rather than Chrome because branded
- * Chrome 137+ refuses --load-extension.
+ * JSON over one socket.
+ *
+ * WHICH BROWSER, AND WHY NOT THE ONE YOU HAVE INSTALLED
+ *
+ * Chrome for Testing, downloaded into .browsers/ and used for nothing else.
+ *
+ * It is not branded Chrome because branded Chrome cannot do this any more.
+ * Chrome removed the --load-extension switch on stable in M137; measured
+ * against the Chrome 152 on this machine, the flag is ignored and the
+ * extension's own pages report "is blocked". The documented escape hatch
+ * (--disable-features=DisableLoadExtensionCommandLineSwitch) was measured too,
+ * and no longer works either. There is nothing to configure - a browser that
+ * cannot load an unpacked extension cannot run any of this.
+ *
+ * It is not Edge, which this file used to launch for exactly that reason. Edge
+ * happened to be the Chromium on the machine that still honoured the flag, and
+ * "it works" is not a reason to build a workflow on a browser Watchside does
+ * not support. Watchside ships on Chrome and Firefox; the capture harness now
+ * runs the Chromium that Chrome is built from, on an isolated profile, and
+ * never touches anybody's real browser or real profile.
+ *
+ * Get the binary with:
+ *
+ *   npx @puppeteer/browsers install chrome@stable --path .browsers
+ *
+ * Firefox is the other supported target and is deliberately NOT driven here:
+ * it speaks WebDriver BiDi rather than CDP, so it needs a different harness
+ * (web-ext, already a devDependency) rather than a different path in this one.
  *
  * Not part of `npm test`: it needs a browser and a network, and it is a
  * development tool rather than a gate.
@@ -18,22 +44,64 @@
  * A scenario module default-exports `async ({ page, browser, log }) => {}`.
  */
 import { spawn } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, existsSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, existsSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
-const EDGE_CANDIDATES = [
-  'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-  'C:/Program Files/Microsoft/Edge/Application/msedge.exe',
-  '/usr/bin/microsoft-edge',
-  '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
+/** Where `npx @puppeteer/browsers install` puts things, by default and here. */
+const BROWSER_CACHES = ['.browsers', join(homedir(), '.cache', 'puppeteer')]
+
+/** The binary inside one downloaded build, per platform. */
+const BINARIES = [
+  join('chrome-win64', 'chrome.exe'),
+  join('chrome-linux64', 'chrome'),
+  join('chrome-mac-x64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
+  join('chrome-mac-arm64', 'Google Chrome for Testing.app', 'Contents', 'MacOS', 'Google Chrome for Testing'),
 ]
 
+const INSTALL = 'npx @puppeteer/browsers install chrome@stable --path .browsers'
+
+/**
+ * Chrome for Testing, or nothing.
+ *
+ * WATCHSIDE_CHROME overrides for somebody who keeps a Chromium elsewhere. There
+ * is deliberately no fallback to whatever browser happens to be installed: the
+ * previous fallback was Edge, and picking an unsupported browser because it is
+ * present is how a marketing asset ends up captured in a browser Watchside does
+ * not ship on. Failing loudly with the install command is the better trade.
+ */
 function findBrowser() {
-  const found = EDGE_CANDIDATES.find((path) => existsSync(path))
-  if (!found) throw new Error('No Microsoft Edge found - install it or edit EDGE_CANDIDATES')
-  return found
+  const override = process.env.WATCHSIDE_CHROME
+  if (override) {
+    if (!existsSync(override)) throw new Error(`WATCHSIDE_CHROME does not exist: ${override}`)
+    return override
+  }
+
+  for (const cache of BROWSER_CACHES) {
+    const root = join(cache, 'chrome')
+    if (!existsSync(root)) continue
+    // Newest build wins; the directory names sort by version.
+    for (const build of readdirSync(root).sort().reverse()) {
+      for (const binary of BINARIES) {
+        const candidate = join(root, build, binary)
+        if (existsSync(candidate)) return candidate
+      }
+    }
+  }
+
+  throw new Error(
+    [
+      'No Chrome for Testing found.',
+      '',
+      `  Install it with:  ${INSTALL}`,
+      '',
+      '  Branded Chrome will not work: it dropped --load-extension in M137, so',
+      '  it cannot load an unpacked extension at all. Edge is not an option -',
+      '  Watchside ships on Chrome and Firefox, and captures are taken on one',
+      '  of those. Set WATCHSIDE_CHROME to point at a Chromium of your own.',
+    ].join('\n'),
+  )
 }
 
 async function waitForDevtools(port, timeoutMs = 20_000) {
@@ -109,8 +177,18 @@ export async function launch({
   profileDir = null,
 } = {}) {
   const port = 9200 + Number(process.hrtime.bigint() % 300n)
-  const profile = profileDir ?? mkdtempSync(join(tmpdir(), 'kickback-cdp-'))
-  if (profileDir) mkdirSync(profileDir, { recursive: true })
+  /*
+   * ABSOLUTE, always.
+   *
+   * Chromium silently refuses a relative --user-data-dir on Windows: the
+   * process starts, writes nothing, never opens the devtools port, and exits
+   * without a word on stderr. The throwaway path never hit this because
+   * mkdtempSync already returns an absolute path; a caller-supplied one like
+   * '.harvest-profile' does not, so resolve it here rather than asking every
+   * caller to remember.
+   */
+  const profile = profileDir ? resolve(profileDir) : mkdtempSync(join(tmpdir(), 'kickback-cdp-'))
+  if (profileDir) mkdirSync(profile, { recursive: true })
 
   const args = [
     `--remote-debugging-port=${port}`,
